@@ -35,19 +35,32 @@
         }
 
         header {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             background: var(--card-background);
-            padding: 15px;
+            padding: 10px 20px;
             border-radius: 8px;
             margin-bottom: 20px;
             box-shadow: var(--shadow);
             border-bottom: 4px solid var(--primary-color);
         }
+        
+        #logo-container {
+            display: flex;
+            align-items: center;
+        }
+
+        #logo {
+            height: 50px;
+            margin-right: 15px;
+        }
 
         header h1 {
             color: var(--primary-color);
             margin: 0;
-            font-size: 2em;
+            font-size: 1.8em;
+            text-align: left;
         }
 
         .dashboard {
@@ -172,7 +185,7 @@
         #actions-list a { color: var(--primary-color); text-decoration: none; }
         #actions-list a:hover { text-decoration: underline; }
 
-        .btn-group { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+        .btn-group { display: flex; justify-content: flex-end; gap: 10px; }
         button { background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
         button:hover { background-color: #003087; }
         .btn-secondary { background-color: var(--secondary-color); }
@@ -187,8 +200,11 @@
 
     <div class="container">
         <header>
-            <h1>Advanced Triage Dashboard</h1>
-            <div class="btn-group" style="justify-content: center; margin: 10px 0 0 0;">
+             <div id="logo-container">
+                <img id="logo" src="https://iili.io/KGQOvkl.md.png" alt="WMEBEM Logo">
+                <h1>Advanced Triage Dashboard</h1>
+            </div>
+            <div class="btn-group">
                 <button id="btn-reset">Start New Triage</button>
             </div>
         </header>
@@ -311,7 +327,6 @@
     </div>
 
     <script>
-    // This is a complete refactor of the original script for a dashboard UI
     document.addEventListener('DOMContentLoaded', function() {
         // --- DATA & CONFIGURATION ---
         const mtsFlowcharts = {
@@ -384,7 +399,6 @@
         // --- UI ELEMENT CACHE ---
         const ui = {
             container: document.querySelector('.container'),
-            // Add all frequently accessed elements here to avoid repeated DOM queries
             mtsFlowchart: document.getElementById('mts-flowchart'),
             discriminatorsContainer: document.getElementById('discriminators-container'),
             obsFormContainer: document.getElementById('obs-form-container'),
@@ -421,12 +435,9 @@
         }
         
         function addEventListeners() {
-            // Use event delegation on the container for performance
             ui.container.addEventListener('input', handleInputChange);
             ui.container.addEventListener('change', handleInputChange);
-            
             ui.discriminatorsContainer.addEventListener('click', handleDiscriminatorClick);
-
             document.getElementById('btn-reset').addEventListener('click', resetApp);
             document.getElementById('btn-copy-note').addEventListener('click', () => copyToClipboard('epr-note'));
             document.getElementById('btn-copy-sbar').addEventListener('click', () => copyToClipboard('sbar-note'));
@@ -434,8 +445,6 @@
         
         // --- MAIN APP LOGIC ---
         function handleInputChange(e) {
-            // This single function handles all data changes and triggers UI updates
-            // A more advanced app might use a proper state management library
             gatherState();
             runCalculations();
             updateUI();
@@ -443,22 +452,26 @@
         
         function handleDiscriminatorClick(e) {
             if (e.target.classList.contains('discriminator')) {
-                if (appState.mts && appState.mts.discriminatorEl) {
-                    appState.mts.discriminatorEl.style.fontWeight = 'normal';
+                // Clear previous selection bolding
+                const previousSelected = ui.discriminatorsContainer.querySelector('.selected-discriminator');
+                if (previousSelected) {
+                    previousSelected.classList.remove('selected-discriminator');
+                    previousSelected.style.fontWeight = 'normal';
                 }
+                
                 const el = e.target;
+                el.classList.add('selected-discriminator');
+                el.style.fontWeight = 'bold'; 
+                
                 appState.mts = {
                     priority: el.dataset.priority,
                     discriminator: el.dataset.text,
-                    discriminatorEl: el
                 };
-                el.style.fontWeight = 'bold'; // Visual feedback
-                handleInputChange(); // Trigger a full update
+                handleInputChange();
             }
         }
 
         function gatherState() {
-             // Demographics & History
             let sexValue = document.getElementById('patient-sex').value;
             if (sexValue === 'Other') sexValue = document.getElementById('other-sex-text').value || 'Other (unspecified)';
             
@@ -473,20 +486,15 @@
                 pmh: document.getElementById('pmh').value,
                 meds: document.getElementById('meds').value,
                 allergies: document.getElementById('allergies').value,
-                // social: document.getElementById('social').value
             };
 
-            // Complaint
             appState.presentingComplaint = ui.mtsFlowchart.value;
             appState.complaintInfo = document.getElementById('complaint-info').value;
             
-            // Context questions (if any)
             appState.context = {};
             const questions = ui.contextQuestionsContainer.querySelectorAll('input, select, textarea');
             questions.forEach(q => { appState.context[q.id] = q.value || q.checked; });
 
-
-            // Observations
             appState.observations = getObsData();
         }
 
@@ -500,14 +508,14 @@
                  appState.scores.news2 = calculateNEWS2(appState.observations);
                  appState.scores.qsofa = calculateQSOFA(appState.observations);
                  appState.scores.crb65 = calculateCRB65(appState.observations, appState.patient.age);
+            } else {
+                 // Paediatric scores would go here
             }
             
-            // Check for red flags
             checkCriticalObservations(appState.observations, appState.scores);
         }
 
         function updateUI() {
-            // This is the master render function
             updateObsForm();
             updateMTSSection();
             updateEWSVisuals();
@@ -515,8 +523,6 @@
             updateActionPlan();
             updateNotes();
         }
-        
-        // --- UI UPDATE SUB-FUNCTIONS ---
         
         function updateObsForm() {
             const age = appState.patient?.age;
@@ -533,6 +539,8 @@
             if (currentForm !== newFormType) {
                 ui.obsFormContainer.dataset.formType = newFormType;
                 let html = '<p>Enter patient age to see observation fields.</p>';
+                const ewsDisplay = document.getElementById('ews-display-container');
+                ewsDisplay.style.display = 'none';
                 if (newFormType === 'meows') {
                     ui.obsTitle.textContent = "Obstetric Observations (MEOWS)";
                     html = getMEOWSForm();
@@ -542,13 +550,13 @@
                 } else if (newFormType === 'news2') {
                     ui.obsTitle.textContent = "Physiological Observations (NEWS2)";
                     html = getNEWS2Form();
+                    ewsDisplay.style.display = 'block';
                 }
                 ui.obsFormContainer.innerHTML = html;
             }
         }
 
         function updateMTSSection() {
-            // Context questions
             const complaint = appState.presentingComplaint;
             if (complaint && complaint !== ui.contextQuestionsContainer.dataset.complaint) {
                 ui.contextQuestionsContainer.dataset.complaint = complaint;
@@ -564,7 +572,6 @@
                  ui.contextQuestionsContainer.innerHTML = '';
             }
 
-            // Discriminators
             if (complaint && complaint !== ui.discriminatorsContainer.dataset.complaint) {
                 ui.discriminatorsContainer.dataset.complaint = complaint;
                 ui.discriminatorsContainer.innerHTML = '';
@@ -583,14 +590,12 @@
                  ui.discriminatorsContainer.innerHTML = '<p>Select a complaint first.</p>';
             }
             
-            // Dynamic highlighting
             const meds = appState.history?.meds?.toLowerCase() || '';
-            if (complaint === 'Head Injury' && (meds.includes('anticoagulant') || meds.includes('warfarin') || meds.includes('apixaban'))) {
+            const existingHighlight = ui.discriminatorsContainer.querySelector('.highlight');
+            if (existingHighlight) existingHighlight.classList.remove('highlight');
+            if (complaint === 'Head Injury' && (meds.includes('anticoagulant') || meds.includes('warfarin') || meds.includes('apixaban') || meds.includes('rivaroxaban') || meds.includes('dabigatran') || meds.includes('edoxaban'))) {
                 const el = Array.from(ui.discriminatorsContainer.children).find(d => d.textContent === 'On anticoagulants');
                 if (el) el.classList.add('highlight');
-            } else {
-                 const el = ui.discriminatorsContainer.querySelector('.highlight');
-                 if(el) el.classList.remove('highlight');
             }
         }
         
@@ -608,20 +613,18 @@
         function updateScoresAndDifferentials() {
             ui.scoresList.innerHTML = '';
             const scores = appState.scores;
-            if (!scores || Object.keys(scores).length === 0) {
+            if (!scores || Object.keys(scores).length === 0 || Object.values(scores).every(s => s === undefined)) {
                  ui.scoresList.innerHTML = '<li>No scores calculated.</li>';
-                 return;
+            } else {
+                if (scores.news2) ui.scoresList.innerHTML += `<li><strong>NEWS2:</strong> ${scores.news2.score} (${scores.news2.response})</li>`;
+                if (scores.qsofa) ui.scoresList.innerHTML += `<li><strong>qSOFA:</strong> ${scores.qsofa.score}</li>`;
+                if (scores.crb65) ui.scoresList.innerHTML += `<li><strong>CRB-65:</strong> ${scores.crb65.score} (${scores.crb65.recommendation})</li>`;
             }
-            if (scores.news2) ui.scoresList.innerHTML += `<li><strong>NEWS2:</strong> ${scores.news2.score} (${scores.news2.response})</li>`;
-            if (scores.qsofa) ui.scoresList.innerHTML += `<li><strong>qSOFA:</strong> ${scores.qsofa.score}</li>`;
-            if (scores.crb65) ui.scoresList.innerHTML += `<li><strong>CRB-65:</strong> ${scores.crb65.score} (${scores.crb65.recommendation})</li>`;
             
-            // Differentials
             const complaint = appState.presentingComplaint;
             ui.diffDiagList.innerHTML = '';
             if (complaint && differentialDiagnoses[complaint]) {
                 let diffs = differentialDiagnoses[complaint].default;
-                // Example of context-aware differential
                 if (appState.context['cp-pleuritic'] && differentialDiagnoses[complaint].pleuritic) {
                     diffs = differentialDiagnoses[complaint].pleuritic;
                 }
@@ -634,14 +637,14 @@
         function updateActionPlan() {
             const priority = appState.mts?.priority;
             if (priority) {
-                ui.summaryPriority.textContent = priority;
+                const priorityMap = { Red: "1 - Red", Orange: "2 - Orange", Yellow: "3 - Yellow", Green: "4 - Green", Blue: "5 - Blue" };
+                ui.summaryPriority.textContent = priorityMap[priority];
                 ui.summaryPriority.className = `summary-priority-${priority}`;
             } else {
                 ui.summaryPriority.textContent = 'Awaiting Triage Category';
                 ui.summaryPriority.className = '';
             }
 
-            // Recommendations
             ui.actionsList.innerHTML = '';
             const recommendations = generateRecommendations();
             recommendations.forEach(rec => {
@@ -659,8 +662,6 @@
             ui.sbarNote.value = generateSBAR();
         }
 
-        // --- "SMART" FEATURES ---
-        
         function checkCriticalObservations(obs, scores) {
             let alerts = [];
             if (obs.sats < 90 && obs.sats > 0) alerts.push('CRITICAL HYPOXIA');
@@ -678,9 +679,8 @@
             ui.alertsList.innerHTML = '';
             alerts.forEach(a => { ui.alertsList.innerHTML += `<li>${a}</li>`});
 
-            // Timer logic
             if (alerts.includes('SUSPECTED SEPSIS') && !timers.sepsis) {
-                startTimer('sepsis', 'Time to Antibiotics', 3600); // 1 hour
+                startTimer('sepsis', 'Time to Antibiotics', 3600);
             } else if (!alerts.includes('SUSPECTED SEPSIS') && timers.sepsis) {
                 stopTimer('sepsis');
             }
@@ -721,8 +721,6 @@
             }
         }
         
-        // --- NOTE GENERATION ---
-
         function generateRecommendations() {
             const scores = appState.scores || {};
             const priority = appState.mts?.priority;
@@ -778,18 +776,15 @@
             if (!appState.patient || isNaN(appState.patient.age)) return "Awaiting patient data...";
             let note = `SBAR HANDOVER\n----------------------------------------\n`;
             
-            // Situation
             note += `SITUATION:\n`;
             note += `This is ${appState.patient.id || 'a patient'}, a ${appState.patient.age}-year-old ${appState.patient.sex.toLowerCase()}, who has presented with ${appState.presentingComplaint}.\n`;
             note += `Their triage category is ${appState.mts?.priority || 'not yet determined'}.\n`;
             
-            // Background
             note += `\nBACKGROUND:\n`;
             note += `Allergies: ${appState.history.allergies}\n`;
             note += `Past History: ${appState.history.pmh}\n`;
             note += `Medications: ${appState.history.meds}\n`;
             
-            // Assessment
             note += `\nASSESSMENT:\n`;
             const obs = appState.observations || {};
             note += `Observations are: BP ${obs.sbp || 'N/A'}/${obs.dbp || 'N/A'}, HR ${obs.hr || 'N/A'}, RR ${obs.rr || 'N/A'}, Sats ${obs.sats || 'N/A'}%.\n`;
@@ -797,7 +792,6 @@
             if(scores.news2) note += `The NEWS2 score is ${scores.news2.score}.\n`;
             if(scores.qsofa?.score >=2) note += `The patient is flagging for sepsis.\n`;
 
-            // Recommendation
             note += `\nRECOMMENDATION:\n`;
             note += `I am concerned about [state your primary concern].\n`;
             note += `The suggested action plan includes: ${generateRecommendations().map(a => a.text).join(', ')}.\n`;
@@ -807,14 +801,12 @@
         }
         
         
-        // --- DATA GETTERS & FORM GENERATORS ---
-        
         function getObsData() {
             const formType = ui.obsFormContainer.dataset.formType;
             let obs = {};
             if (formType === 'news2') {
                 obs = { rr: parseFloat(document.getElementById('rr')?.value), sats: parseFloat(document.getElementById('sats')?.value), hypercapnic: document.getElementById('hypercapnic')?.checked, suppO2: document.getElementById('supp-o2')?.checked, sbp: parseFloat(document.getElementById('sbp')?.value), dbp: parseFloat(document.getElementById('dbp')?.value), hr: parseFloat(document.getElementById('hr')?.value), consciousness: document.getElementById('consciousness')?.value, temp: parseFloat(document.getElementById('temp')?.value) };
-            } // Add MEOWS data gathering if needed
+            }
             return obs;
         }
         
@@ -835,14 +827,12 @@
             return `<p>MEOWS input form not implemented in this demo.</p>`;
         }
         
-        // --- SCORE CALCULATORS ---
-        // (Simplified for brevity, full logic should be used in production)
-        
         function calculateNEWS2(obs) {
+            if (Object.values(obs).every(v => !v)) return undefined;
             let score = 0;
             let paramScores = {};
             // RR
-            if (obs.rr <= 8) { score += 3; paramScores.rr = 3; } else if (obs.rr <= 11) { score += 1; paramScores.rr = 1; } else if (obs.rr >= 25) { score += 3; paramScores.rr = 3; } else if (obs.rr >= 21) { score += 2; paramScores.rr = 2; } else { paramScores.rr = 0; }
+            if (obs.rr <= 8) { score += 3; paramScores.rr = 3; } else if (obs.rr >= 9 && obs.rr <= 11) { score += 1; paramScores.rr = 1; } else if (obs.rr >= 25) { score += 3; paramScores.rr = 3; } else if (obs.rr >= 21 && obs.rr <= 24) { score += 2; paramScores.rr = 2; } else { paramScores.rr = 0; }
             // Sats
             if (obs.sats <= 91) { score += 3; paramScores.sats = 3; } else if (obs.sats <= 93) { score += 2; paramScores.sats = 2; } else if (obs.sats <= 95) { score += 1; paramScores.sats = 1; } else { paramScores.sats = 0; }
             if (obs.suppO2) { score += 2; paramScores.suppO2 = 2; } else { paramScores.suppO2 = 0; }
@@ -851,45 +841,97 @@
             // HR
             if (obs.hr <= 40) { score += 3; paramScores.hr = 3; } else if (obs.hr <= 50) { score += 1; paramScores.hr = 1; } else if (obs.hr >= 131) { score += 3; paramScores.hr = 3; } else if (obs.hr >= 111) { score += 2; paramScores.hr = 2; } else if (obs.hr >= 91) { score += 1; paramScores.hr = 1; } else { paramScores.hr = 0; }
             // Consciousness
-            if (obs.consciousness !== 'A') { score += 3; paramScores.consciousness = 3; } else { paramScores.consciousness = 0; }
+            if (obs.consciousness !== 'A' && obs.consciousness) { score += 3; paramScores.consciousness = 3; } else { paramScores.consciousness = 0; }
             // Temp
-            if (obs.temp <= 35.0) { score += 3; paramScores.temp = 3; } else if (obs.temp <= 36.0) { score += 1; paramScores.temp = 1; } else if (obs.temp >= 39.1) { score += 2; paramScores.temp = 2; } else if (obs.temp >= 38.1) { score += 1; paramScores.temp = 1; } else { paramScores.temp = 0; }
+            if (obs.temp <= 35.0) { score += 3; paramScores.temp = 3; } else if (obs.temp >= 35.1 && obs.temp <= 36.0) { score += 1; paramScores.temp = 1; } else if (obs.temp >= 39.1) { score += 2; paramScores.temp = 2; } else if (obs.temp >= 38.1 && obs.temp <= 39.0) { score += 1; paramScores.temp = 1; } else { paramScores.temp = 0; }
 
             let response = "Routine monitoring";
             if (score >= 7) response = "Critical care review"; else if (score >= 5) response = "Urgent senior review";
             return { score, response, paramScores };
         }
-        function calculateQSOFA(obs) { let score = 0; if (obs.sbp <= 100) score++; if (obs.rr >= 22) score++; if (obs.consciousness !== 'A') score++; return { score }; }
-        function calculateCRB65(obs, age) { let score = 0; if (obs.consciousness !== 'A') score++; if (obs.rr >= 30) score++; if (obs.sbp < 90) score++; if (age >= 65) score++; let recommendation = "Low risk"; if (score >= 3) recommendation = "High risk"; else if (score >= 1) recommendation = "Intermediate risk"; return { score, recommendation }; }
+        function calculateQSOFA(obs) { let score = 0; if (obs.sbp <= 100) score++; if (obs.rr >= 22) score++; if (obs.consciousness !== 'A' && obs.consciousness) score++; return { score }; }
+        function calculateCRB65(obs, age) { let score = 0; if (obs.consciousness !== 'A' && obs.consciousness) score++; if (obs.rr >= 30) score++; if (obs.sbp < 90) score++; if (age >= 65) score++; let recommendation = "Low risk"; if (score >= 3) recommendation = "High risk"; else if (score >= 1) recommendation = "Intermediate risk"; return { score, recommendation }; }
         function calculateMEOWS(obs) { return { score: 'N/A', response: 'Not implemented' }; }
 
-        // --- VISUALS & HELPERS ---
-        
-        function renderVisualEWS(paramScores) {
+        function renderVisualEWS() {
+            const obs = appState.observations;
+            const paramScores = appState.scores?.news2?.paramScores;
+            if (!obs || !paramScores) {
+                ui.visualEWSContainer.innerHTML = '';
+                return;
+            }
+
+            const getScoreClass = (param, value) => paramScores[param] === value ? 'active-score' : '';
+            
+            const rrHtml = [
+                {score: 3, lower: 0, upper: 8}, {score: 1, lower: 9, upper: 11}, {score: 0, lower: 12, upper: 20},
+                {score: 2, lower: 21, upper: 24}, {score: 3, lower: 25, upper: 999}
+            ].map(b => `<div class="ews-box score-${b.score} ${(obs.rr >= b.lower && obs.rr <= b.upper) ? 'active-score' : ''}"></div>`).join('');
+
+            const satsHtml = [
+                {score: 3, lower: 0, upper: 91}, {score: 2, lower: 92, upper: 93}, {score: 1, lower: 94, upper: 95},
+                {score: 0, lower: 96, upper: 100}
+            ].map(b => `<div class="ews-box score-${b.score} ${(obs.sats >= b.lower && obs.sats <= b.upper) ? 'active-score' : ''}"></div>`).join('');
+            
+            const sbpHtml = [
+                {score: 3, lower: 0, upper: 90}, {score: 2, lower: 91, upper: 100}, {score: 1, lower: 101, upper: 110},
+                {score: 0, lower: 111, upper: 219}, {score: 3, lower: 220, upper: 999}
+            ].map(b => `<div class="ews-box score-${b.score} ${(obs.sbp >= b.lower && obs.sbp <= b.upper) ? 'active-score' : ''}"></div>`).join('');
+
+            const hrHtml = [
+                 {score: 3, lower: 0, upper: 40}, {score: 1, lower: 41, upper: 50}, {score: 0, lower: 51, upper: 90},
+                 {score: 1, lower: 91, upper: 110}, {score: 2, lower: 111, upper: 130}, {score: 3, lower: 131, upper: 999}
+            ].map(b => `<div class="ews-box score-${b.score} ${(obs.hr >= b.lower && obs.hr <= b.upper) ? 'active-score' : ''}"></div>`).join('');
+
+            const tempHtml = [
+                {score: 3, lower: 0, upper: 35.0}, {score: 1, lower: 35.1, upper: 36.0}, {score: 0, lower: 36.1, upper: 38.0},
+                {score: 1, lower: 38.1, upper: 39.0}, {score: 2, lower: 39.1, upper: 99}
+            ].map(b => `<div class="ews-box score-${b.score} ${(obs.temp >= b.lower && obs.temp <= b.upper) ? 'active-score' : ''}"></div>`).join('');
+
             const html = `
-                <div class="ews-row"><div class="ews-label">RR</div><div class="ews-track" id="ews-rr">${[3,1,0,0,2,3,''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.rr == s && i !== 6 ? 'active-score' : ''}"></div>`).join('')}</div></div>
-                <div class="ews-row"><div class="ews-label">Sats</div><div class="ews-track" id="ews-sats">${[3,2,1,0,'','',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.sats == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
-                <div class="ews-row"><div class="ews-label">On O₂</div><div class="ews-track" id="ews-suppO2">${[2,0,'','','','',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.suppO2 == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
-                <div class="ews-row"><div class="ews-label">SBP</div><div class="ews-track" id="ews-sbp">${[3,2,1,0,'',3,'' ].map((s,i) => `<div class="ews-box score-${s} ${paramScores.sbp == s && i !== 6 ? 'active-score' : ''}"></div>`).join('')}</div></div>
-                <div class="ews-row"><div class="ews-label">HR</div><div class="ews-track" id="ews-hr">${[3,1,0,1,2,3,'' ].map((s,i) => `<div class="ews-box score-${s} ${paramScores.hr == s && i !== 6 ? 'active-score' : ''}"></div>`).join('')}</div></div>
-                <div class="ews-row"><div class="ews-label">Consc.</div><div class="ews-track" id="ews-consciousness">${[3,0,'','','','',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.consciousness == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
-                <div class="ews-row"><div class="ews-label">Temp</div><div class="ews-track" id="ews-temp">${[3,1,0,1,2,'',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.temp == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">RR</div><div class="ews-track">${rrHtml}</div></div>
+                <div class="ews-row"><div class="ews-label">Sats</div><div class="ews-track">${satsHtml}</div></div>
+                <div class="ews-row"><div class="ews-label">On O₂</div><div class="ews-track">${[2,0].map(s => `<div class="ews-box score-${s} ${getScoreClass('suppO2',s)}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">SBP</div><div class="ews-track">${sbpHtml}</div></div>
+                <div class="ews-row"><div class="ews-label">HR</div><div class="ews-track">${hrHtml}</div></div>
+                <div class="ews-row"><div class="ews-label">Consc.</div><div class="ews-track">${[0,3].map(s => `<div class="ews-box score-${s} ${getScoreClass('consciousness',s)}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">Temp</div><div class="ews-track">${tempHtml}</div></div>
             `;
             ui.visualEWSContainer.innerHTML = html;
         }
 
         function copyToClipboard(elementId) {
             const noteText = document.getElementById(elementId);
+            const button = noteText.nextElementSibling;
+            if (!button) return;
+
             noteText.select();
             noteText.setSelectionRange(0, 99999);
-            document.execCommand('copy');
+            try {
+                document.execCommand('copy');
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.disabled = true;
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.disabled = false;
+                }, 2000);
+            } catch (err) {
+                const originalText = button.textContent;
+                button.textContent = 'Failed!';
+                button.disabled = true;
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.disabled = false;
+                }, 2000);
+            }
         }
 
         function resetApp() {
             appState = {};
+            Object.keys(timers).forEach(stopTimer);
             timers = {};
-            document.querySelector('form')?.reset(); // This might not exist if HTML changes
-            // Manually reset all inputs
+            
             const inputs = document.querySelectorAll('input, select, textarea');
             inputs.forEach(input => {
                 if (input.type === 'checkbox') input.checked = false;
@@ -897,14 +939,13 @@
                 input.disabled = false;
             });
 
-            // Reset dynamic content
             ui.criticalAlertBanner.style.display = 'none';
             ui.alertsList.innerHTML = '';
             ui.timersContainer.innerHTML = '';
             ui.discriminatorsContainer.innerHTML = '<p>Select a complaint first.</p>';
             ui.contextQuestionsContainer.innerHTML = '';
+            document.getElementById('other-sex-container').style.display = 'none';
 
-            // Trigger a full reset and render
             gatherState();
             runCalculations();
             updateUI();
@@ -921,12 +962,15 @@
                     textarea.value = '';
                     textarea.disabled = false;
                 }
-                handleInputChange(); // Trigger update
+                handleInputChange();
             });
         }
         setupCheckboxToggle('pmh-nil', 'pmh', 'Nil known');
         setupCheckboxToggle('meds-nil', 'meds', 'Nil known');
         setupCheckboxToggle('allergies-nkda', 'allergies', 'NKDA');
+        document.getElementById('patient-sex').addEventListener('change', (e) => {
+            document.getElementById('other-sex-container').style.display = e.target.value === 'Other' ? 'block' : 'none';
+        });
 
         // --- START THE APP ---
         initialize();
