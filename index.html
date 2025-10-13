@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Triage Dashboard</title>
+    <style>
+        :root {
+            --primary-color: #005EB8; /* NHS Blue */
+            --secondary-color: #4c6272;
+            --background-color: #f0f4f5;
+            --card-background: #ffffff;
+            --text-color: #212b32;
+            --border-color: #d8dde0;
+            --red: #d5281b;
+            --orange: #ed872d;
+            --yellow: #ffb81c;
+            --green: #00a499;
+            --blue: #005EB8;
+            --shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            background: var(--card-background);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            border-bottom: 4px solid var(--primary-color);
+        }
+
+        header h1 {
+            color: var(--primary-color);
+            margin: 0;
+            font-size: 2em;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--card-background);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card h2 {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.2em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Span multiple columns */
+        .card.full-width { grid-column: 1 / -1; }
+        .card.span-2 { grid-column: span 2; }
+        @media (max-width: 800px) {
+            .card.span-2 { grid-column: 1 / -1; }
+        }
+
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
+        .label-with-checkbox { display: flex; justify-content: space-between; align-items: center; }
+        .side-checkbox { display: flex; align-items: center; font-weight: normal; font-size: 14px; }
+
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #f8f9fa;
+        }
+        textarea { resize: vertical; }
+        textarea:disabled { background-color: #e9ecef; cursor: not-allowed; }
+
+        .input-group { display: flex; align-items: center; }
+        .input-group input { flex: 1; }
+        .input-group span { margin-left: 10px; color: var(--secondary-color); }
+        .checkbox-group { display: flex; align-items: center; gap: 10px; }
+        input[type="checkbox"] { width: 20px; height: 20px; }
+
+        /* Discriminator styles */
+        #discriminators-container .discriminator {
+            padding: 10px; margin-bottom: 8px; border-radius: 4px; cursor: pointer;
+            border-left-width: 5px; border-left-style: solid; transition: all 0.2s;
+        }
+        .discriminator.highlight { border: 2px solid var(--primary-color); font-weight: bold; }
+        .priority-Red { border-left-color: var(--red); background-color: #ffebee; }
+        .priority-Orange { border-left-color: var(--orange); background-color: #fff3e0; }
+        .priority-Yellow { border-left-color: var(--yellow); background-color: #fffde7; }
+        .priority-Green { border-left-color: var(--green); background-color: #e0f2f1; }
+        .priority-Blue { border-left-color: var(--blue); background-color: #e3f2fd; }
+
+        /* Critical Alert Banner */
+        #critical-alert-banner {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background-color: var(--red);
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            z-index: 1000;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(213, 40, 27, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(213, 40, 27, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(213, 40, 27, 0); }
+        }
+
+        /* Visual EWS Chart */
+        #visual-ews-container { margin-top: 20px; }
+        .ews-row { display: flex; margin-bottom: 5px; align-items: center; }
+        .ews-label { width: 80px; font-weight: bold; font-size: 0.9em; }
+        .ews-track { flex-grow: 1; display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; }
+        .ews-box {
+            text-align: center; padding: 5px; font-size: 0.8em;
+            background-color: #f8f9fa; border-right: 1px solid #eee;
+        }
+        .ews-box:last-child { border-right: none; }
+        .ews-box.score-3 { background-color: var(--red); color: white; }
+        .ews-box.score-2 { background-color: var(--orange); color: white; }
+        .ews-box.score-1 { background-color: var(--yellow); }
+        .ews-box.score-0 { background-color: var(--green); color: white; }
+        .ews-box.active-score { border: 2px solid black; font-weight: bold; transform: scale(1.1); z-index: 10; }
+
+        /* Timer and Alerts Card */
+        .timer { font-size: 2em; font-weight: bold; color: var(--red); text-align: center; }
+        .timer-label { text-align: center; display: block; margin-top: -10px; }
+        #alerts-list li { color: var(--red); font-weight: bold; }
+
+        /* Summary and Actions */
+        #summary-priority-display { text-align: center; padding: 15px; font-size: 1.5em; font-weight: bold; color: white; border-radius: 8px; }
+        .summary-priority-Red { background-color: var(--red); } .summary-priority-Orange { background-color: var(--orange); }
+        .summary-priority-Yellow { background-color: var(--yellow); color: var(--text-color); }
+        .summary-priority-Green { background-color: var(--green); } .summary-priority-Blue { background-color: var(--blue); }
+        
+        #actions-list a, #diff-diag-list li { font-size: 0.9em; }
+        #actions-list a { color: var(--primary-color); text-decoration: none; }
+        #actions-list a:hover { text-decoration: underline; }
+
+        .btn-group { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+        button { background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
+        button:hover { background-color: #003087; }
+        .btn-secondary { background-color: var(--secondary-color); }
+        .btn-secondary:hover { background-color: #334451; }
+
+        footer { text-align: center; margin-top: 20px; font-size: 12px; color: #6c757d; }
+    </style>
+</head>
+<body>
+
+    <div id="critical-alert-banner"></div>
+
+    <div class="container">
+        <header>
+            <h1>Advanced Triage Dashboard</h1>
+            <div class="btn-group" style="justify-content: center; margin: 10px 0 0 0;">
+                <button id="btn-reset">Start New Triage</button>
+            </div>
+        </header>
+
+        <div class="dashboard">
+
+            <!-- DEMOGRAPHICS & HISTORY -->
+            <div class="card span-2">
+                <h2>Patient Demographics & History</h2>
+                <div class="dashboard" style="gap: 15px;">
+                    <div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="patient-referral"><label for="patient-referral">Patient is a GP or Specialty Referral</label>
+                        </div>
+                        <div class="form-group"><label for="patient-id">Patient Name / ID</label><input type="text" id="patient-id" placeholder="e.g., John Doe"></div>
+                        <div class="form-group"><label for="patient-age">Age</label><div class="input-group"><input type="number" id="patient-age" min="0"><span>years</span></div></div>
+                        <div class="form-group"><label for="patient-sex">Sex</label><select id="patient-sex"><option value="">-- Select --</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
+                        <div class="form-group" id="other-sex-container" style="display: none;"><label for="other-sex-text">Please specify:</label><input type="text" id="other-sex-text"></div>
+                        <div class="form-group checkbox-group"><input type="checkbox" id="patient-pregnant"><label for="patient-pregnant">Patient is pregnant or <6w postpartum</label></div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <div class="label-with-checkbox"><label for="allergies">Allergies</label><div class="side-checkbox"><input type="checkbox" id="allergies-nkda"><label for="allergies-nkda" style="margin-left: 5px; font-weight: normal;">NKDA</label></div></div>
+                            <textarea id="allergies" rows="2" placeholder="e.g., Penicillin..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <div class="label-with-checkbox"><label for="pmh">Past Medical History</label><div class="side-checkbox"><input type="checkbox" id="pmh-nil"><label for="pmh-nil" style="margin-left: 5px; font-weight: normal;">Nil known</label></div></div>
+                            <textarea id="pmh" rows="3" placeholder="e.g., IHD, Asthma..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <div class="label-with-checkbox"><label for="meds">Prescribed Medications</label><div class="side-checkbox"><input type="checkbox" id="meds-nil"><label for="meds-nil" style="margin-left: 5px; font-weight: normal;">Nil known</label></div></div>
+                            <textarea id="meds" rows="3" placeholder="e.g., Aspirin, Anticoagulants..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PRESENTING COMPLAINT -->
+            <div class="card span-2">
+                <h2>Presenting Complaint (MTS)</h2>
+                <div class="dashboard">
+                    <div id="complaint-section">
+                        <div class="form-group">
+                            <label for="mts-flowchart">Primary Complaint:</label>
+                            <select id="mts-flowchart"><option value="">-- Select a flowchart --</option></select>
+                        </div>
+                        <div class="form-group"><label for="complaint-info">History of Presenting Complaint:</label><textarea id="complaint-info" rows="4" placeholder="Enter brief history..."></textarea></div>
+                        <div id="context-questions-container"></div>
+                    </div>
+                    <div id="discriminator-section">
+                        <label>Select Highest Priority Discriminator:</label>
+                        <div id="discriminators-container" style="max-height: 250px; overflow-y: auto; padding-right: 10px;">
+                            <p>Select a complaint first.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OBSERVATIONS & EWS -->
+            <div class="card span-2">
+                <h2 id="obs-title">Physiological Observations</h2>
+                <div class="dashboard">
+                    <div id="obs-form-container">
+                        <p>Enter patient age to see observation fields.</p>
+                    </div>
+                    <div id="ews-display-container">
+                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 style="margin: 0;">Total Score:</h3>
+                            <span id="total-ews-score" style="font-size: 2.5em; font-weight: bold; color: var(--primary-color);">0</span>
+                        </div>
+                        <div id="visual-ews-container"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- ALERTS & TIMERS -->
+            <div class="card">
+                <h2>Live Alerts & Timers</h2>
+                <ul id="alerts-list"></ul>
+                <div id="timers-container"></div>
+            </div>
+            
+            <!-- SCORES & DIFFERENTIALS -->
+            <div class="card">
+                <h2>Calculated Scores & Differentials</h2>
+                <ul id="scores-list"><li>No scores calculated.</li></ul>
+                <hr>
+                <label>Potential Differential Diagnoses:</label>
+                <ul id="diff-diag-list"><li>Select complaint to generate.</li></ul>
+            </div>
+            
+            <!-- ACTION PLAN -->
+            <div class="card">
+                <h2>Action Plan from Triage</h2>
+                <div id="summary-priority-display">Awaiting Triage Category</div>
+                <ul id="actions-list" style="margin-top: 15px; padding-left: 20px;"><li>Awaiting triage completion.</li></ul>
+            </div>
+
+            <!-- HANDOVER & NOTES -->
+            <div class="card full-width">
+                <h2>Notes & Handover</h2>
+                <div class="dashboard">
+                    <div>
+                        <label for="epr-note">Triage Note (for EPR)</label>
+                        <textarea id="epr-note" rows="10" readonly></textarea>
+                        <button id="btn-copy-note" type="button" style="margin-top: 10px;">Copy EPR Note</button>
+                    </div>
+                    <div>
+                        <label for="sbar-note">SBAR Handover Note</label>
+                        <textarea id="sbar-note" rows="10" readonly></textarea>
+                        <button id="btn-copy-sbar" type="button" style="margin-top: 10px;">Copy SBAR Note</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <footer>
+            <p>This is a demonstration application for illustrative purposes only and must not be used for actual clinical decision-making. The user confirms they have the appropriate license to use the Manchester Triage System.</p>
+        </footer>
+    </div>
+
+    <script>
+    // This is a complete refactor of the original script for a dashboard UI
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- DATA & CONFIGURATION ---
+        const mtsFlowcharts = {
+            "Abdominal Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Significant history","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Altered GCS","priority":"Yellow"},{"text":"Haemodynamic instability","priority":"Yellow"},{"text":"New onset in elderly","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Urinary symptoms","priority":"Green"},{"text":"Recent problem","priority":"Blue"},{"text":"Old problem","priority":"Blue"}],
+            "Abdominal Pain in Children": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Bile-stained vomit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Abdominal distension","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
+            "Allergies": [{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"Wheeze","priority":"Orange"},{"text":"Oedema of tongue/throat","priority":"Orange"},{"text":"Widespread rash","priority":"Yellow"},{"text":"Facial oedema","priority":"Yellow"},{"text":"History of severe reaction","priority":"Yellow"},{"text":"Localised rash","priority":"Green"},{"text":"Itch","priority":"Green"}],
+            "Assault": [{"text":"Airway compromise","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Penetrating injury to head, neck, torso","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Large haematoma","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Small laceration","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
+            "Back Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New extensive neurological deficit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"New focal neurological deficit","priority":"Yellow"},{"text":"Cauda equina syndrome symptoms","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Mechanical back pain","priority":"Green"},{"text":"Old problem","priority":"Blue"}],
+            "Breathing Problems": [{"text":"Apnoeic","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Moderate respiratory distress","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild respiratory distress","priority":"Green"},{"text":"Cough","priority":"Green"},{"text":"Sore throat","priority":"Green"}],
+            "Burns and Scalds": [{"text":"Major burn (>15% adult, >10% child)","priority":"Red"},{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Inhalational injury","priority":"Orange"},{"text":"Circumferential burn","priority":"Orange"},{"text":"Chemical/electrical burn","priority":"Orange"},{"text":"Moderate burn (5-15% adult, 5-10% child)","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Burn to face, hands, feet, perineum","priority":"Yellow"},{"text":"Minor burn (<5%)","priority":"Green"},{"text":"Mild pain","priority":"Green"},{"text":"Sunburn","priority":"Blue"}],
+            "Chest Pain": [{"text":"Airway compromise","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Cardiac-type chest pain at rest","priority":"Yellow"},{"text":"Pleuritic chest pain","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Recent non-cardiac pain","priority":"Green"},{"text":"Musculoskeletal pain","priority":"Green"}],
+            "Collapse": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"New GCS < 15","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Significant injury","priority":"Orange"},{"text":"Post-ictal","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Cardiac history","priority":"Yellow"},{"text":"Simple faint, now recovered","priority":"Green"},{"text":"Normal vital signs","priority":"Green"}],
+            "Crying Baby": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Non-blanching rash","priority":"Orange"},{"text":"High-pitched/inconsolable cry","priority":"Orange"},{"text":"Grunting/severe respiratory distress","priority":"Orange"},{"text":"Looks unwell","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Fever","priority":"Yellow"},{"text":"Parental concern","priority":"Yellow"},{"text":"Seems well","priority":"Green"}],
+            "Dental Problems": [{"text":"Airway compromise","priority":"Red"},{"text":"Uncontrolled bleeding","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Facial swelling with systemic signs","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Facial swelling","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Lost filling","priority":"Blue"}],
+            "Diarrhoea and Vomiting": [{"text":"Shock","priority":"Red"},{"text":"Severe dehydration","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Moderate dehydration","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"High fever","priority":"Yellow"},{"text":"Mild dehydration","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Diarrhoea","priority":"Green"}],
+            "Ear Problems": [{"text":"Severe pain","priority":"Orange"},{"text":"Sudden onset deafness","priority":"Orange"},{"text":"Mastoid tenderness","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Discharge","priority":"Yellow"},{"text":"Foreign body","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Wax","priority":"Blue"}],
+            "Eye Problems": [{"text":"Sudden loss of vision","priority":"Red"},{"text":"Chemical eye injury","priority":"Red"},{"text":"Penetrating eye injury","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Reduced visual acuity","priority":"Yellow"},{"text":"Foreign body sensation","priority":"Yellow"},{"text":"Painful red eye","priority":"Yellow"},{"text":"Flash burns","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Conjunctivitis","priority":"Green"}],
+            "Falls": [{"text":"Major trauma","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Head injury with anticoagulants","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"}],
+            "Fits": [{"text":"Seizing now","priority":"Red"},{"text":"Post-ictal, not recovering","priority":"Orange"},{"text":"New focal neurology","priority":"Orange"},{"text":"Suspected head injury","priority":"Orange"},{"text":"Post-ictal, recovering","priority":"Yellow"},{"text":"First fit","priority":"Yellow"},{"text":"Fever","priority":"Yellow"},{"text":"Known epileptic, recovered","priority":"Green"}],
+            "Head Injury": [{"text":"GCS < 9","priority":"Red"},{"text":"GCS 9-12","priority":"Orange"},{"text":"Penetrating injury","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Focal neurological deficit","priority":"Orange"},{"text":"GCS 13-14","priority":"Yellow"},{"text":"Vomiting >1 episode","priority":"Yellow"},{"text":"History of LOC >5 mins","priority":"Yellow"},{"text":"Amnesia","priority":"Yellow"},{"text":"On anticoagulants","priority":"Yellow"},{"text":"GCS 15, no other factors","priority":"Green"}],
+            "Headache": [{"text":"Reduced level of consciousness (GCS < 13)","priority":"Red"},{"text":"Sudden onset severe headache ('thunderclap')","priority":"Orange"},{"text":"New neurological deficit","priority":"Orange"},{"text":"Meningism (fever, neck stiffness, photophobia)","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New onset headache >50 years","priority":"Yellow"},{"text":"Headache with visual disturbance","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Chronic headache, unchanged","priority":"Blue"}],
+            "Limb Problem (Injury)": [{"text":"Major trauma","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Neurovascular compromise","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Obvious deformity/dislocation","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Large wound","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"},{"text":"Minor injury","priority":"Blue"}],
+            "Limb Problem (Non-Injury)": [{"text":"Neurovascular compromise","priority":"Red"},{"text":"Severe pain","priority":"Orange"},{"text":"Hot, swollen, tender joint","priority":"Orange"},{"text":"Suspected DVT","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Cellulitis","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Chronic pain","priority":"Blue"}],
+            "Mental Health Problem": [{"text":"Immediate risk to self or others","priority":"Red"},{"text":"Violent or aggressive","priority":"Red"},{"text":"Severe distress or agitation","priority":"Orange"},{"text":"Acute psychosis","priority":"Orange"},{"text":"Overdose (conscious)","priority":"Orange"},{"text":"Suicidal ideation with plan","priority":"Yellow"},{"text":"Distressed","priority":"Yellow"},{"text":"Self-harm (minor)","priority":"Yellow"},{"text":"Low mood, no immediate risk","priority":"Green"},{"text":"Request for medication","priority":"Blue"}],
+            "Overdose and Poisoning": [{"text":"Unresponsive","priority":"Red"},{"text":"Seizing now","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Orange"},{"text":"High-risk substance (e.g., TCA, Paracetamol > guideline)","priority":"Orange"},{"text":"Deliberate self-harm intent","priority":"Yellow"},{"text":"Symptomatic but stable","priority":"Yellow"},{"text":"Asymptomatic, low-risk substance","priority":"Green"},{"text":"Information request","priority":"Blue"}],
+            "Pregnancy": [{"text":"Imminent delivery","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Heavy vaginal bleeding","priority":"Orange"},{"text":"Seizing (eclampsia)","priority":"Orange"},{"text":"Reduced fetal movements","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Minor vaginal bleeding","priority":"Yellow"},{"text":"Ruptured membranes","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"}],
+            "Rash": [{"text":"Shock","priority":"Red"},{"text":"Non-blanching rash with fever/lethargy","priority":"Orange"},{"text":"Stridor or wheeze","priority":"Orange"},{"text":"Widespread, blistering rash","priority":"Orange"},{"text":"Non-blanching rash, patient well","priority":"Yellow"},{"text":"Widespread rash with fever","priority":"Yellow"},{"text":"Localised blistering rash","priority":"Yellow"},{"text":"Itchy rash","priority":"Green"},{"text":"Localised rash, patient well","priority":"Green"}],
+            "Shortness of Breath in Children": [{"text":"Apnoeic or exhausted","priority":"Red"},{"text":"Severe respiratory distress (e.g., grunting, marked recession, cyanosis)","priority":"Orange"},{"text":"Stridor at rest","priority":"Orange"},{"text":"Altered level of consciousness","priority":"Orange"},{"text":"Moderate respiratory distress (e.g., some recession, nasal flaring)","priority":"Yellow"},{"text":"Audible wheeze","priority":"Yellow"},{"text":"History of apnoea","priority":"Yellow"},{"text":"Mild increased work of breathing","priority":"Green"},{"text":"Cough/coryza, no distress","priority":"Green"}],
+            "Unwell Adult": [{"text":"Unresponsive or airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"New GCS < 15","priority":"Orange"},{"text":"High risk of sepsis (meets criteria)","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Looks very unwell","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Significant history","priority":"Yellow"},{"text":"Looks well, normal vital signs","priority":"Green"},{"text":"Symptom enquiry only","priority":"Blue"}],
+            "Urinary Problems": [{"text":"Shock (septic)","priority":"Red"},{"text":"Severe pain (renal colic/retention)","priority":"Orange"},{"text":"Systemically unwell with fever","priority":"Orange"},{"text":"Acute urinary retention","priority":"Yellow"},{"text":"Visible haematuria","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Symptoms of UTI","priority":"Green"},{"text":"Catheter problem","priority":"Green"}],
+            "Worried Parent": [{"text":"Parent states 'child is dying'","priority":"Red"},{"text":"Parent states 'child is very ill'","priority":"Orange"},{"text":"Parent states 'child is ill'","priority":"Yellow"},{"text":"Parent is worried","priority":"Green"}]
+        };
+
+        const contextQuestions = {
+            'Chest Pain': [
+                { id: 'cp-onset', label: 'Onset (sudden/gradual)?' },
+                { id: 'cp-character', label: 'Character (sharp/dull)?' },
+                { id: 'cp-radiation', label: 'Radiation?' },
+                { id: 'cp-exertion', label: 'Worse on exertion?' },
+                { id: 'cp-pleuritic', label: 'Pleuritic (worse on inspiration)?' }
+            ],
+            'Abdominal Pain': [
+                { id: 'ap-location', label: 'Location of pain (e.g., RUQ, central)?' },
+                { id: 'ap-bowels', label: 'Change in bowel habit?' },
+                { id: 'ap-urinary', label: 'Urinary symptoms?' },
+                { id: 'ap-vomiting', label: 'Vomiting?' }
+            ]
+        };
+        
+        const differentialDiagnoses = {
+            'Chest Pain': {
+                'default': ['ACS', 'PE', 'Aortic Dissection', 'Pericarditis', 'Pneumothorax', 'Musculoskeletal Pain', 'GORD'],
+                'pleuritic': ['PE', 'Pneumothorax', 'Pericarditis', 'Pneumonia', 'Musculoskeletal Pain']
+            },
+            'Abdominal Pain': {
+                'default': ['Appendicitis', 'Bowel Obstruction', 'Pancreatitis', 'Cholecystitis', 'Diverticulitis', 'AAA', 'Gastritis']
+            }
+        };
+
+        const guidelineLinks = {
+            'Sepsis': 'https://www.nice.org.uk/guidance/ng51',
+            'Chest Pain': 'https://www.nice.org.uk/guidance/ng185',
+            'DVT': 'https://cks.nice.org.uk/topics/deep-vein-thrombosis/'
+        };
+
+        // --- STATE MANAGEMENT ---
+        let appState = {};
+        let timers = {};
+
+        // --- UI ELEMENT CACHE ---
+        const ui = {
+            container: document.querySelector('.container'),
+            // Add all frequently accessed elements here to avoid repeated DOM queries
+            mtsFlowchart: document.getElementById('mts-flowchart'),
+            discriminatorsContainer: document.getElementById('discriminators-container'),
+            obsFormContainer: document.getElementById('obs-form-container'),
+            visualEWSContainer: document.getElementById('visual-ews-container'),
+            totalEwsScore: document.getElementById('total-ews-score'),
+            criticalAlertBanner: document.getElementById('critical-alert-banner'),
+            alertsList: document.getElementById('alerts-list'),
+            timersContainer: document.getElementById('timers-container'),
+            scoresList: document.getElementById('scores-list'),
+            diffDiagList: document.getElementById('diff-diag-list'),
+            summaryPriority: document.getElementById('summary-priority-display'),
+            actionsList: document.getElementById('actions-list'),
+            eprNote: document.getElementById('epr-note'),
+            sbarNote: document.getElementById('sbar-note'),
+            contextQuestionsContainer: document.getElementById('context-questions-container'),
+            obsTitle: document.getElementById('obs-title')
+        };
+        
+        // --- INITIALIZATION ---
+        function initialize() {
+            populateFlowcharts();
+            addEventListeners();
+            resetApp();
+        }
+
+        function populateFlowcharts() {
+            const flowchartNames = Object.keys(mtsFlowcharts).sort();
+            flowchartNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                ui.mtsFlowchart.appendChild(option);
+            });
+        }
+        
+        function addEventListeners() {
+            // Use event delegation on the container for performance
+            ui.container.addEventListener('input', handleInputChange);
+            ui.container.addEventListener('change', handleInputChange);
+            
+            ui.discriminatorsContainer.addEventListener('click', handleDiscriminatorClick);
+
+            document.getElementById('btn-reset').addEventListener('click', resetApp);
+            document.getElementById('btn-copy-note').addEventListener('click', () => copyToClipboard('epr-note'));
+            document.getElementById('btn-copy-sbar').addEventListener('click', () => copyToClipboard('sbar-note'));
+        }
+        
+        // --- MAIN APP LOGIC ---
+        function handleInputChange(e) {
+            // This single function handles all data changes and triggers UI updates
+            // A more advanced app might use a proper state management library
+            gatherState();
+            runCalculations();
+            updateUI();
+        }
+        
+        function handleDiscriminatorClick(e) {
+            if (e.target.classList.contains('discriminator')) {
+                if (appState.mts && appState.mts.discriminatorEl) {
+                    appState.mts.discriminatorEl.style.fontWeight = 'normal';
+                }
+                const el = e.target;
+                appState.mts = {
+                    priority: el.dataset.priority,
+                    discriminator: el.dataset.text,
+                    discriminatorEl: el
+                };
+                el.style.fontWeight = 'bold'; // Visual feedback
+                handleInputChange(); // Trigger a full update
+            }
+        }
+
+        function gatherState() {
+             // Demographics & History
+            let sexValue = document.getElementById('patient-sex').value;
+            if (sexValue === 'Other') sexValue = document.getElementById('other-sex-text').value || 'Other (unspecified)';
+            
+            appState.patient = {
+                id: document.getElementById('patient-id').value,
+                age: parseInt(document.getElementById('patient-age').value, 10),
+                sex: sexValue,
+                isPregnant: document.getElementById('patient-pregnant').checked,
+                isReferral: document.getElementById('patient-referral').checked
+            };
+            appState.history = {
+                pmh: document.getElementById('pmh').value,
+                meds: document.getElementById('meds').value,
+                allergies: document.getElementById('allergies').value,
+                // social: document.getElementById('social').value
+            };
+
+            // Complaint
+            appState.presentingComplaint = ui.mtsFlowchart.value;
+            appState.complaintInfo = document.getElementById('complaint-info').value;
+            
+            // Context questions (if any)
+            appState.context = {};
+            const questions = ui.contextQuestionsContainer.querySelectorAll('input, select, textarea');
+            questions.forEach(q => { appState.context[q.id] = q.value || q.checked; });
+
+
+            // Observations
+            appState.observations = getObsData();
+        }
+
+        function runCalculations() {
+            appState.scores = {};
+            if (!appState.patient || isNaN(appState.patient.age)) return;
+
+            if (appState.patient.isPregnant) {
+                 appState.scores.meows = calculateMEOWS(appState.observations);
+            } else if (appState.patient.age >= 16) {
+                 appState.scores.news2 = calculateNEWS2(appState.observations);
+                 appState.scores.qsofa = calculateQSOFA(appState.observations);
+                 appState.scores.crb65 = calculateCRB65(appState.observations, appState.patient.age);
+            }
+            
+            // Check for red flags
+            checkCriticalObservations(appState.observations, appState.scores);
+        }
+
+        function updateUI() {
+            // This is the master render function
+            updateObsForm();
+            updateMTSSection();
+            updateEWSVisuals();
+            updateScoresAndDifferentials();
+            updateActionPlan();
+            updateNotes();
+        }
+        
+        // --- UI UPDATE SUB-FUNCTIONS ---
+        
+        function updateObsForm() {
+            const age = appState.patient?.age;
+            const isPregnant = appState.patient?.isPregnant;
+            let currentForm = ui.obsFormContainer.dataset.formType;
+            let newFormType = 'none';
+
+            if (!isNaN(age)) {
+                if (isPregnant) newFormType = 'meows';
+                else if (age < 16) newFormType = 'pews';
+                else newFormType = 'news2';
+            }
+
+            if (currentForm !== newFormType) {
+                ui.obsFormContainer.dataset.formType = newFormType;
+                let html = '<p>Enter patient age to see observation fields.</p>';
+                if (newFormType === 'meows') {
+                    ui.obsTitle.textContent = "Obstetric Observations (MEOWS)";
+                    html = getMEOWSForm();
+                } else if (newFormType === 'pews') {
+                     ui.obsTitle.textContent = "Paediatric Observations (PEWS)";
+                    html = `<p>PEWS not implemented in this demo.</p>`;
+                } else if (newFormType === 'news2') {
+                    ui.obsTitle.textContent = "Physiological Observations (NEWS2)";
+                    html = getNEWS2Form();
+                }
+                ui.obsFormContainer.innerHTML = html;
+            }
+        }
+
+        function updateMTSSection() {
+            // Context questions
+            const complaint = appState.presentingComplaint;
+            if (complaint && complaint !== ui.contextQuestionsContainer.dataset.complaint) {
+                ui.contextQuestionsContainer.dataset.complaint = complaint;
+                ui.contextQuestionsContainer.innerHTML = '';
+                if (contextQuestions[complaint]) {
+                    let html = '<hr><label>Contextual Questions:</label>';
+                    contextQuestions[complaint].forEach(q => {
+                        html += `<div class="form-group"><label for="${q.id}">${q.label}</label><input type="text" id="${q.id}" class="context-input"></div>`;
+                    });
+                    ui.contextQuestionsContainer.innerHTML = html;
+                }
+            } else if (!complaint) {
+                 ui.contextQuestionsContainer.innerHTML = '';
+            }
+
+            // Discriminators
+            if (complaint && complaint !== ui.discriminatorsContainer.dataset.complaint) {
+                ui.discriminatorsContainer.dataset.complaint = complaint;
+                ui.discriminatorsContainer.innerHTML = '';
+                const discriminators = mtsFlowcharts[complaint];
+                if (discriminators) {
+                    discriminators.forEach(disc => {
+                        const div = document.createElement('div');
+                        div.className = `discriminator priority-${disc.priority}`;
+                        div.textContent = disc.text;
+                        div.dataset.priority = disc.priority;
+                        div.dataset.text = disc.text;
+                        ui.discriminatorsContainer.appendChild(div);
+                    });
+                }
+            } else if (!complaint) {
+                 ui.discriminatorsContainer.innerHTML = '<p>Select a complaint first.</p>';
+            }
+            
+            // Dynamic highlighting
+            const meds = appState.history?.meds?.toLowerCase() || '';
+            if (complaint === 'Head Injury' && (meds.includes('anticoagulant') || meds.includes('warfarin') || meds.includes('apixaban'))) {
+                const el = Array.from(ui.discriminatorsContainer.children).find(d => d.textContent === 'On anticoagulants');
+                if (el) el.classList.add('highlight');
+            } else {
+                 const el = ui.discriminatorsContainer.querySelector('.highlight');
+                 if(el) el.classList.remove('highlight');
+            }
+        }
+        
+        function updateEWSVisuals() {
+            if (appState.scores?.news2) {
+                const { score, paramScores } = appState.scores.news2;
+                ui.totalEwsScore.textContent = score;
+                renderVisualEWS(paramScores);
+            } else {
+                ui.totalEwsScore.textContent = 'N/A';
+                ui.visualEWSContainer.innerHTML = '';
+            }
+        }
+
+        function updateScoresAndDifferentials() {
+            ui.scoresList.innerHTML = '';
+            const scores = appState.scores;
+            if (!scores || Object.keys(scores).length === 0) {
+                 ui.scoresList.innerHTML = '<li>No scores calculated.</li>';
+                 return;
+            }
+            if (scores.news2) ui.scoresList.innerHTML += `<li><strong>NEWS2:</strong> ${scores.news2.score} (${scores.news2.response})</li>`;
+            if (scores.qsofa) ui.scoresList.innerHTML += `<li><strong>qSOFA:</strong> ${scores.qsofa.score}</li>`;
+            if (scores.crb65) ui.scoresList.innerHTML += `<li><strong>CRB-65:</strong> ${scores.crb65.score} (${scores.crb65.recommendation})</li>`;
+            
+            // Differentials
+            const complaint = appState.presentingComplaint;
+            ui.diffDiagList.innerHTML = '';
+            if (complaint && differentialDiagnoses[complaint]) {
+                let diffs = differentialDiagnoses[complaint].default;
+                // Example of context-aware differential
+                if (appState.context['cp-pleuritic'] && differentialDiagnoses[complaint].pleuritic) {
+                    diffs = differentialDiagnoses[complaint].pleuritic;
+                }
+                diffs.forEach(d => ui.diffDiagList.innerHTML += `<li>${d}</li>`);
+            } else {
+                ui.diffDiagList.innerHTML = '<li>Select complaint to generate.</li>';
+            }
+        }
+        
+        function updateActionPlan() {
+            const priority = appState.mts?.priority;
+            if (priority) {
+                ui.summaryPriority.textContent = priority;
+                ui.summaryPriority.className = `summary-priority-${priority}`;
+            } else {
+                ui.summaryPriority.textContent = 'Awaiting Triage Category';
+                ui.summaryPriority.className = '';
+            }
+
+            // Recommendations
+            ui.actionsList.innerHTML = '';
+            const recommendations = generateRecommendations();
+            recommendations.forEach(rec => {
+                let html = `<li>${rec.text}`;
+                if (rec.link) {
+                    html += ` <a href="${rec.link}" target="_blank">(Guideline)</a>`;
+                }
+                html += `</li>`;
+                ui.actionsList.innerHTML += html;
+            });
+        }
+        
+        function updateNotes() {
+            ui.eprNote.value = generateEPRNote();
+            ui.sbarNote.value = generateSBAR();
+        }
+
+        // --- "SMART" FEATURES ---
+        
+        function checkCriticalObservations(obs, scores) {
+            let alerts = [];
+            if (obs.sats < 90 && obs.sats > 0) alerts.push('CRITICAL HYPOXIA');
+            if (obs.consciousness === 'U') alerts.push('PATIENT UNRESPONSIVE');
+            if (obs.sbp < 90 && obs.sbp > 0) alerts.push('SEVERE HYPOTENSION');
+            if (scores?.qsofa?.score >= 2) alerts.push('SUSPECTED SEPSIS');
+
+            if (alerts.length > 0) {
+                ui.criticalAlertBanner.textContent = alerts.join(' / ');
+                ui.criticalAlertBanner.style.display = 'block';
+            } else {
+                ui.criticalAlertBanner.style.display = 'none';
+            }
+            
+            ui.alertsList.innerHTML = '';
+            alerts.forEach(a => { ui.alertsList.innerHTML += `<li>${a}</li>`});
+
+            // Timer logic
+            if (alerts.includes('SUSPECTED SEPSIS') && !timers.sepsis) {
+                startTimer('sepsis', 'Time to Antibiotics', 3600); // 1 hour
+            } else if (!alerts.includes('SUSPECTED SEPSIS') && timers.sepsis) {
+                stopTimer('sepsis');
+            }
+        }
+        
+        function startTimer(id, label, durationSeconds) {
+            if (timers[id]) clearInterval(timers[id].interval);
+            
+            let remaining = durationSeconds;
+            const timerEl = document.createElement('div');
+            timerEl.id = `timer-${id}`;
+            timerEl.innerHTML = `<div class="timer"></div><span class="timer-label">${label}</span>`;
+            ui.timersContainer.appendChild(timerEl);
+            
+            const updateDisplay = () => {
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+                timerEl.querySelector('.timer').textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                remaining--;
+                if (remaining < 0) {
+                    clearInterval(timers[id].interval);
+                    timerEl.querySelector('.timer').textContent = "TIME UP";
+                }
+            };
+            
+            updateDisplay();
+            timers[id] = {
+                interval: setInterval(updateDisplay, 1000),
+                element: timerEl
+            };
+        }
+        
+        function stopTimer(id) {
+            if(timers[id]) {
+                clearInterval(timers[id].interval);
+                timers[id].element.remove();
+                delete timers[id];
+            }
+        }
+        
+        // --- NOTE GENERATION ---
+
+        function generateRecommendations() {
+            const scores = appState.scores || {};
+            const priority = appState.mts?.priority;
+            let actions = [];
+
+            if (priority === 'Red' || priority === 'Orange' || (scores.news2 && scores.news2.score >= 5)) {
+                actions.push({ text: "Insert peripheral IV cannula" });
+                actions.push({ text: "Attach cardiac monitor" });
+                actions.push({ text: "Perform 12-lead ECG", link: guidelineLinks['Chest Pain'] });
+                actions.push({ text: "Request 'Stat' bloods (FBC, U&E, LFT, CRP, Lactate)" });
+            }
+            if (scores.qsofa?.score >= 2) {
+                actions.push({ text: "INITIATE SEPSIS SIX PATHWAY", link: guidelineLinks['Sepsis'] });
+            }
+            return actions.length > 0 ? actions : [{ text: "Routine assessment." }];
+        }
+        
+        function generateEPRNote() {
+            if (!appState.patient || isNaN(appState.patient.age)) return "Awaiting patient data...";
+            let note = `TRIAGE NOTE\n----------------------------------------\n`;
+            note += `Patient: ${appState.patient.id || 'N/A'}, ${appState.patient.age}y, ${appState.patient.sex}\n`;
+            if (appState.patient.isReferral) note += `Source: GP / Specialty Referral\n`;
+            
+            note += `\nALLERGIES:\n${appState.history.allergies.trim()}\n`;
+            note += `\nPAST MEDICAL HISTORY:\n${appState.history.pmh.trim()}\n`;
+            note += `\nMEDICATIONS:\n${appState.history.meds.trim()}\n`;
+
+            note += `\nPRESENTATION:\n`;
+            note += `- Complaint: ${appState.presentingComplaint}\n`;
+            if (appState.complaintInfo) note += `- History: ${appState.complaintInfo.trim()}\n`;
+            if (appState.mts) note += `- MTS: ${appState.mts.discriminator} (${appState.mts.priority})\n`;
+            
+            note += `\nOBSERVATIONS:\n`;
+            const obs = appState.observations || {};
+            if (obs.rr) note += `- RR: ${obs.rr}\n`;
+            if (obs.sats) note += `- Sats: ${obs.sats}% ${obs.suppO2 ? 'on O2' : 'on Air'}\n`;
+            if (obs.sbp) note += `- BP: ${obs.sbp}/${obs.dbp}\n`;
+            if (obs.hr) note += `- HR: ${obs.hr}\n`;
+            if (obs.temp) note += `- Temp: ${obs.temp}°C\n`;
+            if (obs.consciousness) note += `- GCS/AVPU: ${obs.consciousness}\n`;
+
+            note += `\nCALCULATED SCORES:\n`;
+            const scores = appState.scores || {};
+            if (scores.news2) note += `- NEWS2: ${scores.news2.score} (${scores.news2.response})\n`;
+            
+            note += `\nACTION PLAN:\n`;
+            generateRecommendations().forEach(action => { note += `- ${action.text}\n`; });
+            note += `----------------------------------------\n`;
+            return note;
+        }
+
+        function generateSBAR() {
+            if (!appState.patient || isNaN(appState.patient.age)) return "Awaiting patient data...";
+            let note = `SBAR HANDOVER\n----------------------------------------\n`;
+            
+            // Situation
+            note += `SITUATION:\n`;
+            note += `This is ${appState.patient.id || 'a patient'}, a ${appState.patient.age}-year-old ${appState.patient.sex.toLowerCase()}, who has presented with ${appState.presentingComplaint}.\n`;
+            note += `Their triage category is ${appState.mts?.priority || 'not yet determined'}.\n`;
+            
+            // Background
+            note += `\nBACKGROUND:\n`;
+            note += `Allergies: ${appState.history.allergies}\n`;
+            note += `Past History: ${appState.history.pmh}\n`;
+            note += `Medications: ${appState.history.meds}\n`;
+            
+            // Assessment
+            note += `\nASSESSMENT:\n`;
+            const obs = appState.observations || {};
+            note += `Observations are: BP ${obs.sbp || 'N/A'}/${obs.dbp || 'N/A'}, HR ${obs.hr || 'N/A'}, RR ${obs.rr || 'N/A'}, Sats ${obs.sats || 'N/A'}%.\n`;
+            const scores = appState.scores || {};
+            if(scores.news2) note += `The NEWS2 score is ${scores.news2.score}.\n`;
+            if(scores.qsofa?.score >=2) note += `The patient is flagging for sepsis.\n`;
+
+            // Recommendation
+            note += `\nRECOMMENDATION:\n`;
+            note += `I am concerned about [state your primary concern].\n`;
+            note += `The suggested action plan includes: ${generateRecommendations().map(a => a.text).join(', ')}.\n`;
+            note += `I recommend urgent review.\n`;
+            note += `----------------------------------------\n`;
+            return note;
+        }
+        
+        
+        // --- DATA GETTERS & FORM GENERATORS ---
+        
+        function getObsData() {
+            const formType = ui.obsFormContainer.dataset.formType;
+            let obs = {};
+            if (formType === 'news2') {
+                obs = { rr: parseFloat(document.getElementById('rr')?.value), sats: parseFloat(document.getElementById('sats')?.value), hypercapnic: document.getElementById('hypercapnic')?.checked, suppO2: document.getElementById('supp-o2')?.checked, sbp: parseFloat(document.getElementById('sbp')?.value), dbp: parseFloat(document.getElementById('dbp')?.value), hr: parseFloat(document.getElementById('hr')?.value), consciousness: document.getElementById('consciousness')?.value, temp: parseFloat(document.getElementById('temp')?.value) };
+            } // Add MEOWS data gathering if needed
+            return obs;
+        }
+        
+        function getNEWS2Form() {
+            return `
+                <div class="form-group"><label for="rr">Resp Rate</label><div class="input-group"><input type="number" id="rr" min="0"><span>/min</span></div></div>
+                <div class="form-group"><label for="sats">O₂ Sats</label><div class="input-group"><input type="number" id="sats" min="0" max="100"><span>%</span></div></div>
+                <div class="form-group checkbox-group"><input type="checkbox" id="hypercapnic"><label for="hypercapnic">Scale 2</label></div>
+                <div class="form-group checkbox-group"><input type="checkbox" id="supp-o2"><label for="supp-o2">On O₂</label></div>
+                <div class="form-group"><label for="sbp">Systolic BP</label><div class="input-group"><input type="number" id="sbp" min="0"><span>mmHg</span></div></div>
+                <div class="form-group"><label for="dbp">Diastolic BP</label><div class="input-group"><input type="number" id="dbp" min="0"><span>mmHg</span></div></div>
+                <div class="form-group"><label for="hr">Pulse Rate</label><div class="input-group"><input type="number" id="hr" min="0"><span>bpm</span></div></div>
+                <div class="form-group"><label for="consciousness">Consciousness</label><select id="consciousness"><option value="A">Alert</option><option value="C">New Confusion</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
+                <div class="form-group"><label for="temp">Temperature</label><div class="input-group"><input type="number" id="temp" step="0.1"><span>°C</span></div></div>
+            `;
+        }
+        function getMEOWSForm() {
+            return `<p>MEOWS input form not implemented in this demo.</p>`;
+        }
+        
+        // --- SCORE CALCULATORS ---
+        // (Simplified for brevity, full logic should be used in production)
+        
+        function calculateNEWS2(obs) {
+            let score = 0;
+            let paramScores = {};
+            // RR
+            if (obs.rr <= 8) { score += 3; paramScores.rr = 3; } else if (obs.rr <= 11) { score += 1; paramScores.rr = 1; } else if (obs.rr >= 25) { score += 3; paramScores.rr = 3; } else if (obs.rr >= 21) { score += 2; paramScores.rr = 2; } else { paramScores.rr = 0; }
+            // Sats
+            if (obs.sats <= 91) { score += 3; paramScores.sats = 3; } else if (obs.sats <= 93) { score += 2; paramScores.sats = 2; } else if (obs.sats <= 95) { score += 1; paramScores.sats = 1; } else { paramScores.sats = 0; }
+            if (obs.suppO2) { score += 2; paramScores.suppO2 = 2; } else { paramScores.suppO2 = 0; }
+            // SBP
+            if (obs.sbp <= 90) { score += 3; paramScores.sbp = 3; } else if (obs.sbp <= 100) { score += 2; paramScores.sbp = 2; } else if (obs.sbp <= 110) { score += 1; paramScores.sbp = 1; } else if (obs.sbp >= 220) { score += 3; paramScores.sbp = 3; } else { paramScores.sbp = 0; }
+            // HR
+            if (obs.hr <= 40) { score += 3; paramScores.hr = 3; } else if (obs.hr <= 50) { score += 1; paramScores.hr = 1; } else if (obs.hr >= 131) { score += 3; paramScores.hr = 3; } else if (obs.hr >= 111) { score += 2; paramScores.hr = 2; } else if (obs.hr >= 91) { score += 1; paramScores.hr = 1; } else { paramScores.hr = 0; }
+            // Consciousness
+            if (obs.consciousness !== 'A') { score += 3; paramScores.consciousness = 3; } else { paramScores.consciousness = 0; }
+            // Temp
+            if (obs.temp <= 35.0) { score += 3; paramScores.temp = 3; } else if (obs.temp <= 36.0) { score += 1; paramScores.temp = 1; } else if (obs.temp >= 39.1) { score += 2; paramScores.temp = 2; } else if (obs.temp >= 38.1) { score += 1; paramScores.temp = 1; } else { paramScores.temp = 0; }
+
+            let response = "Routine monitoring";
+            if (score >= 7) response = "Critical care review"; else if (score >= 5) response = "Urgent senior review";
+            return { score, response, paramScores };
+        }
+        function calculateQSOFA(obs) { let score = 0; if (obs.sbp <= 100) score++; if (obs.rr >= 22) score++; if (obs.consciousness !== 'A') score++; return { score }; }
+        function calculateCRB65(obs, age) { let score = 0; if (obs.consciousness !== 'A') score++; if (obs.rr >= 30) score++; if (obs.sbp < 90) score++; if (age >= 65) score++; let recommendation = "Low risk"; if (score >= 3) recommendation = "High risk"; else if (score >= 1) recommendation = "Intermediate risk"; return { score, recommendation }; }
+        function calculateMEOWS(obs) { return { score: 'N/A', response: 'Not implemented' }; }
+
+        // --- VISUALS & HELPERS ---
+        
+        function renderVisualEWS(paramScores) {
+            const html = `
+                <div class="ews-row"><div class="ews-label">RR</div><div class="ews-track" id="ews-rr">${[3,1,0,0,2,3,''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.rr == s && i !== 6 ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">Sats</div><div class="ews-track" id="ews-sats">${[3,2,1,0,'','',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.sats == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">On O₂</div><div class="ews-track" id="ews-suppO2">${[2,0,'','','','',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.suppO2 == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">SBP</div><div class="ews-track" id="ews-sbp">${[3,2,1,0,'',3,'' ].map((s,i) => `<div class="ews-box score-${s} ${paramScores.sbp == s && i !== 6 ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">HR</div><div class="ews-track" id="ews-hr">${[3,1,0,1,2,3,'' ].map((s,i) => `<div class="ews-box score-${s} ${paramScores.hr == s && i !== 6 ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">Consc.</div><div class="ews-track" id="ews-consciousness">${[3,0,'','','','',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.consciousness == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
+                <div class="ews-row"><div class="ews-label">Temp</div><div class="ews-track" id="ews-temp">${[3,1,0,1,2,'',''].map((s,i) => `<div class="ews-box score-${s} ${paramScores.temp == s ? 'active-score' : ''}"></div>`).join('')}</div></div>
+            `;
+            ui.visualEWSContainer.innerHTML = html;
+        }
+
+        function copyToClipboard(elementId) {
+            const noteText = document.getElementById(elementId);
+            noteText.select();
+            noteText.setSelectionRange(0, 99999);
+            document.execCommand('copy');
+        }
+
+        function resetApp() {
+            appState = {};
+            timers = {};
+            document.querySelector('form')?.reset(); // This might not exist if HTML changes
+            // Manually reset all inputs
+            const inputs = document.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                if (input.type === 'checkbox') input.checked = false;
+                else input.value = '';
+                input.disabled = false;
+            });
+
+            // Reset dynamic content
+            ui.criticalAlertBanner.style.display = 'none';
+            ui.alertsList.innerHTML = '';
+            ui.timersContainer.innerHTML = '';
+            ui.discriminatorsContainer.innerHTML = '<p>Select a complaint first.</p>';
+            ui.contextQuestionsContainer.innerHTML = '';
+
+            // Trigger a full reset and render
+            gatherState();
+            runCalculations();
+            updateUI();
+        }
+        
+        function setupCheckboxToggle(checkboxId, textareaId, text) {
+            const checkbox = document.getElementById(checkboxId);
+            const textarea = document.getElementById(textareaId);
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    textarea.value = text;
+                    textarea.disabled = true;
+                } else {
+                    textarea.value = '';
+                    textarea.disabled = false;
+                }
+                handleInputChange(); // Trigger update
+            });
+        }
+        setupCheckboxToggle('pmh-nil', 'pmh', 'Nil known');
+        setupCheckboxToggle('meds-nil', 'meds', 'Nil known');
+        setupCheckboxToggle('allergies-nkda', 'allergies', 'NKDA');
+
+        // --- START THE APP ---
+        initialize();
+    });
+    </script>
+</body>
+</html>
+
