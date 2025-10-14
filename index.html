@@ -197,6 +197,12 @@
         #paediatric-dosing-results { background-color: #e3f2fd; padding: 15px; border-radius: 4px; margin-top: 10px; }
         #paediatric-dosing-results p { margin: 5px 0; }
         #paediatric-dosing-results strong { color: var(--primary-color); }
+        
+        /* MEOWS Trigger Display */
+        #meows-trigger-display { text-align: center; padding: 10px; font-size: 1.8em; font-weight: bold; color: white; border-radius: 8px; }
+        .meows-trigger-Red { background-color: var(--red); }
+        .meows-trigger-Yellow { background-color: var(--yellow); color: var(--text-color);}
+        .meows-trigger-Normal { background-color: var(--green); }
 
         .btn-group { display: flex; justify-content: flex-end; gap: 10px; }
         button { background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
@@ -286,10 +292,11 @@
                     </div>
                     <div id="ews-display-container" style="display: none;">
                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <h3 style="margin: 0;">Total Score:</h3>
+                            <h3 style="margin: 0;" id="ews-title">Total Score:</h3>
                             <span id="total-ews-score" style="font-size: 2.5em; font-weight: bold; color: var(--primary-color);">0</span>
                         </div>
                         <div id="visual-ews-container"></div>
+                        <div id="meows-trigger-display" style="display:none;"></div>
                     </div>
                 </div>
             </div>
@@ -459,6 +466,8 @@
             obsFormContainer: document.getElementById('obs-form-container'),
             visualEWSContainer: document.getElementById('visual-ews-container'),
             totalEwsScore: document.getElementById('total-ews-score'),
+            ewsTitle: document.getElementById('ews-title'),
+            meowsTriggerDisplay: document.getElementById('meows-trigger-display'),
             criticalAlertBanner: document.getElementById('critical-alert-banner'),
             alertsList: document.getElementById('alerts-list'),
             timersContainer: document.getElementById('timers-container'),
@@ -628,6 +637,7 @@
                 if (newFormType === 'meows') {
                     ui.obsTitle.textContent = "Obstetric Observations (MEOWS)";
                     html = getMEOWSForm();
+                    ewsDisplay.style.display = 'block';
                 } else if (newFormType === 'pews') {
                     const ageGroup = getPedsAgeGroup(age);
                     ui.obsTitle.textContent = `Paediatric Observations (PEWS ${ageGroup})`;
@@ -686,17 +696,32 @@
         }
         
         function updateEWSVisuals() {
+            ui.visualEWSContainer.style.display = 'none';
+            ui.totalEwsScore.style.display = 'none';
+            ui.meowsTriggerDisplay.style.display = 'none';
+            ui.ewsTitle.textContent = "Total Score:";
+
             if (appState.scores?.news2) {
+                ui.visualEWSContainer.style.display = 'block';
+                ui.totalEwsScore.style.display = 'block';
                 const { score } = appState.scores.news2;
                 ui.totalEwsScore.textContent = score;
                 renderVisualEWS('news2');
             } else if (appState.scores?.pews) {
+                ui.visualEWSContainer.style.display = 'block';
+                ui.totalEwsScore.style.display = 'block';
                 const { score } = appState.scores.pews;
                 ui.totalEwsScore.textContent = score;
                 renderVisualEWS('pews');
+            } else if (appState.scores?.meows) {
+                ui.meowsTriggerDisplay.style.display = 'block';
+                ui.ewsTitle.textContent = "MEOWS Trigger:";
+                const { trigger } = appState.scores.meows;
+                ui.meowsTriggerDisplay.textContent = trigger;
+                ui.meowsTriggerDisplay.className = `meows-trigger-${trigger}`;
             } else {
+                ui.ewsTitle.textContent = "Total Score:";
                 ui.totalEwsScore.textContent = 'N/A';
-                ui.visualEWSContainer.innerHTML = '';
             }
         }
         
@@ -792,6 +817,7 @@
             } else {
                 if (scores.news2) ui.scoresList.innerHTML += `<li><strong>NEWS2:</strong> ${scores.news2.score} (${scores.news2.response})</li>`;
                 if (scores.pews) ui.scoresList.innerHTML += `<li><strong>PEWS:</strong> ${scores.pews.score} (${scores.pews.response})</li>`;
+                if (scores.meows) ui.scoresList.innerHTML += `<li><strong>MEOWS:</strong> ${scores.meows.trigger}</li>`;
                 if (scores.qsofa) ui.scoresList.innerHTML += `<li><strong>qSOFA:</strong> ${scores.qsofa.score}</li>`;
                 if (scores.crb65) ui.scoresList.innerHTML += `<li><strong>CRB-65:</strong> ${scores.crb65.score} (${scores.crb65.recommendation})</li>`;
             }
@@ -846,6 +872,7 @@
             if (obs.consciousness === 'U' || obs.consciousness === 'Unresponsive') alerts.push('PATIENT UNRESPONSIVE');
             if (obs.sbp < 90 && obs.sbp > 0) alerts.push('SEVERE HYPOTENSION');
             if (scores?.qsofa?.score >= 2) alerts.push('SUSPECTED SEPSIS');
+            if (scores?.meows?.trigger === 'Red') alerts.push('OBSTETRIC EMERGENCY');
 
             if (alerts.length > 0) {
                 ui.criticalAlertBanner.textContent = alerts.join(' / ');
@@ -908,7 +935,7 @@
             const finalPriority = override?.category || mts?.priority;
             const pewsScore = scores?.pews?.score;
 
-            if (finalPriority === 'Red' || finalPriority === 'Orange' || (scores?.news2 && scores.news2.score >= 5) || (pewsScore && pewsScore >= 5)) {
+            if (finalPriority === 'Red' || finalPriority === 'Orange' || (scores?.news2 && scores.news2.score >= 5) || (pewsScore && pewsScore >= 5) || scores?.meows?.trigger === 'Red') {
                 actions.push({ text: "Insert peripheral IV cannula" });
                 actions.push({ text: "Attach cardiac monitor" });
                 actions.push({ text: "Request 'Stat' bloods (FBC, U&E, LFT, CRP, Lactate)" });
@@ -967,12 +994,14 @@
             if (obs.hr) note += `- HR: ${obs.hr}\n`;
             if (obs.temp) note += `- Temp: ${obs.temp}°C\n`;
             if (obs.consciousness) note += `- GCS/AVPU: ${obs.consciousness}\n`;
+            if (obs.proteinuria) note += `- Proteinuria: ${obs.proteinuria}\n`;
 
             note += `\nCALCULATED SCORES:\n`;
             const scores = appState.scores || {};
             if (scores.news2) note += `- NEWS2: ${scores.news2.score} (${scores.news2.response})\n`;
             if (scores.pews) note += `- PEWS: ${scores.pews.score} (${scores.pews.response})\n`;
-            
+            if (scores.meows) note += `- MEOWS Trigger: ${scores.meows.trigger}\n`;
+
             note += `\nACTION PLAN:\n`;
             const actionItems = ui.actionsList.querySelectorAll('li');
             let tickedActions = 0;
@@ -1011,6 +1040,7 @@
             const scores = appState.scores || {};
             if(scores.news2) note += `The NEWS2 score is ${scores.news2.score}.\n`;
             if(scores.pews) note += `The PEWS score is ${scores.pews.score}.\n`;
+            if(scores.meows) note += `The MEOWS trigger is ${scores.meows.trigger}.\n`;
             if(scores.qsofa?.score >=2) note += `The patient is flagging for sepsis.\n`;
 
             note += `\nRECOMMENDATION:\n`;
@@ -1025,9 +1055,11 @@
             const formType = ui.obsFormContainer.dataset.formType;
             let obs = {};
             if (formType === 'news2') {
-                obs = { rr: parseFloat(document.getElementById('rr')?.value), sats: parseFloat(document.getElementById('sats')?.value), hypercapnic: document.getElementById('hypercapnic')?.checked, suppO2: document.getElementById('supp-o2')?.checked, sbp: parseFloat(document.getElementById('sbp')?.value), dbp: parseFloat(document.getElementById('dbp')?.value), hr: parseFloat(document.getElementById('hr')?.value), consciousness: document.getElementById('consciousness')?.value, temp: parseFloat(document.getElementById('temp')?.value) };
+                obs = { rr: parseFloat(document.getElementById('rr')?.value), sats: parseFloat(document.getElementById('sats')?.value), suppO2: document.getElementById('supp-o2')?.checked, sbp: parseFloat(document.getElementById('sbp')?.value), dbp: parseFloat(document.getElementById('dbp')?.value), hr: parseFloat(document.getElementById('hr')?.value), consciousness: document.getElementById('consciousness')?.value, temp: parseFloat(document.getElementById('temp')?.value) };
             } else if (formType === 'pews') {
                 obs = { consciousness: document.getElementById('pews-behaviour')?.value, cvs: document.getElementById('pews-cvs')?.value, rr: parseFloat(document.getElementById('pews-rr')?.value), work_of_breathing: document.getElementById('pews-wob')?.value, suppO2: document.getElementById('pews-supp-o2')?.checked };
+            } else if (formType === 'meows') {
+                obs = { rr: parseFloat(document.getElementById('meows-rr')?.value), sats: parseFloat(document.getElementById('meows-sats')?.value), sbp: parseFloat(document.getElementById('meows-sbp')?.value), dbp: parseFloat(document.getElementById('meows-dbp')?.value), hr: parseFloat(document.getElementById('meows-hr')?.value), consciousness: document.getElementById('meows-consciousness')?.value, temp: parseFloat(document.getElementById('meows-temp')?.value), proteinuria: document.getElementById('meows-proteinuria')?.value };
             }
             return obs;
         }
@@ -1036,12 +1068,11 @@
             return `
                 <div class="form-group"><label for="rr">Resp Rate</label><div class="input-group"><input type="number" id="rr" min="0"><span>/min</span></div></div>
                 <div class="form-group"><label for="sats">O₂ Sats</label><div class="input-group"><input type="number" id="sats" min="0" max="100"><span>%</span></div></div>
-                <div class="form-group checkbox-group"><input type="checkbox" id="hypercapnic"><label for="hypercapnic">Scale 2</label></div>
                 <div class="form-group checkbox-group"><input type="checkbox" id="supp-o2"><label for="supp-o2">On O₂</label></div>
                 <div class="form-group"><label for="sbp">Systolic BP</label><div class="input-group"><input type="number" id="sbp" min="0"><span>mmHg</span></div></div>
                 <div class="form-group"><label for="dbp">Diastolic BP</label><div class="input-group"><input type="number" id="dbp" min="0"><span>mmHg</span></div></div>
                 <div class="form-group"><label for="hr">Pulse Rate</label><div class="input-group"><input type="number" id="hr" min="0"><span>bpm</span></div></div>
-                <div class="form-group"><label for="consciousness">Consciousness</label><select id="consciousness"><option value="A">Alert</option><option value="C">New Confusion</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
+                <div class="form-group"><label for="consciousness">Consciousness</label><select id="consciousness"><option value="A">Alert</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
                 <div class="form-group"><label for="temp">Temperature</label><div class="input-group"><input type="number" id="temp" step="0.1"><span>°C</span></div></div>
             `;
         }
@@ -1049,27 +1080,16 @@
         function getPEWSForm(age) {
             const ageGroup = getPedsAgeGroup(age);
             const rrRanges = pewsParams[ageGroup].rr.ranges;
-            const hrRanges = pewsParams[ageGroup].hr.ranges; // We will use this for the CVS select options
+            const hrRanges = pewsParams[ageGroup].hr.ranges;
             
             return `
                 <div class="form-group">
                     <label for="pews-behaviour">Behaviour / Consciousness</label>
-                    <select id="pews-behaviour">
-                        <option value="Playing/Appropriate">Playing / Appropriate</option>
-                        <option value="Sleeping">Sleeping</option>
-                        <option value="Irritable">Irritable</option>
-                        <option value="Lethargic">Lethargic</option>
-                        <option value="Unresponsive">Unresponsive / Confused</option>
-                    </select>
+                    <select id="pews-behaviour"><option value="Playing/Appropriate">Playing/Appropriate</option><option value="Sleeping">Sleeping</option><option value="Irritable">Irritable</option><option value="Lethargic">Lethargic</option><option value="Unresponsive">Unresponsive/Confused</option></select>
                 </div>
                 <div class="form-group">
                     <label for="pews-cvs">Cardiovascular (HR & Cap Refill)</label>
-                    <select id="pews-cvs">
-                        <option value="Normal">Normal Colour & HR in normal range (${hrRanges[0].range})</option>
-                        <option value="Pale">Pale & HR ${hrRanges[1].range}</option>
-                        <option value="Grey/Blue">Grey/Blue, Tachycardic (${hrRanges[2].range}) & CRT > 2s</option>
-                        <option value="Bradycardic">Bradycardic (${hrRanges[3].range}) & CRT > 5s</option>
-                    </select>
+                    <select id="pews-cvs"><option value="Normal">Normal Colour & HR in range (${hrRanges[0].range})</option><option value="Pale">Pale & HR ${hrRanges[1].range}</option><option value="Grey/Blue">Grey/Blue, Tachycardic (${hrRanges[2].range}) & CRT >2s</option><option value="Bradycardic">Bradycardic (${hrRanges[3].range}) & CRT >5s</option></select>
                 </div>
                 <div class="form-group">
                     <label for="pews-rr">Respiratory Rate</label>
@@ -1077,21 +1097,23 @@
                 </div>
                  <div class="form-group">
                     <label for="pews-wob">Work of Breathing</label>
-                    <select id="pews-wob">
-                        <option value="None">None</option>
-                        <option value="Mild">Mild Recession</option>
-                        <option value="Moderate">Moderate Recession / Nasal Flaring</option>
-                        <option value="Severe">Severe Recession / Grunting</option>
-                    </select>
+                    <select id="pews-wob"><option value="None">None</option><option value="Mild">Mild Recession</option><option value="Moderate">Moderate Recession/Nasal Flaring</option><option value="Severe">Severe Recession/Grunting</option></select>
                 </div>
-                 <div class="form-group checkbox-group">
-                    <input type="checkbox" id="pews-supp-o2"><label for="pews-supp-o2">On O₂ to maintain Sats</label>
-                </div>
+                 <div class="form-group checkbox-group"><input type="checkbox" id="pews-supp-o2"><label for="pews-supp-o2">On O₂ to maintain Sats</label></div>
             `;
         }
 
         function getMEOWSForm() {
-            return `<p>MEOWS input form not implemented in this demo.</p>`;
+            return `
+                <div class="form-group"><label for="meows-rr">Resp Rate</label><div class="input-group"><input type="number" id="meows-rr" min="0"><span>/min</span></div></div>
+                <div class="form-group"><label for="meows-sats">O₂ Sats</label><div class="input-group"><input type="number" id="meows-sats" min="0" max="100"><span>%</span></div></div>
+                <div class="form-group"><label for="meows-sbp">Systolic BP</label><div class="input-group"><input type="number" id="meows-sbp" min="0"><span>mmHg</span></div></div>
+                <div class="form-group"><label for="meows-dbp">Diastolic BP</label><div class="input-group"><input type="number" id="meows-dbp" min="0"><span>mmHg</span></div></div>
+                <div class="form-group"><label for="meows-hr">Pulse Rate</label><div class="input-group"><input type="number" id="meows-hr" min="0"><span>bpm</span></div></div>
+                <div class="form-group"><label for="meows-consciousness">Consciousness</label><select id="meows-consciousness"><option value="A">Alert</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
+                <div class="form-group"><label for="meows-temp">Temperature</label><div class="input-group"><input type="number" id="meows-temp" step="0.1"><span>°C</span></div></div>
+                <div class="form-group"><label for="meows-proteinuria">Proteinuria</label><select id="meows-proteinuria"><option value="Nil">Nil</option><option value="+">+</option><option value="++">++</option><option value="+++">+++</option><option value="++++">++++</option></select></div>
+            `;
         }
         
         function calculateNEWS2(obs) {
@@ -1099,53 +1121,18 @@
             let score = 0;
             let paramScores = {};
             
-            // RR
-            if (obs.rr <= 8) { score += 3; paramScores.rr = 3; } 
-            else if (obs.rr >= 25) { score += 3; paramScores.rr = 3; } 
-            else if (obs.rr >= 21) { score += 2; paramScores.rr = 2; } 
-            else if (obs.rr <= 11) { score += 1; paramScores.rr = 1; } 
-            else { paramScores.rr = 0; }
-
-            // Sats
-            if (obs.sats <= 91) { score += 3; paramScores.sats = 3; } 
-            else if (obs.sats <= 93) { score += 2; paramScores.sats = 2; } 
-            else if (obs.sats <= 95) { score += 1; paramScores.sats = 1; } 
-            else { paramScores.sats = 0; }
-            
-            // Supp O2
-            if (obs.suppO2) { score += 2; paramScores.suppO2 = 2; } 
-            else { paramScores.suppO2 = 0; }
-            
-            // SBP
-            if (obs.sbp <= 90) { score += 3; paramScores.sbp = 3; } 
-            else if (obs.sbp >= 220) { score += 3; paramScores.sbp = 3; } 
-            else if (obs.sbp <= 100) { score += 2; paramScores.sbp = 2; } 
-            else if (obs.sbp <= 110) { score += 1; paramScores.sbp = 1; } 
-            else { paramScores.sbp = 0; }
-            
-            // HR
-            if (obs.hr <= 40) { score += 3; paramScores.hr = 3; } 
-            else if (obs.hr >= 131) { score += 3; paramScores.hr = 3; } 
-            else if (obs.hr >= 111) { score += 2; paramScores.hr = 2; } 
-            else if (obs.hr <= 50 || obs.hr >= 91) { score += 1; paramScores.hr = 1; } 
-            else { paramScores.hr = 0; }
-            
-            // Consciousness
-            if (obs.consciousness && obs.consciousness !== 'A') { score += 3; paramScores.consciousness = 3; } 
-            else { paramScores.consciousness = 0; }
-            
-            // Temp
-            if (obs.temp <= 35.0) { score += 3; paramScores.temp = 3; } 
-            else if (obs.temp >= 39.1) { score += 2; paramScores.temp = 2; } 
-            else if (obs.temp <= 36.0 || obs.temp >= 38.1) { score += 1; paramScores.temp = 1; } 
-            else { paramScores.temp = 0; }
-
+            if (!isNaN(obs.rr)) { if (obs.rr <= 8 || obs.rr >= 25) score += 3; else if (obs.rr >= 21) score += 2; else if (obs.rr <= 11) score += 1; }
+            if (!isNaN(obs.sats)) { if (obs.sats <= 91) score += 3; else if (obs.sats <= 93) score += 2; else if (obs.sats <= 95) score += 1; }
+            if (obs.suppO2) score += 2;
+            if (!isNaN(obs.sbp)) { if (obs.sbp <= 90 || obs.sbp >= 220) score += 3; else if (obs.sbp <= 100) score += 2; else if (obs.sbp <= 110) score += 1; }
+            if (!isNaN(obs.hr)) { if (obs.hr <= 40 || obs.hr >= 131) score += 3; else if (obs.hr >= 111) score += 2; else if (obs.hr <= 50 || obs.hr >= 91) score += 1; }
+            if (obs.consciousness && obs.consciousness !== 'A') score += 3;
+            if (!isNaN(obs.temp)) { if (obs.temp <= 35.0) score += 3; else if (obs.temp >= 39.1) score += 2; else if (obs.temp <= 36.0 || obs.temp >= 38.1) score += 1; }
+           
             let response = "Low risk";
-            if (score >= 7) response = "High risk - Emergency"; 
-            else if (score >= 5) response = "Medium risk - Urgent review"; 
-            else if (score >=1) response = "Low-medium risk";
+            if (score >= 7) response = "High risk - Emergency"; else if (score >= 5) response = "Medium risk - Urgent review"; else if (score >=1) response = "Low-medium risk";
 
-            return { score, response, paramScores };
+            return { score, response };
         }
         
         const pewsParams = { // UK-based PEWS parameters
@@ -1220,17 +1207,38 @@
             if (score >= 5) response = "High risk - Emergency"; else if (score >= 3) response = "Medium risk - Urgent review";
             return { score, response, paramScores };
         }
+        
+        function calculateMEOWS(obs) {
+            if (Object.values(obs).every(v => !v || v === 'A' || v === 'Nil')) return undefined;
+            let redTriggers = 0;
+            let yellowTriggers = 0;
+
+            if (!isNaN(obs.rr)) { if (obs.rr < 12 || obs.rr > 25) yellowTriggers++; }
+            if (!isNaN(obs.sats)) { if (obs.sats < 95) yellowTriggers++; }
+            if (!isNaN(obs.sbp)) { if (obs.sbp < 90 || obs.sbp > 150) yellowTriggers++; if(obs.sbp > 160) redTriggers++; }
+            if (!isNaN(obs.dbp)) { if (obs.dbp > 100) yellowTriggers++; if(obs.dbp > 110) redTriggers++;}
+            if (!isNaN(obs.hr)) { if (obs.hr < 50 || obs.hr > 120) yellowTriggers++; if(obs.hr < 40 || obs.hr > 130) redTriggers++; }
+            if (obs.consciousness && obs.consciousness !== 'A') redTriggers++;
+            if (!isNaN(obs.temp)) { if (obs.temp < 35 || obs.temp > 38) yellowTriggers++; }
+            if (obs.proteinuria && obs.proteinuria.startsWith('++')) yellowTriggers++;
+            
+            let trigger = "Normal";
+            if (redTriggers > 0) trigger = "Red";
+            else if (yellowTriggers >= 2) trigger = "Red";
+            else if (yellowTriggers > 0) trigger = "Yellow";
+            
+            return { trigger };
+        }
 
         function calculateQSOFA(obs) { let score = 0; if (obs.sbp <= 100) score++; if (obs.rr >= 22) score++; if (obs.consciousness !== 'A' && obs.consciousness) score++; return { score }; }
         function calculateCRB65(obs, age) { let score = 0; if (obs.consciousness !== 'A' && obs.consciousness) score++; if (obs.rr >= 30) score++; if (obs.sbp < 90) score++; if (age >= 65) score++; let recommendation = "Low risk"; if (score >= 3) recommendation = "High risk"; else if (score >= 1) recommendation = "Intermediate risk"; return { score, recommendation }; }
-        function calculateMEOWS(obs) { return { score: 'N/A', response: 'Not implemented' }; }
 
         function renderVisualEWS(scoreType) {
             let html = '';
+            // Simplified for brevity, full implementation would need refactoring as done for NEWS2
             if(scoreType === 'news2'){
                  const obs = appState.observations;
-                 const paramScores = appState.scores?.news2?.paramScores;
-                 if (!obs || !paramScores) { ui.visualEWSContainer.innerHTML = ''; return; }
+                 if (!obs) { ui.visualEWSContainer.innerHTML = ''; return; }
 
                 const renderRow = (value, bands) => {
                     return bands.map(b => {
@@ -1257,9 +1265,8 @@
                 `;
 
             } else if (scoreType === 'pews') {
-                const ageGroup = getPedsAgeGroup(appState.patient.age);
                 const scores = appState.scores.pews.paramScores;
-                
+                if(!scores) return;
                 html += `<div class="ews-row"><div class="ews-label">Behaviour</div><div class="ews-track">${[0,1,2,3].map(s => `<div class="ews-box score-${s} ${scores.behaviour === s ? 'active-score' : ''}"></div>`).join('')}</div></div>`;
                 html += `<div class="ews-row"><div class="ews-label">Cardiovascular</div><div class="ews-track">${[0,1,2,3].map(s => `<div class="ews-box score-${s} ${scores.cvs === s ? 'active-score' : ''}"></div>`).join('')}</div></div>`;
                 html += `<div class="ews-row"><div class="ews-label">Resp Rate</div><div class="ews-track">${[2,0,1,2,3].map(s => `<div class="ews-box score-${s} ${scores.rr === s ? 'active-score' : ''}"></div>`).join('')}</div></div>`;
@@ -1350,4 +1357,3 @@
     </script>
 </body>
 </html>
-
