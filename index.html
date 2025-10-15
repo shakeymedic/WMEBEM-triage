@@ -78,7 +78,7 @@
             flex-direction: column;
         }
 
-        .card h2 {
+        .card h2, .card h3 {
             color: var(--primary-color);
             border-bottom: 2px solid var(--border-color);
             padding-bottom: 10px;
@@ -88,6 +88,12 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        .card h3 {
+            font-size: 1em;
+            margin-top: 15px;
+            color: var(--secondary-color);
+            border-bottom-style: dashed;
         }
 
         /* Span multiple columns */
@@ -203,6 +209,9 @@
         .meows-trigger-Red { background-color: var(--red); }
         .meows-trigger-Yellow { background-color: var(--yellow); color: var(--text-color);}
         .meows-trigger-Normal { background-color: var(--green); }
+        
+        .audit-c-score { font-size: 1.5em; font-weight: bold; color: var(--primary-color); }
+        .audit-c-positive { color: var(--red); }
 
         .btn-group { display: flex; justify-content: flex-end; gap: 10px; }
         button { background-color: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
@@ -231,34 +240,33 @@
         <div class="dashboard">
 
             <!-- DEMOGRAPHICS & HISTORY -->
-            <div class="card span-2">
-                <h2>Patient Demographics & History</h2>
-                <div class="dashboard" style="gap: 15px;">
-                    <div>
-                        <div class="form-group checkbox-group">
-                            <input type="checkbox" id="patient-referral"><label for="patient-referral">Patient is a GP or Specialty Referral</label>
-                        </div>
-                        <div class="form-group"><label for="patient-id">Patient Name / ID</label><input type="text" id="patient-id" placeholder="e.g., John Doe"></div>
-                        <div class="form-group"><label for="patient-age">Age</label><div class="input-group"><input type="number" id="patient-age" min="0"><span>years</span></div></div>
-                        <div class="form-group"><label for="patient-weight">Weight</label><div class="input-group"><input type="number" id="patient-weight" min="0"><span>kg</span></div></div>
-                        <div class="form-group"><label for="patient-sex">Sex</label><select id="patient-sex"><option value="">-- Select --</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
-                        <div class="form-group" id="other-sex-container" style="display: none;"><label for="other-sex-text">Please specify:</label><input type="text" id="other-sex-text"></div>
-                        <div class="form-group checkbox-group"><input type="checkbox" id="patient-pregnant"><label for="patient-pregnant">Patient is pregnant or <6w postpartum</label></div>
-                    </div>
-                    <div>
-                        <div class="form-group">
-                            <div class="label-with-checkbox"><label for="allergies">Allergies</label><div class="side-checkbox"><input type="checkbox" id="allergies-nkda"><label for="allergies-nkda" style="margin-left: 5px; font-weight: normal;">NKDA</label></div></div>
-                            <textarea id="allergies" rows="2" placeholder="e.g., Penicillin..."></textarea>
-                        </div>
-                        <div class="form-group">
-                            <div class="label-with-checkbox"><label for="pmh">Past Medical History</label><div class="side-checkbox"><input type="checkbox" id="pmh-nil"><label for="pmh-nil" style="margin-left: 5px; font-weight: normal;">Nil known</label></div></div>
-                            <textarea id="pmh" rows="3" placeholder="e.g., IHD, Asthma..."></textarea>
-                        </div>
-                        <div class="form-group">
-                            <div class="label-with-checkbox"><label for="meds">Prescribed Medications</label><div class="side-checkbox"><input type="checkbox" id="meds-nil"><label for="meds-nil" style="margin-left: 5px; font-weight: normal;">Nil known</label></div></div>
-                            <textarea id="meds" rows="3" placeholder="e.g., Aspirin, Anticoagulants..."></textarea>
-                        </div>
-                    </div>
+            <div class="card">
+                <h2>Patient Demographics</h2>
+                 <div class="form-group checkbox-group">
+                    <input type="checkbox" id="patient-referral"><label for="patient-referral">GP / Specialty Referral</label>
+                </div>
+                <div class="form-group"><label for="patient-id">Patient Name / ID</label><input type="text" id="patient-id" placeholder="e.g., John Doe"></div>
+                <div class="form-group"><label for="patient-age">Age</label><div class="input-group"><input type="number" id="patient-age" min="0"><span>years</span></div></div>
+                <div class="form-group"><label for="patient-weight">Weight</label><div class="input-group"><input type="number" id="patient-weight" min="0"><span>kg</span></div></div>
+                <div class="form-group"><label for="patient-sex">Sex</label><select id="patient-sex"><option value="">-- Select --</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
+                <div class="form-group" id="other-sex-container" style="display: none;"><label for="other-sex-text">Please specify:</label><input type="text" id="other-sex-text"></div>
+                <div class="form-group checkbox-group"><input type="checkbox" id="patient-pregnant"><label for="patient-pregnant">Pregnant or <6w Postpartum</label></div>
+            </div>
+            
+             <!-- HISTORY -->
+            <div class="card">
+                <h2>Clinical History</h2>
+                <div class="form-group">
+                    <div class="label-with-checkbox"><label for="allergies">Allergies</label><div class="side-checkbox"><input type="checkbox" id="allergies-nkda"><label for="allergies-nkda" style="margin-left: 5px; font-weight: normal;">NKDA</label></div></div>
+                    <textarea id="allergies" rows="2" placeholder="e.g., Penicillin..."></textarea>
+                </div>
+                <div class="form-group">
+                    <div class="label-with-checkbox"><label for="pmh">Past Medical History</label><div class="side-checkbox"><input type="checkbox" id="pmh-nil"><label for="pmh-nil" style="margin-left: 5px; font-weight: normal;">Nil known</label></div></div>
+                    <textarea id="pmh" rows="3" placeholder="e.g., IHD, Asthma..."></textarea>
+                </div>
+                <div class="form-group">
+                    <div class="label-with-checkbox"><label for="meds">Prescribed Medications</label><div class="side-checkbox"><input type="checkbox" id="meds-nil"><label for="meds-nil" style="margin-left: 5px; font-weight: normal;">Nil known</label></div></div>
+                    <textarea id="meds" rows="3" placeholder="e.g., Aspirin, Anticoagulants..."></textarea>
                 </div>
             </div>
 
@@ -294,9 +302,41 @@
                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                             <h3 style="margin: 0;" id="ews-title">Total Score:</h3>
                             <span id="total-ews-score" style="font-size: 2.5em; font-weight: bold; color: var(--primary-color);">0</span>
+                             <div id="meows-trigger-display" style="display:none;"></div>
                         </div>
                         <div id="visual-ews-container"></div>
-                        <div id="meows-trigger-display" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+            
+             <!-- SCREENING -->
+            <div class="card span-2">
+                <h2>Opportunistic Screening</h2>
+                <div class="dashboard">
+                    <div>
+                        <h3>Alcohol (AUDIT-C)</h3>
+                        <div class="form-group"><label for="auditc-1">How often do you have a drink containing alcohol?</label><select id="auditc-1"><option value="0">Never</option><option value="1">Monthly or less</option><option value="2">2-4 times a month</option><option value="3">2-3 times a week</option><option value="4">4+ times a week</option></select></div>
+                        <div class="form-group"><label for="auditc-2">How many units of alcohol do you drink on a typical day when you are drinking?</label><select id="auditc-2"><option value="0">1-2</option><option value="1">3-4</option><option value="2">5-6</option><option value="3">7-9</option><option value="4">10+</option></select></div>
+                        <div class="form-group"><label for="auditc-3">How often have you had 6+ (female) or 8+ (male) units on a single occasion in the last year?</label><select id="auditc-3"><option value="0">Never</option><option value="1">Less than monthly</option><option value="2">Monthly</option><option value="3">Weekly</option><option value="4">Daily or almost daily</option></select></div>
+                        <div>Total Score: <span id="audit-c-score" class="audit-c-score">0</span></div>
+                    </div>
+                     <div>
+                        <h3>Smoking</h3>
+                        <div class="form-group"><label for="smoking-status">Smoking Status</label><select id="smoking-status"><option value="">-- Select --</option><option value="Current">Current Smoker</option><option value="Ex">Ex-Smoker</option><option value="Never">Never Smoked</option></select></div>
+                        <div class="form-group checkbox-group" id="smoking-cessation-container" style="display:none;"><input type="checkbox" id="smoking-cessation"><label for="smoking-cessation">Offer smoking cessation advice?</label></div>
+
+                        <div id="frailty-scale-container" style="display: none;">
+                            <h3>Clinical Frailty Scale</h3>
+                            <div class="form-group">
+                                <label for="frailty-scale">Select Frailty Score (<a href="https://www.bgs.org.uk/resources/clinical-frailty-scale" target="_blank">view scale</a>)</label>
+                                <select id="frailty-scale"><option value="">-- Select --</option><option value="1">1 - Very Fit</option><option value="2">2 - Well</option><option value="3">3 - Managing Well</option><option value="4">4 - Vulnerable</option><option value="5">5 - Mildly Frail</option><option value="6">6 - Moderately Frail</option><option value="7">7 - Severely Frail</option><option value="8">8 - Very Severely Frail</option><option value="9">9 - Terminally Ill</option></select>
+                            </div>
+                        </div>
+                        
+                        <h3>Safeguarding</h3>
+                        <div class="form-group"><label for="da-screen-asked">Have you asked about domestic abuse (patient alone)?</label><select id="da-screen-asked"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No - Not appropriate/able</option></select></div>
+                        <div class="form-group" id="da-screen-result-container" style="display:none;"><label for="da-screen-result">Does the patient report feeling unsafe at home?</label><select id="da-screen-result"><option value="">-- Select --</option><option value="Yes">Yes - Patient feels unsafe</option><option value="No">No - Patient reports feeling safe</option></select></div>
+
                     </div>
                 </div>
             </div>
@@ -488,6 +528,10 @@
             paediatricDosingResults: document.getElementById('paediatric-dosing-results'),
             decisionSupportCard: document.getElementById('decision-support-card'),
             decisionSupportContent: document.getElementById('decision-support-content'),
+            auditCScore: document.getElementById('audit-c-score'),
+            smokingCessationContainer: document.getElementById('smoking-cessation-container'),
+            frailtyScaleContainer: document.getElementById('frailty-scale-container'),
+            daScreenResultContainer: document.getElementById('da-screen-result-container'),
         };
         
         // --- INITIALIZATION ---
@@ -517,6 +561,12 @@
             ui.tickAllActions.addEventListener('change', handleTickAllActions);
             ui.overrideCategory.addEventListener('change', () => {
                 ui.overrideReasonContainer.style.display = ui.overrideCategory.value ? 'block' : 'none';
+            });
+             document.getElementById('smoking-status').addEventListener('change', (e) => {
+                ui.smokingCessationContainer.style.display = e.target.value === 'Current' ? 'flex' : 'none';
+            });
+            document.getElementById('da-screen-asked').addEventListener('change', (e) => {
+                ui.daScreenResultContainer.style.display = e.target.value === 'Yes' ? 'block' : 'none';
             });
         }
         
@@ -573,6 +623,17 @@
                 meds: document.getElementById('meds').value,
                 allergies: document.getElementById('allergies').value,
             };
+            
+            appState.screening = {
+                auditc1: parseInt(document.getElementById('auditc-1').value, 10),
+                auditc2: parseInt(document.getElementById('auditc-2').value, 10),
+                auditc3: parseInt(document.getElementById('auditc-3').value, 10),
+                smokingStatus: document.getElementById('smoking-status').value,
+                offerCessation: document.getElementById('smoking-cessation').checked,
+                frailtyScore: document.getElementById('frailty-scale').value,
+                daScreenAsked: document.getElementById('da-screen-asked').value,
+                daScreenResult: document.getElementById('da-screen-result').value,
+            };
 
             appState.presentingComplaint = ui.mtsFlowchart.value;
             appState.complaintInfo = document.getElementById('complaint-info').value;
@@ -603,6 +664,10 @@
                  appState.scores.pews = calculatePEWS(appState.observations, appState.patient.age);
             }
             
+            if (appState.screening) {
+                appState.scores.auditC = appState.screening.auditc1 + appState.screening.auditc2 + appState.screening.auditc3;
+            }
+            
             checkCriticalObservations(appState.observations, appState.scores);
         }
 
@@ -610,6 +675,7 @@
             updateObsForm();
             updateMTSSection();
             updateEWSVisuals();
+            updateScreeningUI();
             updatePaediatricDosing();
             updateDecisionSupport();
             updateScoresAndDifferentials();
@@ -649,6 +715,23 @@
                     ewsDisplay.style.display = 'block';
                 }
                 ui.obsFormContainer.innerHTML = html;
+            }
+        }
+        
+        function updateScreeningUI() {
+            // Frailty scale visibility
+            ui.frailtyScaleContainer.style.display = (appState.patient?.age >= 65) ? 'block' : 'none';
+
+            // AUDIT-C score display
+            if (appState.scores?.auditC !== undefined) {
+                const score = appState.scores.auditC;
+                ui.auditCScore.textContent = score;
+                const threshold = appState.patient?.sex === 'Female' ? 4 : 5;
+                if (score >= threshold) {
+                    ui.auditCScore.classList.add('audit-c-positive');
+                } else {
+                    ui.auditCScore.classList.remove('audit-c-positive');
+                }
             }
         }
 
@@ -820,6 +903,11 @@
                 if (scores.meows) ui.scoresList.innerHTML += `<li><strong>MEOWS:</strong> ${scores.meows.trigger}</li>`;
                 if (scores.qsofa) ui.scoresList.innerHTML += `<li><strong>qSOFA:</strong> ${scores.qsofa.score}</li>`;
                 if (scores.crb65) ui.scoresList.innerHTML += `<li><strong>CRB-65:</strong> ${scores.crb65.score} (${scores.crb65.recommendation})</li>`;
+                if (scores.auditC !== undefined) {
+                    const threshold = appState.patient?.sex === 'Female' ? 4 : 5;
+                    const isPositive = scores.auditC >= threshold;
+                    ui.scoresList.innerHTML += `<li><strong>AUDIT-C:</strong> ${scores.auditC} ${isPositive ? '(Positive)' : '(Negative)'}</li>`;
+                }
             }
             
             const complaint = appState.presentingComplaint;
@@ -927,10 +1015,10 @@
         }
         
         function generateRecommendations() {
-            const { patient, scores, override, mts, complaintInfo, presentingComplaint } = appState;
+            const { patient, scores, override, mts, complaintInfo, presentingComplaint, screening } = appState;
             let actions = [];
 
-            if (!patient || !mts) return actions;
+            if (!patient) return actions;
 
             const finalPriority = override?.category || mts?.priority;
             const pewsScore = scores?.pews?.score;
@@ -955,6 +1043,19 @@
             if (patient.sex === 'Female' && patient.age >= 12 && patient.age <= 55 && !patient.isPregnant && pregTestComplaints.includes(presentingComplaint)) {
                 actions.push({ text: "Consider pregnancy test (Urine hCG)" });
             }
+
+            // Screening-based actions
+            if (scores?.auditC) {
+                const threshold = patient.sex === 'Female' ? 4 : 5;
+                if(scores.auditC >= threshold) actions.push({text: "Refer to Alcohol Liaison Service"});
+            }
+            if(screening?.smokingStatus === 'Current' && screening?.offerCessation) {
+                actions.push({text: "Provide smoking cessation advice/referral"});
+            }
+            if(screening?.daScreenResult === 'Yes') {
+                actions.push({text: "URGENT safeguarding referral required"});
+            }
+
             
             // Remove duplicates
             const uniqueActions = actions.filter((action, index, self) =>
@@ -995,6 +1096,14 @@
             if (obs.temp) note += `- Temp: ${obs.temp}°C\n`;
             if (obs.consciousness) note += `- GCS/AVPU: ${obs.consciousness}\n`;
             if (obs.proteinuria) note += `- Proteinuria: ${obs.proteinuria}\n`;
+            
+            note += `\nSCREENING:\n`;
+            const screening = appState.screening || {};
+            if(appState.scores?.auditC !== undefined) note += `- AUDIT-C Score: ${appState.scores.auditC}\n`;
+            if(screening.smokingStatus) note += `- Smoking Status: ${screening.smokingStatus}\n`;
+            if(screening.frailtyScore) note += `- Clinical Frailty Score: ${screening.frailtyScore}\n`;
+            if(screening.daScreenAsked === 'Yes') note += `- Domestic Abuse Screen: Asked, patient reports feeling ${screening.daScreenResult === 'Yes' ? 'unsafe' : 'safe'}.\n`;
+
 
             note += `\nCALCULATED SCORES:\n`;
             const scores = appState.scores || {};
@@ -1042,6 +1151,7 @@
             if(scores.pews) note += `The PEWS score is ${scores.pews.score}.\n`;
             if(scores.meows) note += `The MEOWS trigger is ${scores.meows.trigger}.\n`;
             if(scores.qsofa?.score >=2) note += `The patient is flagging for sepsis.\n`;
+            if(appState.screening?.daScreenResult === 'Yes') note += `**Safeguarding concern: Patient reports feeling unsafe at home.**\n`;
 
             note += `\nRECOMMENDATION:\n`;
             note += `I am concerned about [state your primary concern].\n`;
@@ -1119,7 +1229,6 @@
         function calculateNEWS2(obs) {
             if (Object.values(obs).every(v => !v || v === 'A')) return undefined;
             let score = 0;
-            let paramScores = {};
             
             if (!isNaN(obs.rr)) { if (obs.rr <= 8 || obs.rr >= 25) score += 3; else if (obs.rr >= 21) score += 2; else if (obs.rr <= 11) score += 1; }
             if (!isNaN(obs.sats)) { if (obs.sats <= 91) score += 3; else if (obs.sats <= 93) score += 2; else if (obs.sats <= 95) score += 1; }
@@ -1181,19 +1290,10 @@
             let rrScore = 0;
             const rr = obs.rr;
             if (rr) {
-                // Find the correct range and score
                 for(const range of params.rr.ranges) {
-                    if(range.range.startsWith('<')) {
-                        if(rr < parseInt(range.range.substring(1))) rrScore = range.score;
-                    } else if (range.range.startsWith('>')) {
-                        if(rr > parseInt(range.range.substring(1))) rrScore = range.score;
-                    } else {
-                        const [min, max] = range.range.split('-').map(Number);
-                        if(rr >= min && rr <= max) {
-                            rrScore = range.score;
-                            break;
-                        }
-                    }
+                    if(range.range.startsWith('<')) { if(rr < parseInt(range.range.substring(1))) rrScore = range.score; } 
+                    else if (range.range.startsWith('>')) { if(rr > parseInt(range.range.substring(1))) rrScore = range.score; } 
+                    else { const [min, max] = range.range.split('-').map(Number); if(rr >= min && rr <= max) { rrScore = range.score; break; } }
                 }
             }
             paramScores.rr = rrScore;
@@ -1235,7 +1335,6 @@
 
         function renderVisualEWS(scoreType) {
             let html = '';
-            // Simplified for brevity, full implementation would need refactoring as done for NEWS2
             if(scoreType === 'news2'){
                  const obs = appState.observations;
                  if (!obs) { ui.visualEWSContainer.innerHTML = ''; return; }
@@ -1324,6 +1423,10 @@
             ui.overrideReasonContainer.style.display = 'none';
             ui.paediatricDosingCard.style.display = 'none';
             ui.decisionSupportCard.style.display = 'none';
+            ui.smokingCessationContainer.style.display = 'none';
+            ui.daScreenResultContainer.style.display = 'none';
+            ui.frailtyScaleContainer.style.display = 'none';
+
 
             gatherState();
             runCalculations();
