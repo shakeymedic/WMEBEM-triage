@@ -423,6 +423,7 @@
             <p>This is a demonstration application for illustrative purposes only and must not be used for actual clinical decision-making. The user confirms they have the appropriate license to use the Manchester Triage System.</p>
         </footer>
     </div>
+                    </div> <script src="protocols.js"></script>
 
     <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -1015,48 +1016,85 @@
         }
         
         function generateRecommendations() {
-            const { patient, scores, override, mts, complaintInfo, presentingComplaint, screening } = appState;
+            const { patient, scores, override, mts, presentingComplaint, screening } = appState;
             let actions = [];
 
-            if (!patient) return actions;
+            // 1. Safety Checks (Return early if no data)
+            if (!patient) return ["Awaiting patient data..."];
 
-            const finalPriority = override?.category || mts?.priority;
-            const pewsScore = scores?.pews?.score;
+            // 2. Determine Clinical Acuity (Global Triggers)
+            const priority = override?.category || mts?.priority;
+            const newsScore = scores?.news2?.score || 0;
+            const isSepsisFlag = scores?.qsofa?.score >= 2 || newsScore >= 5;
+            const isCritical = priority === 'Red' || priority === 'Orange' || newsScore >= 5 || scores?.meows?.trigger === 'Red';
 
-            if (finalPriority === 'Red' || finalPriority === 'Orange' || (scores?.news2 && scores.news2.score >= 5) || (pewsScore && pewsScore >= 5) || scores?.meows?.trigger === 'Red') {
-                actions.push({ text: "Insert peripheral IV cannula" });
-                actions.push({ text: "Attach cardiac monitor" });
-                actions.push({ text: "Request 'Stat' bloods (FBC, U&E, LFT, CRP, Lactate)" });
-            }
-            if (scores?.qsofa?.score >= 2) {
-                actions.push({ text: "INITIATE SEPSIS SIX PATHWAY", link: guidelineLinks['Sepsis'] });
-            }
-            // Keyword-based intelligent actions
-            const lowerComplaintInfo = complaintInfo?.toLowerCase() || '';
-            if (lowerComplaintInfo.includes('paracetamol') && lowerComplaintInfo.includes('overdose')) {
-                actions.push({ text: "Request Paracetamol Level" });
-                actions.push({ text: "Request Salicylate Level" });
+            // 3. Load Protocol for Complaint
+            // Looks up the complaint in your new protocols.js file
+            const protocol = clinicalProtocols[presentingComplaint] || { bloods: 'Routine', cannula: 'conditional' };
+
+            // --- ACCESS & CANNULA LOGIC ---
+            let accessPlan = "Venepuncture only"; 
+            
+            if (protocol.cannula === true || isCritical || isSepsisFlag) {
+                accessPlan = "Insert IV Cannula (Green/Grey minimum)";
+            } else if (protocol.cannula === 'conditional') {
+                // Smart decision: Cannulate if pain is severe (needs IV morphine) or likely admission
+                if (priority === 'Yellow' || newsScore >= 3) {
+                    accessPlan = "Insert IV Cannula";
+                }
             }
             
-            // Pregnancy test logic
-            const pregTestComplaints = ["Abdominal Pain", "Collapse", "Overdose and Poisoning", "Unwell Adult", "Urinary Problems", "Falls", "Diarrhoea and Vomiting"];
-            if (patient.sex === 'Female' && patient.age >= 12 && patient.age <= 55 && !patient.isPregnant && pregTestComplaints.includes(presentingComplaint)) {
-                actions.push({ text: "Consider pregnancy test (Urine hCG)" });
+            // Only suppress access action if explicitly 'false' AND patient is stable
+            if (!(protocol.cannula === false && !isCritical)) {
+                actions.push({ text: accessPlan });
             }
 
-            // Screening-based actions
-            if (scores?.auditC) {
-                const threshold = patient.sex === 'Female' ? 4 : 5;
-                if(scores.auditC >= threshold) actions.push({text: "Refer to Alcohol Liaison Service"});
+            // --- BLOODS ---
+            let bloodsList = [];
+            if (isSepsisFlag) {
+                bloodsList = standardBundles['Sepsis'];
+                actions.push({ text: "SEPSIS SIX: Start IV Antibiotics + Fluids < 1 hour", link: guidelineLinks['Sepsis'] });
+            } else if (protocol.bloods && standardBundles[protocol.bloods]) {
+                bloodsList = standardBundles[protocol.bloods];
             }
-            if(screening?.smokingStatus === 'Current' && screening?.offerCessation) {
-                actions.push({text: "Provide smoking cessation advice/referral"});
-            }
-            if(screening?.daScreenResult === 'Yes') {
-                actions.push({text: "URGENT safeguarding referral required"});
-            }
-
             
+            if (bloodsList.length > 0) {
+                actions.push({ text: `Take Bloods: ${bloodsList.join(', ')}` });
+            }
+
+            // --- BEDSIDE TESTS ---
+            if (protocol.bedside) {
+                protocol.bedside.forEach(test => actions.push({ text: test }));
+            }
+
+            // --- URINE ---
+            // Auto-detect pregnancy requirement
+            const isFemaleRepro = patient.sex === 'Female' && patient.age >= 12 && patient.age <= 55;
+            
+            if (isFemaleRepro && !patient.isPregnant && (presentingComplaint.includes('Pain') || presentingComplaint.includes('Vomiting') || presentingComplaint.includes('Collapse'))) {
+                actions.push({ text: "Urinalysis + β-HCG (Mandatory)" });
+            } else if (protocol.urine) {
+                actions.push({ text: protocol.urine });
+            }
+
+            // --- IMAGING ---
+            if (protocol.imaging) {
+                protocol.imaging.forEach(img => actions.push({ text: `Request ${img}` }));
+            }
+
+            // --- SPECIAL INSTRUCTIONS ---
+            if (protocol.special) {
+                protocol.special.forEach(inst => actions.push({ text: inst }));
+            }
+
+            // --- SCREENING ACTIONS ---
+            if (scores?.auditC >= (patient.sex === 'Female' ? 4 : 5)) {
+                actions.push({ text: "Refer to Alcohol Liaison Service" });
+            }
+            if (screening?.daScreenResult === 'Yes') {
+                actions.push({ text: "URGENT Safeguarding Referral" });
+            }
+
             // Remove duplicates
             const uniqueActions = actions.filter((action, index, self) =>
                 index === self.findIndex((a) => a.text === action.text)
