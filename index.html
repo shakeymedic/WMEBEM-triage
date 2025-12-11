@@ -1,535 +1,199 @@
-// app.js - Main Logic with Safety Governance
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Triage Dashboard v4.2</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
 
-class TriageApp {
-    constructor() {
-        this.state = {
-            patient: {},
-            history: {},
-            screening: {},
-            mts: {},
-            observations: {},
-            scores: {},
-            context: {},
-            override: {}
-        };
-        this.timers = {};
-        this.init();
-    }
+    <div id="toast-container"></div>
 
-    init() {
-        this.populateFlowcharts();
-        this.loadFromStorage();
-        this.addEventListeners();
-        this.updateUI(); // Initial render
-    }
+    <div class="container">
+        <header>
+             <div id="logo-container">
+                <img id="logo" src="https://iili.io/KGQOvkl.md.png" alt="WMEBEM Logo">
+                <h1>Advanced Triage Dashboard</h1>
+            </div>
+            <div style="display:flex; align-items:center;">
+                <div class="theme-switch-wrapper">
+                    <label class="theme-switch" for="checkbox-theme">
+                        <input type="checkbox" id="checkbox-theme" />
+                        <div class="slider"></div>
+                    </label>
+                    <span style="font-size:0.8em; margin-left:5px;">Dark Mode</span>
+                </div>
+                <button id="btn-reset">Start New</button>
+            </div>
+        </header>
 
-    // --- DATA HANDLING ---
+        <div class="dashboard">
 
-    populateFlowcharts() {
-        const select = document.getElementById('mts-flowchart');
-        if(!select) return;
-        Object.keys(mtsFlowcharts).sort().forEach(name => {
-            const option = document.createElement('option');
-            option.value = name;
-            option.textContent = name;
-            select.appendChild(option);
-        });
-    }
-
-    saveToStorage() {
-        // Debounce save to avoid performance hits
-        if (this.saveTimeout) clearTimeout(this.saveTimeout);
-        this.saveTimeout = setTimeout(() => {
-            const inputs = document.querySelectorAll('input, select, textarea');
-            const data = {};
-            inputs.forEach(el => {
-                if (el.id) data[el.id] = el.type === 'checkbox' ? el.checked : el.value;
-            });
-            localStorage.setItem('triage_backup_v1', JSON.stringify(data));
-        }, 1000);
-    }
-
-    loadFromStorage() {
-        const data = JSON.parse(localStorage.getItem('triage_backup_v1'));
-        if (data) {
-            Object.keys(data).forEach(id => {
-                const el = document.getElementById(id);
-                if (el) {
-                    if (el.type === 'checkbox') el.checked = data[id];
-                    else el.value = data[id];
-                }
-            });
-            this.showToast('Previous session restored.', 'info');
-            this.handleInput(); // Re-run logic
-        }
-    }
-
-    resetApp() {
-        localStorage.removeItem('triage_backup_v1');
-        window.location.reload(); // Cleanest way to reset all state
-    }
-
-    // --- EVENT LISTENERS ---
-
-    addEventListeners() {
-        document.querySelector('.container').addEventListener('input', (e) => this.handleInput(e));
-        document.querySelector('.container').addEventListener('change', (e) => this.handleInput(e));
-        
-        document.getElementById('btn-reset').addEventListener('click', () => this.resetApp());
-        
-        document.getElementById('discriminators-container').addEventListener('click', (e) => {
-            if (e.target.classList.contains('discriminator')) {
-                // Remove old highlight
-                const prev = document.querySelector('.selected-discriminator');
-                if (prev) prev.classList.remove('selected-discriminator');
+            <div class="card">
+                <h2>Patient Demographics</h2>
+                 <div class="form-group checkbox-group">
+                    <input type="checkbox" id="patient-referral"><label for="patient-referral">GP / Specialty Referral</label>
+                </div>
+                <div class="form-group"><label for="patient-id">Patient Name / ID</label><input type="text" id="patient-id" placeholder="e.g., John Doe"></div>
                 
-                // Add new highlight
-                e.target.classList.add('selected-discriminator');
-                this.state.mts = {
-                    priority: e.target.dataset.priority,
-                    discriminator: e.target.dataset.text
-                };
-                this.updateUI();
-            }
-        });
+                <div class="form-group">
+                    <label for="patient-dob">Date of Birth</label>
+                    <input type="date" id="patient-dob">
+                </div>
+                <div class="form-group">
+                    <label>Calculated Age: <span id="calculated-age-display" style="font-weight: normal; color: var(--secondary-color);">--</span></label>
+                </div>
 
-        document.getElementById('btn-copy-note').addEventListener('click', () => this.copyRichText('epr-note'));
-        document.getElementById('btn-copy-sbar').addEventListener('click', () => this.copyRichText('sbar-note'));
-
-        // Quick Text Global Helper
-        window.setQuickText = (id, text) => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.value = text;
-                this.handleInput();
-            }
-        };
-    }
-
-    handleInput(e) {
-        this.gatherState();
-        this.calculateScores();
-        this.updateUI();
-        this.saveToStorage();
-    }
-
-    // --- STATE GATHERING ---
-
-    gatherState() {
-        const getVal = (id) => document.getElementById(id)?.value;
-        const getCheck = (id) => document.getElementById(id)?.checked;
-
-        // Calculate Age from DOB
-        const dob = getVal('patient-dob');
-        let age = null;
-        let ageMonths = null;
-        if (dob) {
-            const birthDate = new Date(dob);
-            const today = new Date();
-            let yrs = today.getFullYear() - birthDate.getFullYear();
-            let m = today.getMonth() - birthDate.getMonth();
-            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-                yrs--;
-            }
-            age = yrs;
+                <div class="form-group"><label for="patient-weight">Weight</label><div class="input-group"><input type="number" id="patient-weight" min="0"><span>kg</span></div></div>
+                <div class="form-group"><label for="patient-sex">Sex</label><select id="patient-sex"><option value="">-- Select --</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
+                <div class="form-group" id="other-sex-container" style="display: none;"><label for="other-sex-text">Please specify:</label><input type="text" id="other-sex-text"></div>
+                
+                <div class="form-group checkbox-group" id="pregnancy-container" style="display: none;">
+                    <input type="checkbox" id="patient-pregnant"><label for="patient-pregnant">Pregnant or <6w Postpartum</label>
+                </div>
+            </div>
             
-            // Calculate months for <2y
-            ageMonths = (today.getFullYear() - birthDate.getFullYear()) * 12 + (today.getMonth() - birthDate.getMonth());
-             if (today.getDate() < birthDate.getDate()) ageMonths--;
-        }
-
-        let sex = getVal('patient-sex');
-        if (sex === 'Other') sex = getVal('other-sex-text') || 'Other';
-
-        this.state.patient = {
-            id: getVal('patient-id'),
-            dob: dob,
-            age: age,
-            ageMonths: ageMonths,
-            weight: parseFloat(getVal('patient-weight')),
-            sex: sex,
-            isPregnant: getCheck('patient-pregnant'),
-            isReferral: getCheck('patient-referral')
-        };
-
-        this.state.history = {
-            allergies: getVal('allergies'),
-            pmh: getVal('pmh'),
-            meds: getVal('meds')
-        };
-
-        this.state.screening = {
-            auditScore: parseInt(getVal('auditc-1')||0) + parseInt(getVal('auditc-2')||0) + parseInt(getVal('auditc-3')||0),
-            smoking: getVal('smoking-status'),
-            frailty: getVal('frailty-scale'),
-            daResult: getVal('da-screen-result'),
-            renalImpairment: getCheck('renal-impairment')
-        };
-
-        this.state.presentingComplaint = getVal('mts-flowchart');
-        this.state.complaintInfo = getVal('complaint-info');
-        
-        // Context questions
-        const context = {};
-        document.querySelectorAll('.context-input, .decision-support-checkbox').forEach(el => {
-            context[el.id] = el.type === 'checkbox' ? el.checked : el.value;
-        });
-        this.state.context = context;
-
-        this.state.override = {
-            category: getVal('override-category'),
-            reason: getVal('override-reason')
-        };
-
-        // Observations logic depends on current visible form
-        this.state.observations = this.getObservationsFromForm();
-    }
-
-    getObservationsFromForm() {
-        // Logic to extract obs based on the active form type (NEWS2 vs PEWS vs MEOWS)
-        const formType = document.getElementById('obs-form-container').dataset.formType;
-        let obs = {};
-        
-        if (formType === 'news2') {
-             obs = { 
-                rr: parseFloat(document.getElementById('rr')?.value), 
-                sats: parseFloat(document.getElementById('sats')?.value), 
-                suppO2: document.getElementById('supp-o2')?.checked, 
-                sbp: parseFloat(document.getElementById('sbp')?.value), 
-                dbp: parseFloat(document.getElementById('dbp')?.value), 
-                hr: parseFloat(document.getElementById('hr')?.value), 
-                consciousness: document.getElementById('consciousness')?.value, 
-                temp: parseFloat(document.getElementById('temp')?.value),
-                hypercapnic: document.getElementById('hypercapnic-risk')?.checked 
-            };
-        } else if (formType === 'pews') {
-             obs = { 
-                consciousness: document.getElementById('pews-behaviour')?.value, 
-                cvs: document.getElementById('pews-cvs')?.value, 
-                rr: parseFloat(document.getElementById('pews-rr')?.value), 
-                wob: document.getElementById('pews-wob')?.value, 
-                suppO2: document.getElementById('pews-supp-o2')?.checked 
-            };
-        } else if (formType === 'meows') {
-            obs = { 
-                rr: parseFloat(document.getElementById('meows-rr')?.value), 
-                sats: parseFloat(document.getElementById('meows-sats')?.value), 
-                sbp: parseFloat(document.getElementById('meows-sbp')?.value), 
-                dbp: parseFloat(document.getElementById('meows-dbp')?.value), 
-                hr: parseFloat(document.getElementById('meows-hr')?.value), 
-                consciousness: document.getElementById('meows-consciousness')?.value, 
-                temp: parseFloat(document.getElementById('meows-temp')?.value), 
-                proteinuria: document.getElementById('meows-proteinuria')?.value 
-            };
-        }
-        return obs;
-    }
-
-    // --- LOGIC & CALCULATIONS ---
-
-    calculateScores() {
-        const { age, isPregnant } = this.state.patient;
-        const obs = this.state.observations;
-        this.state.scores = {};
-
-        if (age === null) return;
-
-        if (isPregnant) {
-            this.state.scores.meows = calculateMEOWS(obs);
-        } else if (age >= 16) {
-            this.state.scores.news2 = calculateNEWS2(obs);
-            this.state.scores.qsofa = calculateQSOFA(obs);
-        } else {
-            this.state.scores.pews = calculatePEWS(obs, age);
-        }
-
-        this.checkCriticalAlerts();
-    }
-
-    // --- UI UPDATES ---
-
-    updateUI() {
-        const { age, sex, isPregnant } = this.state.patient;
-        
-        // Age Display
-        const ageDisplay = document.getElementById('calculated-age-display');
-        if (age !== null) {
-            ageDisplay.textContent = `${age} years`;
-            ageDisplay.style.color = 'black';
-            ageDisplay.style.fontWeight = 'bold';
-        } else {
-            ageDisplay.textContent = '--';
-        }
-
-        // Visibility Toggles
-        document.getElementById('pregnancy-container').style.display = (sex === 'Female' || sex === 'Other') && age > 11 && age < 60 ? 'flex' : 'none';
-        document.getElementById('other-sex-container').style.display = sex === 'Other' ? 'block' : 'none';
-        document.getElementById('frailty-scale-container').style.display = age >= 65 ? 'block' : 'none';
-        
-        // Observations Form Switching
-        this.updateObsFormType(age, isPregnant);
-
-        // Visual EWS
-        this.renderVisualEWS();
-
-        // Paediatric Dosing
-        this.renderPaedsDosing(age);
-
-        // MTS Context & Discriminators
-        this.updateMTS();
-        
-        // Actions & Notes
-        this.updateActionPlan();
-        this.generateNotes();
-    }
-
-    updateObsFormType(age, isPregnant) {
-        const container = document.getElementById('obs-form-container');
-        let newType = 'none';
-        
-        if (age !== null) {
-            if (isPregnant) newType = 'meows';
-            else if (age < 16) newType = 'pews';
-            else newType = 'news2';
-        }
-
-        if (container.dataset.formType !== newType) {
-            container.dataset.formType = newType;
-            let html = '<p>Enter Date of Birth to unlock.</p>';
-            
-            if (newType === 'news2') {
-                document.getElementById('obs-title').textContent = 'Physiological Observations (NEWS2)';
-                html = `
-                    <div class="form-group"><label>Resp Rate</label><div class="input-group"><input type="number" id="rr"><span>/min</span></div></div>
-                    <div class="form-group"><label>O₂ Sats</label><div class="input-group"><input type="number" id="sats" max="100"><span>%</span></div></div>
-                    <div class="form-group checkbox-group" style="margin-bottom:5px;">
-                        <input type="checkbox" id="supp-o2"><label for="supp-o2">On O₂</label>
-                        <input type="checkbox" id="hypercapnic-risk"><label for="hypercapnic-risk" style="color:var(--orange);">Hypercapnic Risk (Scale 2)</label>
+             <div class="card">
+                <h2>Clinical History</h2>
+                <div class="form-group">
+                    <div class="label-with-checkbox">
+                        <label for="allergies">Allergies</label>
+                        <button class="quick-btn" onclick="setQuickText('allergies', 'NKDA')">NKDA</button>
                     </div>
-                    <div class="form-group"><label>Systolic BP</label><div class="input-group"><input type="number" id="sbp"><span>mmHg</span></div></div>
-                    <div class="form-group"><label>Diastolic BP</label><div class="input-group"><input type="number" id="dbp"><span>mmHg</span></div></div>
-                    <div class="form-group"><label>Pulse Rate</label><div class="input-group"><input type="number" id="hr"><span>bpm</span></div></div>
-                    <div class="form-group"><label>Consciousness</label><select id="consciousness"><option value="A">Alert</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
-                    <div class="form-group"><label>Temp</label><div class="input-group"><input type="number" id="temp" step="0.1"><span>°C</span></div></div>
-                `;
-            } else if (newType === 'meows') {
-                document.getElementById('obs-title').textContent = 'Obstetric Observations (MEOWS)';
-                 html = getMEOWSFormHTML(); // (Function similar to previous version)
-            } else if (newType === 'pews') {
-                const ageGroup = getPedsAgeGroup(age);
-                document.getElementById('obs-title').textContent = `Paediatric Observations (PEWS ${ageGroup})`;
-                html = getPEWSFormHTML(age); // (Function similar to previous version)
-            }
-            container.innerHTML = html;
-        }
-    }
+                    <textarea id="allergies" rows="2" placeholder="e.g., Penicillin..."></textarea>
+                </div>
+                <div class="form-group">
+                    <div class="label-with-checkbox">
+                        <label for="pmh">Past Medical History</label>
+                        <button class="quick-btn" onclick="setQuickText('pmh', 'Nil known')">Nil</button>
+                    </div>
+                    <textarea id="pmh" rows="3" placeholder="e.g., IHD, Asthma..."></textarea>
+                </div>
+                <div class="form-group">
+                    <div class="label-with-checkbox">
+                        <label for="meds">Prescribed Medications</label>
+                        <button class="quick-btn" onclick="setQuickText('meds', 'Nil known')">Nil</button>
+                    </div>
+                    <textarea id="meds" rows="3" placeholder="e.g., Aspirin, Anticoagulants..."></textarea>
+                </div>
+            </div>
 
-    renderVisualEWS() {
-        const container = document.getElementById('visual-ews-container');
-        const scores = this.state.scores;
-        const totalScoreEl = document.getElementById('total-ews-score');
-        const triggerEl = document.getElementById('meows-trigger-display');
-        
-        container.innerHTML = '';
-        totalScoreEl.textContent = '0';
-        triggerEl.style.display = 'none';
+            <div class="card span-2">
+                <h2>Presenting Complaint</h2>
+                <div class="dashboard">
+                    <div id="complaint-section">
+                        <div class="form-group">
+                            <label for="mts-flowchart-input">Primary Complaint (Searchable):</label>
+                            <input list="flowcharts" id="mts-flowchart-input" placeholder="Type to search e.g. 'Chest'">
+                            <datalist id="flowcharts"></datalist>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Pain Score (0-10)</label>
+                            <div class="pain-slider-container">
+                                <span>0</span>
+                                <input type="range" id="pain-score" min="0" max="10" value="0">
+                                <span>10</span>
+                                <span id="pain-score-val" class="pain-value">0</span>
+                            </div>
+                        </div>
 
-        if (scores.news2) {
-            document.getElementById('ews-display-container').style.display = 'block';
-            totalScoreEl.textContent = scores.news2.score;
-            // (Insert Render Logic for Visual Grid here - simplified for brevity)
-            // Ideally, loop through 'scores.news2.breakdown' if you implemented it, 
-            // or re-use logic from previous version but ensure mobile CSS is applied.
-        } else if (scores.meows) {
-            document.getElementById('ews-display-container').style.display = 'block';
-            document.getElementById('ews-title').textContent = 'MEOWS Trigger';
-            totalScoreEl.style.display = 'none';
-            triggerEl.style.display = 'block';
-            triggerEl.textContent = scores.meows.trigger;
-            triggerEl.className = `meows-trigger-${scores.meows.trigger}`;
-        }
-    }
+                        <div class="form-group"><label for="complaint-info">History of Presenting Complaint:</label><textarea id="complaint-info" rows="4" placeholder="e.g., Took 16 paracetamol tablets 2 hours ago..."></textarea></div>
+                    </div>
+                    <div id="discriminator-section">
+                        <label>Select Highest Priority Discriminator:</label>
+                        <div id="discriminators-container" style="max-height: 250px; overflow-y: auto; padding-right: 10px;">
+                            <p style="opacity:0.6;">Select a complaint first.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-    renderPaedsDosing(age) {
-        const card = document.getElementById('paediatric-dosing-card');
-        const weight = this.state.patient.weight;
-        const renal = this.state.screening.renalImpairment;
-
-        if (age < 16 && weight > 0) {
-            card.style.display = 'block';
-            document.getElementById('dosing-weight').textContent = `${weight} kg`;
+            <div class="card span-2">
+                <h2 id="obs-title">Physiological Observations</h2>
+                <div class="dashboard">
+                    <div id="obs-form-container">
+                        <p style="opacity:0.6;">Enter Date of Birth to unlock.</p>
+                    </div>
+                    <div id="ews-display-container" style="display: none;">
+                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 style="margin: 0;" id="ews-title">Total Score:</h3>
+                            <span id="total-ews-score" style="font-size: 2.5em; font-weight: bold; color: var(--primary-color);">0</span>
+                             <div id="meows-trigger-display" style="display:none;"></div>
+                        </div>
+                        <div id="visual-ews-container"></div>
+                    </div>
+                </div>
+            </div>
             
-            // Safety Ceilings
-            const paraDose = Math.min(weight * 15, 1000); // Max 1g
-            const ibuDose = Math.min(weight * 10, 400);   // Max 400mg
-            const fluidBolus = Math.min(weight * 20, 500); // Cap bolus at 500ml stats usually
+             <div class="card span-2">
+                <h2>Opportunistic Screening</h2>
+                <div class="dashboard">
+                     <div>
+                        <h3>Smoking & Frailty</h3>
+                        <div class="form-group"><label for="smoking-status">Smoking Status</label><select id="smoking-status"><option value="">-- Select --</option><option value="Current">Current Smoker</option><option value="Ex">Ex-Smoker</option><option value="Never">Never Smoked</option></select></div>
+                        
+                        <div id="frailty-scale-container" style="display: none;">
+                            <div class="form-group">
+                                <label for="frailty-scale">Clinical Frailty Scale (>=65y)</label>
+                                <select id="frailty-scale"><option value="">-- Select --</option><option value="1">1 - Very Fit</option><option value="2">2 - Well</option><option value="3">3 - Managing Well</option><option value="4">4 - Vulnerable</option><option value="5">5 - Mildly Frail</option><option value="6">6 - Moderately Frail</option><option value="7">7 - Severely Frail</option><option value="8">8 - Very Severely Frail</option><option value="9">9 - Terminally Ill</option></select>
+                            </div>
+                        </div>
+                        
+                        <h3>Safeguarding</h3>
+                        <div class="form-group"><label for="da-screen-asked">Asked about domestic abuse (alone)?</label><select id="da-screen-asked"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+                        <div class="form-group" id="da-screen-result-container" style="display:none;"><label for="da-screen-result">Does the patient report feeling unsafe?</label><select id="da-screen-result"><option value="">-- Select --</option><option value="Yes">Yes - Unsafe</option><option value="No">No - Safe</option></select></div>
+                    </div>
+                </div>
+            </div>
 
-            let html = `<p><strong>Paracetamol (15mg/kg):</strong> ${paraDose.toFixed(0)} mg ${paraDose===1000?'(Max Cap)':''}</p>`;
+            <div id="paediatric-dosing-card" class="card" style="display: none;">
+                <h2>Paediatric Dosing Safety</h2>
+                <div class="form-group checkbox-group" style="background: rgba(237, 135, 45, 0.1); padding: 10px; border-radius: 4px;">
+                    <input type="checkbox" id="renal-impairment">
+                    <label for="renal-impairment" style="color:var(--orange); font-weight:bold;">Dehydration / Renal Impairment (Avoid NSAIDs)</label>
+                </div>
+                <p>Calculations based on weight: <strong id="dosing-weight">N/A kg</strong>.</p>
+                <div id="paediatric-dosing-results"></div>
+            </div>
             
-            if (renal) {
-                html += `<p class="warning-text"><strong>Ibuprofen:</strong> CONTRAINDICATED (Renal/Dehydration Risk)</p>`;
-            } else {
-                html += `<p><strong>Ibuprofen (10mg/kg):</strong> ${ibuDose.toFixed(0)} mg ${ibuDose===400?'(Max Cap)':''}</p>`;
-            }
+            <div class="card">
+                <h2>Live Alerts</h2>
+                <ul id="alerts-list"></ul>
+            </div>
             
-            html += `<p><strong>IV Fluid Bolus (20ml/kg):</strong> ${fluidBolus.toFixed(0)} ml ${fluidBolus===500?'(Review if >500ml)':''}</p>`;
+            <div class="card">
+                <h2>Action Plan</h2>
+                <div id="summary-priority-display">Awaiting Triage</div>
+                 <div class="form-group checkbox-group" style="margin-top: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                    <input type="checkbox" id="tick-all-actions"><label for="tick-all-actions">Tick All</label>
+                </div>
+                <ul id="actions-list"><li>Awaiting triage completion.</li></ul>
+            </div>
             
-            document.getElementById('paediatric-dosing-results').innerHTML = html;
-        } else {
-            card.style.display = 'none';
-        }
-    }
-
-    updateMTS() {
-        // Logic to render flowcharts and discriminators
-        // Reuse logic from previous `updateMTSSection`
-        // Ensure that clicking a discriminator updates `this.state.mts`
-        const complaint = this.state.presentingComplaint;
-        const container = document.getElementById('discriminators-container');
-        
-        if (!complaint) {
-            container.innerHTML = '<p>Select a complaint first.</p>';
-            return;
-        }
-
-        if (container.dataset.complaint !== complaint) {
-            container.dataset.complaint = complaint;
-            container.innerHTML = '';
-            const list = mtsFlowcharts[complaint] || [];
-            list.forEach(disc => {
-                const div = document.createElement('div');
-                div.className = `discriminator priority-${disc.priority}`;
-                div.textContent = disc.text;
-                div.dataset.priority = disc.priority;
-                div.dataset.text = disc.text;
-                container.appendChild(div);
-            });
-        }
-        
-        // Highlight logic
-        const meds = (this.state.history.meds || '').toLowerCase();
-        if (complaint === 'Head Injury' && (meds.includes('warfarin') || meds.includes('apixaban'))) {
-            Array.from(container.children).forEach(child => {
-                if (child.textContent.includes('anticoagulant')) child.classList.add('highlight');
-            });
-        }
-    }
-
-    updateActionPlan() {
-        const { patient, scores, override, mts, presentingComplaint, screening, history } = this.state;
-        const list = document.getElementById('actions-list');
-        let actions = [];
-
-        // 1. Clinical Priority
-        const priority = override.category || mts.priority;
-        const newsScore = scores.news2?.score || 0;
-        const isSepsis = scores.qsofa?.score >= 2 || newsScore >= 5;
-        
-        // 2. Protocols
-        const protocol = clinicalProtocols[presentingComplaint] || {};
-
-        // 3. Safety Checks
-        if (isSepsis) actions.push({ text: "SEPSIS SIX Bundle (IV Abx + Fluids <1hr)" });
-        if (protocol.bloods) actions.push({ text: `Bloods: ${standardBundles[protocol.bloods]?.join(', ')}` });
-        
-        // Allergy Logic
-        if (history.allergies?.toLowerCase().includes('penicillin')) {
-            actions.push({ text: "ALLERGY ALERT: Verify Antibiotics (Avoid Penicillins)" });
-        }
-
-        // Render
-        list.innerHTML = actions.map((a, i) => `<li><input type="checkbox" id="act-${i}"><label for="act-${i}">${a.text}</label></li>`).join('');
-        
-        // Summary Box
-        const summary = document.getElementById('summary-priority-display');
-        summary.textContent = priority ? `Category: ${priority}` : "Awaiting Triage";
-        summary.className = priority ? `summary-priority-${priority}` : "";
-    }
-
-    generateNotes() {
-        // Generate Plain text for EPR
-        let note = `TRIAGE ASSESSMENT\n`;
-        note += `Patient: ${this.state.patient.id || 'Unknown'}\n`;
-        note += `Age: ${this.state.patient.age || '?'}y\n`;
-        // ... (Include full history, obs, plan)
-        document.getElementById('epr-note').value = note;
-        
-        // SBAR
-        document.getElementById('sbar-note').value = `SITUATION: ...`;
-    }
-
-    checkCriticalAlerts() {
-        const obs = this.state.observations;
-        if (obs.sats < 90 && obs.sats > 0) this.showToast("CRITICAL HYPOXIA (<90%)", "critical");
-        if (this.state.scores.news2?.score >= 7) this.showToast("NEWS2 score >= 7: Emergency Response", "warning");
-    }
-
-    showToast(msg, type = 'info') {
-        const container = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.innerHTML = `<span>${msg}</span> <span class="toast-close" onclick="this.parentElement.remove()">&times;</span>`;
-        container.appendChild(toast);
-        setTimeout(() => toast.remove(), 5000);
-    }
-
-    copyRichText(elementId) {
-        const text = document.getElementById(elementId).value;
-        // Simple clipboard copy for now - sophisticated HTML copy requires a hidden div
-        navigator.clipboard.writeText(text).then(() => {
-            this.showToast('Copied to clipboard!', 'info');
-        });
-    }
-}
-
-// --- HELPER FUNCTIONS ---
-
-function calculateNEWS2(obs) {
-    // Implement full NEWS2 logic including Scale 2
-    if (!obs || isNaN(obs.rr)) return null;
-    let score = 0;
+            <div class="card full-width">
+                <h2>Notes & Handover</h2>
+                <div class="dashboard">
+                    <div>
+                        <label for="epr-note">Triage Note (EPR)</label>
+                        <textarea id="epr-note" rows="10" readonly></textarea>
+                        <button id="btn-copy-note" type="button" style="margin-top: 10px;">Copy formatted</button>
+                    </div>
+                    <div>
+                        <label for="sbar-note">SBAR Handover</label>
+                        <textarea id="sbar-note" rows="10" readonly></textarea>
+                        <button id="btn-copy-sbar" type="button" style="margin-top: 10px;">Copy formatted</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <footer>
+            <p><strong>Disclaimer:</strong> This application is for educational and demonstration purposes only. V4.2</p>
+        </footer>
+    </div>
     
-    // RR
-    if (obs.rr <= 8 || obs.rr >= 25) score += 3;
-    else if (obs.rr >= 21) score += 2;
-    else if (obs.rr <= 11) score += 1;
-
-    // Sats (Scale 1 vs 2)
-    if (obs.hypercapnic) {
-        // Scale 2 (COPD)
-        if (obs.sats <= 83 || (obs.sats >= 97 && obs.suppO2)) score += 3;
-        else if (obs.sats <= 85 || (obs.sats >= 95 && obs.suppO2)) score += 2;
-        else if (obs.sats <= 87 || (obs.sats >= 93 && obs.suppO2)) score += 1;
-    } else {
-        // Scale 1 (Standard)
-        if (obs.sats <= 91) score += 3;
-        else if (obs.sats <= 93) score += 2;
-        else if (obs.sats <= 95) score += 1;
-    }
-
-    if (obs.suppO2) score += 2;
-    
-    // ... (BP, HR, Consciousness, Temp logic) ...
-    // Note: Re-implement the rest of standard NEWS2 logic here
-    if (obs.sbp <= 90 || obs.sbp >= 220) score += 3; else if (obs.sbp <= 100) score += 2; else if (obs.sbp <= 110) score += 1;
-    if (obs.hr <= 40 || obs.hr >= 131) score += 3; else if (obs.hr >= 111) score += 2; else if (obs.hr <= 50 || obs.hr >= 91) score += 1;
-    if (obs.consciousness !== 'A') score += 3;
-    if (obs.temp <= 35.0) score += 3; else if (obs.temp >= 39.1) score += 2; else if (obs.temp <= 36.0 || obs.temp >= 38.1) score += 1;
-
-    return { score, scale: obs.hypercapnic ? 2 : 1 };
-}
-
-// ... (Other calculation functions calculatePEWS, calculateMEOWS, getMEOWSFormHTML, getPEWSFormHTML remain similar to v4.0 but called by Class)
-
-// --- DATA CONSTANTS (Needed for flowcharts) ---
-const mtsFlowcharts = {
-    // (Paste the full list from previous protocols.js here or ensure they are loaded)
-    "Abdominal Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Mild pain","priority":"Green"}],
-    "Chest Pain": [{"text":"Shock","priority":"Red"},{"text":"Cardiac pain","priority":"Yellow"},{"text":"Pleuritic pain","priority":"Yellow"}]
-    // ... Add all others
-};
-
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    window.app = new TriageApp();
-});
+    <script src="protocols.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
