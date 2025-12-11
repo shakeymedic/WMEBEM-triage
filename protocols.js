@@ -1,8 +1,6 @@
 // protocols.js - Complete Clinical Configuration
-// Version: 4.0 (The "Mega-Expansion")
-// Covers: 50+ Presentations, RCEM/NICE Guidelines, and Local Matrices.
+// Version: 4.1 (Refactored for Safety & Governance)
 
-// --- 1. STANDARD INVESTIGATION BUNDLES ---
 const standardBundles = {
     'Routine': ['FBC', 'U&E', 'CRP', 'LFT', 'Bone Profile'],
     'Surgical': ['FBC', 'U&E', 'CRP', 'LFT', 'Amylase', 'Group & Save', 'Lactate'],
@@ -17,11 +15,7 @@ const standardBundles = {
     'Coag': ['FBC', 'U&E', 'LFT', 'Coagulation', 'Group & Save']
 };
 
-// --- 2. CLINICAL PROTOCOLS ---
-// Maps Presenting Complaints to Investigations & Actions
 const clinicalProtocols = {
-
-    // === ABDOMINAL & GASTROINTESTINAL ===
     "Abdominal Pain": {
         bloods: "Surgical",
         urine: "Urinalysis + β-HCG (female <55)",
@@ -53,15 +47,15 @@ const clinicalProtocols = {
         cannula: "conditional",
         special: ["Stool Sample (if travel/abx/bloody)", "Side Room Isolation"]
     },
-    "GI Bleed": { // Haematemesis / Melaena
-        bloods: "Trauma", // Cross match essential
+    "GI Bleed": {
+        bloods: "Trauma",
         urine: null,
-        cannula: true, // Large bore x2
+        cannula: true,
         bedside: ["VBG (Lactate & Hb)"],
         special: ["Glasgow-Blatchford Score", "NBM", "Activate Major Haemorrhage if unstable"]
     },
     "Jaundice": {
-        bloods: "Surgical", // Add Coag + Split Bili
+        bloods: "Surgical",
         urine: "Urinalysis (Bilirubin)",
         cannula: true,
         special: ["Septic Screen if febrile (Cholangitis risk)", "Viral Hepatitis Screen"]
@@ -72,8 +66,6 @@ const clinicalProtocols = {
         cannula: "conditional",
         special: ["Coagulation Screen", "Diagnostic Paracentesis consideration"]
     },
-
-    // === CARDIAC & RESPIRATORY ===
     "Chest Pain": {
         bloods: "Cardiac",
         urine: null,
@@ -121,15 +113,13 @@ const clinicalProtocols = {
         imaging: ["CXR"],
         special: ["Controlled Oxygen (88-92% target)", "Nebulisers", "Steroids"]
     },
-
-    // === NEUROLOGICAL & HEAD ===
     "Headache": {
         bloods: "Routine",
         urine: "β-HCG",
         cannula: "conditional",
         special: ["Full Neuro Exam", "Fundoscopy"]
     },
-    "Headache - Sudden Onset": { // Thunderclap
+    "Headache - Sudden Onset": {
         bloods: "FBC, U&E, CRP, Coagulation, Group & Save",
         urine: "β-HCG",
         cannula: true,
@@ -142,14 +132,14 @@ const clinicalProtocols = {
         bedside: ["Blood Cultures", "Throat Swab"],
         special: ["Urgent Antibiotics (Ceftriaxone)", "LP consideration"]
     },
-    "Headache - Temporal Arteritis": { // New >50y
+    "Headache - Temporal Arteritis": {
         bloods: "FBC, U&E, CRP, LFT, Bone Profile",
         urine: null,
         cannula: false,
         special: ["Add ESR (Essential)", "Ophthalmology Referral if visual symptoms", "Start Steroids if high suspicion"]
     },
     "Head Injury": {
-        bloods: "Trauma", // Coag/G&S check
+        bloods: "Trauma",
         urine: null,
         cannula: false,
         imaging: ["CT Head (Review NICE CG176 Criteria)"],
@@ -192,8 +182,6 @@ const clinicalProtocols = {
         bedside: ["ECG", "HINTS Exam (if continuous vertigo)"],
         special: ["Dix-Hallpike Test (if positional)", "Neuro Exam"]
     },
-
-    // === INJURY, ORTHO & TRAUMA ===
     "Falls": {
         bloods: "Routine",
         urine: "Urinalysis",
@@ -238,7 +226,7 @@ const clinicalProtocols = {
     "Burns and Scalds": {
         bloods: "FBC, U&E, CRP, Glucose, Coagulation, Group & Save",
         urine: null,
-        cannula: true, // If >10% TBSA
+        cannula: true,
         special: ["Lund & Browder Chart (TBSA)", "Fluid Resus (Parkland)", "Check Tetanus", "ECG (if electrical)"]
     },
     "Assault": {
@@ -261,8 +249,6 @@ const clinicalProtocols = {
         cannula: "conditional",
         special: ["Tetanus Check", "Antibiotic prophylaxis?", "X-Ray if teeth retained"]
     },
-
-    // === EENT & DENTAL ===
     "Eye Problems": {
         bloods: null,
         urine: null,
@@ -287,9 +273,7 @@ const clinicalProtocols = {
         cannula: false,
         special: ["Analgesia", "Dental Nerve Block?", "Refer to Dentist/MaxFax"]
     },
-
-    // === SYSTEMIC, METABOLIC & INFECTION ===
-    "Fever": { // Sepsis Screen
+    "Fever": {
         bloods: "Sepsis",
         urine: "Urinalysis",
         cannula: true,
@@ -342,14 +326,12 @@ const clinicalProtocols = {
         cannula: "conditional",
         special: ["Paired Serum/Urine Osmolality", "Paired Serum/Urine Sodium", "Fluid Status Assess"]
     },
-    "Diabetes": { // DKA / HHS / Hypo
+    "Diabetes": {
         bloods: "FBC, U&E, CRP, Glucose, VBG (pH/Bicarb/Ketones)",
         urine: "Urinalysis (Ketones)",
         cannula: true,
         special: ["Blood Ketones", "DKA Pathway"]
     },
-
-    // === UROLOGY, GYNAE & SEXUAL HEALTH ===
     "Urinary Problems": {
         bloods: "FBC, U&E, CRP",
         urine: "Urinalysis + Culture",
@@ -363,13 +345,13 @@ const clinicalProtocols = {
         cannula: "conditional",
         special: ["Urgent Surgical Review (Exclude Torsion)", "NBM"]
     },
-    "Pregnancy": { // >20 weeks
+    "Pregnancy": {
         bloods: "FBC, U&E, LFT, Coagulation, Group & Save, Urate",
         urine: "Urinalysis (Protein)",
         cannula: "conditional",
         special: ["Refer to Maternity Triage", "BP Check (Pre-eclampsia)"]
     },
-    "PV Bleeding": { // Early Pregnancy / Gynae
+    "PV Bleeding": {
         bloods: "FBC, Group & Save (essential)",
         urine: "Pregnancy Test (Mandatory)",
         cannula: "conditional",
@@ -381,8 +363,6 @@ const clinicalProtocols = {
         cannula: false,
         special: ["Refer to GUM clinic", "Partner notification"]
     },
-
-    // === MENTAL HEALTH ===
     "Mental Health": {
         bloods: "Routine, Paracetamol/Salicylate, Alcohol Level",
         urine: "Urinalysis (Drug Screen)",
