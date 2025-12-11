@@ -1,6 +1,7 @@
-// protocols.js - Complete Clinical Configuration
-// Version: 4.1 (Refactored for Safety & Governance)
+// protocols.js - Clinical Configuration v4.2
+// Includes: Standard Bundles, Dosing Safety Rules, Pain Governance, and Clinical Protocols
 
+// --- 1. STANDARD INVESTIGATION BUNDLES ---
 const standardBundles = {
     'Routine': ['FBC', 'U&E', 'CRP', 'LFT', 'Bone Profile'],
     'Surgical': ['FBC', 'U&E', 'CRP', 'LFT', 'Amylase', 'Group & Save', 'Lactate'],
@@ -15,6 +16,20 @@ const standardBundles = {
     'Coag': ['FBC', 'U&E', 'LFT', 'Coagulation', 'Group & Save']
 };
 
+// --- 2. SAFETY GOVERNANCE RULES ---
+const paediatricSafety = {
+    paracetamol: { mgPerKg: 15, maxDoseMg: 1000, warning: "Max 1g per dose" },
+    ibuprofen: { mgPerKg: 10, maxDoseMg: 400, warning: "Max 400mg per dose" },
+    fluidBolus: { mlPerKg: 20, maxVolMl: 500, warning: "Review if >500ml required" }
+};
+
+const painProtocols = {
+    severeThreshold: 7, // Pain score >= 7 triggers orange priority
+    action: "Analgesia: Administer strong analgesia within 20 mins"
+};
+
+// --- 3. CLINICAL PROTOCOLS ---
+// Maps Presenting Complaints to Investigations & Actions
 const clinicalProtocols = {
     "Abdominal Pain": {
         bloods: "Surgical",
