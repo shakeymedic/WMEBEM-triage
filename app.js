@@ -1,4 +1,4 @@
-// app.js - Main Logic v4.2
+// app.js - Main Logic v4.3
 // Features: Class-based Architecture, Dark Mode, Searchable Datalist, Pain Scores, Safety Governance
 
 class TriageApp {
@@ -30,9 +30,7 @@ class TriageApp {
 
     populateDatalist() {
         const datalist = document.getElementById('flowcharts');
-        // We now pull from clinicalProtocols in protocols.js which is the source of truth
-        // AND mtsFlowcharts (we need to ensure mtsFlowcharts is populated)
-        // For V4.2, we assume mtsFlowcharts is defined at the bottom of this file or imported.
+        // Now fully supported by the complete data in protocols.js
         if (typeof mtsFlowcharts !== 'undefined') {
             Object.keys(mtsFlowcharts).sort().forEach(name => {
                 const option = document.createElement('option');
@@ -92,7 +90,7 @@ class TriageApp {
         // Searchable Complaint Input
         document.getElementById('mts-flowchart-input').addEventListener('input', (e) => {
             const val = e.target.value;
-            // Only update state if it matches a known flowchart
+            // Only update state if it matches a known flowchart in the full database
             if (mtsFlowcharts[val]) {
                 this.state.presentingComplaint = val;
                 this.updateUI();
@@ -413,16 +411,6 @@ class TriageApp {
         this.showToast("Copied to clipboard", "info");
     }
 }
-
-// --- DATA: MTS FLOWCHARTS (Abbreviated for V4.2) ---
-// In a production environment, this might be loaded from a separate JSON file
-const mtsFlowcharts = {
-    "Abdominal Pain": [{"text":"Shock","priority":"Red"},{"text":"Severe pain","priority":"Orange"},{"text":"Mild pain","priority":"Green"}],
-    "Chest Pain": [{"text":"Shock","priority":"Red"},{"text":"Cardiac pain","priority":"Yellow"},{"text":"Pleuritic pain","priority":"Yellow"}],
-    "Headache": [{"text":"Reduced GCS","priority":"Red"},{"text":"Sudden onset","priority":"Orange"},{"text":"History of migraine","priority":"Green"}],
-    "Shortness of Breath": [{"text":"Stridor","priority":"Red"},{"text":"Low Sats","priority":"Orange"},{"text":"Wheeze","priority":"Yellow"}],
-    "Falls": [{"text":"Major Trauma","priority":"Red"},{"text":"Head Injury","priority":"Orange"},{"text":"Minor Injury","priority":"Green"}]
-};
 
 // Start App
 document.addEventListener('DOMContentLoaded', () => {
