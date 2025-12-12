@@ -1,5 +1,5 @@
-// app.js - Main Logic v5.1
-// Features: Class-based Architecture, Visual EWS, Clinical Override, PAT Matrix Protocols
+// app.js - Main Logic v6.1
+// Features: Class-based Architecture, Visual EWS, Clinical Override, Smart Logic (Med/Allergy Scanner)
 
 class TriageApp {
     constructor() {
@@ -11,7 +11,9 @@ class TriageApp {
             scores: {},
             presentingComplaint: '',
             painScore: 0,
-            override: { active: false, priority: null, rationale: '' }
+            override: { active: false, priority: null, rationale: '' },
+            activeConditionals: [],
+            smartTags: {} // Stores detected flags like 'anticoagulant', 'penicillin'
         };
         this.init();
     }
@@ -68,6 +70,7 @@ class TriageApp {
             if (mtsFlowcharts[val]) {
                 this.state.presentingComplaint = val;
                 this.state.mts = {}; // Reset previous discriminator
+                this.state.activeConditionals = []; // Reset checkboxes
                 this.updateUI();
             }
         });
@@ -82,6 +85,20 @@ class TriageApp {
                     discriminator: e.target.dataset.text
                 };
                 this.updateUI();
+            }
+        });
+
+        // Event Delegation for Dynamic Conditional Checkboxes
+        document.getElementById('actions-list-container').addEventListener('change', (e) => {
+            if (e.target.classList.contains('conditional-checkbox')) {
+                const testToAdd = e.target.dataset.add;
+                if (e.target.checked) {
+                    this.state.activeConditionals.push(testToAdd);
+                } else {
+                    this.state.activeConditionals = this.state.activeConditionals.filter(t => t !== testToAdd);
+                }
+                this.updatePriorityAndPlan(); // Re-render plan
+                this.generateNotes(); // Update notes
             }
         });
 
@@ -142,12 +159,37 @@ class TriageApp {
             sex: getVal('patient-sex'),
         };
 
+        const meds = getVal('meds') || "";
+        const allergies = getVal('allergies') || "";
+        const pmh = getVal('pmh') || "";
+
         this.state.history = {
-            allergies: getVal('allergies'),
-            pmh: getVal('pmh'),
-            meds: getVal('meds'),
+            allergies: allergies,
+            pmh: pmh,
+            meds: meds,
             renalImpairment: getCheck('renal-impairment')
         };
+        
+        // --- SMART LOGIC SCANNERS ---
+        this.state.smartTags = {};
+        
+        // 1. Anticoagulant Scanner
+        const antiCoagRegex = /warfarin|apixiban|rivaroxaban|edoxaban|dabigatran|heparin|clexane|enoxaparin|blood\s*thinner|doac|noac/i;
+        if (antiCoagRegex.test(meds)) {
+            this.state.smartTags.anticoagulant = true;
+        }
+
+        // 2. Penicillin Allergy Scanner
+        const penRegex = /penicillin|amoxicillin|co-amoxiclav|augmentin|flucloxacillin|piperacillin|tazocin/i;
+        if (penRegex.test(allergies)) {
+            this.state.smartTags.penicillinAllergy = true;
+        }
+
+        // 3. Chemo / Sepsis Risk Scanner
+        const chemoRegex = /chemo|immunocompromised|neutropen/i;
+        if (chemoRegex.test(pmh) || chemoRegex.test(meds)) {
+            this.state.smartTags.immunocompromised = true;
+        }
 
         this.state.presentingComplaint = getVal('mts-flowchart-input');
         
@@ -311,15 +353,23 @@ class TriageApp {
     updateMTS() {
         const complaint = this.state.presentingComplaint;
         const container = document.getElementById('discriminators-container');
+        const protocol = clinicalProtocols[complaint];
         
         if (!complaint || !mtsFlowcharts[complaint]) {
-            container.innerHTML = '<p style="opacity:0.6; padding:10px;">Select a valid complaint above to see discriminators.</p>';
+            container.innerHTML = '<p style="opacity:0.6; padding:10px;">Select a valid complaint above.</p>';
             return;
+        }
+
+        let descHtml = '';
+        if (protocol && protocol.details) {
+            descHtml = `<div style="background:var(--input-bg); padding:10px; border-left:4px solid var(--primary-color); margin-bottom:10px; font-size:0.9em;">
+                            <strong>Is this the correct pathway?</strong><br>${protocol.details}
+                        </div>`;
         }
 
         if (container.dataset.complaint !== complaint) {
             container.dataset.complaint = complaint;
-            container.innerHTML = '';
+            container.innerHTML = descHtml;
             mtsFlowcharts[complaint].forEach(disc => {
                 const div = document.createElement('div');
                 div.className = `discriminator priority-${disc.priority}`;
@@ -364,7 +414,7 @@ class TriageApp {
     }
 
     updatePriorityAndPlan() {
-        const { mts, painScore, presentingComplaint, scores, override } = this.state;
+        const { mts, painScore, presentingComplaint, scores, override, activeConditionals, smartTags } = this.state;
         
         // 1. Calculate Base Priority
         let priority = "Blue"; 
@@ -375,7 +425,6 @@ class TriageApp {
             reasons.push(`MTS Discriminator: ${mts.discriminator}`);
         }
 
-        // Pain Rule
         if (painScore >= painProtocols.severeThreshold) {
             if (['Green','Blue','Yellow'].includes(priority)) {
                 priority = 'Orange';
@@ -383,7 +432,6 @@ class TriageApp {
             }
         }
         
-        // NEWS2 Rule
         if (scores.news2?.score >= 7) {
             priority = 'Red';
             reasons.push("NEWS2 Critical (≥7)");
@@ -407,41 +455,84 @@ class TriageApp {
         
         document.getElementById('priority-reasons').innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
 
-        // 4. Render Plan (Split by Do/Consider/Ask)
+        // 4. Render Plan
         const container = document.getElementById('actions-list-container');
-        
         const protocol = clinicalProtocols[presentingComplaint];
+        
         if (protocol) {
             let html = '';
-            
-            // "Do" Section (Green/Bold)
-            if (protocol.do && protocol.do.length > 0) {
-                html += `<div class="plan-section">
-                            <strong style="color:var(--green);">DO (Immediate):</strong>
-                            <ul>${protocol.do.map(item => `<li>${item}</li>`).join('')}</ul>
+
+            // SMART ALERTS (Top of Plan)
+            if (smartTags.penicillinAllergy) {
+                html += `<div style="background:var(--red); color:white; padding:10px; font-weight:bold; margin-bottom:10px; border-radius:4px;">
+                            ⚠ SAFETY ALERT: PENICILLIN ALLERGY DETECTED
+                         </div>`;
+            }
+            if (smartTags.immunocompromised) {
+                html += `<div style="background:var(--orange); color:white; padding:10px; font-weight:bold; margin-bottom:10px; border-radius:4px;">
+                            ⚠ SAFETY ALERT: IMMUNOCOMPROMISED (SEPSIS RISK)
                          </div>`;
             }
             
-            // "Consider" Section (Orange/Italic)
+            // "Do" Section + Active Conditionals
+            // MERGE logic: include manually checked conditionals OR smart-auto-checked conditionals
+            const allDo = [...protocol.do];
+            activeConditionals.forEach(ac => {
+                if(!allDo.includes(ac)) allDo.push(ac);
+            });
+            
+            // Auto-Add Smart Logic Actions (Hidden logic made visible)
+            if (protocol.conditionals) {
+                protocol.conditionals.forEach(cond => {
+                    // If we have a smart tag match (e.g. 'anticoagulant') and the user hasn't explicitly unchecked it (complex state, simplified here to just 'add if detected')
+                    if (cond.smartTag && smartTags[cond.smartTag]) {
+                         if(!allDo.includes(cond.add)) allDo.push(cond.add);
+                    }
+                });
+            }
+
+            if (allDo.length > 0) {
+                html += `<div class="plan-section">
+                            <strong style="color:var(--green);">MANDATORY (Do):</strong>
+                            <ul>${allDo.map(item => `<li>${item}</li>`).join('')}</ul>
+                         </div>`;
+            }
+            
+            // "Consider" Section
             if (protocol.consider && protocol.consider.length > 0) {
                 html += `<div class="plan-section">
-                            <strong style="color:var(--orange);">CONSIDER (Dependent):</strong>
+                            <strong style="color:var(--orange);">CONSIDER (Clinician Judgement):</strong>
                             <ul>${protocol.consider.map(item => `<li><em>${item}</em></li>`).join('')}</ul>
                          </div>`;
             }
             
-            // "Ask" Section (Blue)
-            if (protocol.ask && protocol.ask.length > 0) {
-                html += `<div class="plan-section">
-                            <strong style="color:var(--primary-color);">ASK (Clinical Questions):</strong>
-                            <ul>${protocol.ask.map(item => `<li>${item}</li>`).join('')}</ul>
+            // "Ask" Section - Interactive Checkboxes
+            if (protocol.conditionals && protocol.conditionals.length > 0) {
+                html += `<div class="plan-section" style="background:var(--input-bg); padding:10px; border-radius:4px;">
+                            <strong style="color:var(--primary-color);">CLINICAL QUESTIONS:</strong>
+                            <div style="display:flex; flex-direction:column; gap:5px; margin-top:5px;">
+                                ${protocol.conditionals.map(cond => {
+                                    // Check if this should be auto-checked by smart logic
+                                    const isSmartChecked = (cond.smartTag && smartTags[cond.smartTag]);
+                                    const isUserChecked = activeConditionals.includes(cond.add);
+                                    const isChecked = isSmartChecked || isUserChecked;
+                                    
+                                    return `
+                                    <div style="display:flex; align-items:center;">
+                                        <input type="checkbox" class="conditional-checkbox" id="cond-${cond.add}" data-add="${cond.add}" ${isChecked ? 'checked' : ''} style="width:auto; margin-right:10px;">
+                                        <label for="cond-${cond.add}" style="margin:0; font-weight:normal; ${isSmartChecked ? 'color:var(--green); font-weight:bold;' : ''}">
+                                            ${cond.question} <strong>(+${cond.add})</strong>
+                                            ${isSmartChecked ? '<span style="font-size:0.8em; margin-left:5px;">(AUTO-DETECTED)</span>' : ''}
+                                        </label>
+                                    </div>
+                                `}).join('')}
+                            </div>
                          </div>`;
             }
 
-            // Pain Protocol
             if (painScore >= 7) {
                 html += `<div class="plan-section" style="border-top:1px dashed #ccc; margin-top:10px; padding-top:10px;">
-                            <strong>PAIN MANAGEMENT:</strong>
+                            <strong>PAIN PROTOCOL:</strong>
                             <ul><li>${painProtocols.action}</li></ul>
                          </div>`;
             }
@@ -453,7 +544,7 @@ class TriageApp {
     }
 
     generateNotes() {
-        const { patient, history, observations, scores, mts, override } = this.state;
+        const { patient, history, observations, scores, mts, override, activeConditionals, smartTags } = this.state;
         const now = new Date();
         
         let note = `EMERGENCY TRIAGE ASSESSMENT\n`;
@@ -471,10 +562,25 @@ class TriageApp {
 
         note += `\nHISTORY\nAllergies: ${history.allergies}\nPMH: ${history.pmh}\nMeds: ${history.meds}\n`;
         
+        if (smartTags.penicillinAllergy) note += `*** ALERT: PENICILLIN ALLERGY DETECTED ***\n`;
+        if (smartTags.anticoagulant) note += `*** ALERT: ON ANTICOAGULANTS ***\n`;
+
         const protocol = clinicalProtocols[this.state.presentingComplaint];
         if(protocol) {
             note += `\nPLAN (Protocol: ${this.state.presentingComplaint})\n`;
-            if(protocol.do.length) note += `Requested: ${protocol.do.join(', ')}\n`;
+            
+            // Recalculate 'allDo' for the note
+            const allDo = [...protocol.do];
+            activeConditionals.forEach(ac => { if(!allDo.includes(ac)) allDo.push(ac); });
+            if(protocol.conditionals) {
+                protocol.conditionals.forEach(cond => {
+                    if (cond.smartTag && smartTags[cond.smartTag]) {
+                         if(!allDo.includes(cond.add)) allDo.push(cond.add);
+                    }
+                });
+            }
+
+            if(allDo.length) note += `Tests Requested: ${allDo.join(', ')}\n`;
             if(protocol.consider.length) note += `Considered: ${protocol.consider.join(', ')}\n`;
         }
 
