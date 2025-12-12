@@ -1,8 +1,33 @@
-// protocols.js - Clinical Configuration v6.1 (Smart Logic)
-// INCLUDES: Full MTS, PAT Matrix, & Smart Logic Hooks
+// protocols.js - Clinical Configuration v8.0 (Complete)
+// INCLUDES: Full MTS, PAT Matrix, Smart Logic Hooks, & RCEM/NICE Screening Rules
 
-// --- 1. SCORING THRESHOLDS (NEWS2) ---
-const scoringRules = {
+// --- 1. SCREENING & SMART TRIGGERS ---
+const screeningRules = {
+    hiv: {
+        minAge: 16,
+        maxAge: 65, // Standard opt-out window
+        label: "HIV Opt-Out Testing (RCEM/NICE)"
+    },
+    frailty: {
+        minAge: 65,
+        trigger: "auto",
+        label: "Silver Book II: Frailty Assessment"
+    },
+    alcohol: {
+        // Triggers AUDIT-C visibility if these words appear in History/Complaint
+        triggerKeywords: ["alcohol", "etoh", "drink", "wine", "beer", "vodka", "whisky", "intox", "drunk", "fall", "collapse", "assault", "head injury"],
+        label: "AUDIT-C Alcohol Screen"
+    },
+    violence: {
+        // Triggers ISTV data collection form
+        complaints: ["Assault", "Stabbing", "Gunshot Wound", "Head Injury", "Limb Problem (Injury)"],
+        label: "ISTV: Anonymous Violence Data"
+    }
+};
+
+// --- 2. SCORING THRESHOLDS (NEWS2) ---
+// Standard RCP NEWS2 thresholds for the visual chart
+const scoringRulesData = {
     news2: {
         rr: [
             { max: 8, score: 3, color: 'Red', label: '≤8' },
@@ -17,7 +42,7 @@ const scoringRules = {
             { max: 95, score: 1, color: 'Yellow', label: '94-95' },
             { max: 100, score: 0, color: 'Green', label: '≥96' }
         ],
-        sats2: [ 
+        sats2: [ // CO2 Retainers
             { max: 83, score: 3, color: 'Red', label: '≤83' },
             { max: 85, score: 2, color: 'Orange', label: '84-85' },
             { max: 87, score: 1, color: 'Yellow', label: '86-87' },
@@ -52,7 +77,6 @@ const scoringRules = {
     }
 };
 
-// --- 2. SAFETY GOVERNANCE RULES ---
 const paediatricSafety = {
     paracetamol: { mgPerKg: 15, maxDoseMg: 1000, warning: "Max 1g/dose. QDS." },
     ibuprofen: { mgPerKg: 10, maxDoseMg: 400, warning: "Max 400mg/dose. TDS." },
@@ -116,8 +140,7 @@ const mtsFlowcharts = {
 };
 
 // --- 4. CLINICAL PROTOCOLS (PAT MATRIX MAPPING) ---
-// Structure: details (Verification), do (Mandatory), consider (Conditional), conditionals (Smart Logic Hooks)
-// 'question' is displayed to user. 'add' is the test added to the plan. 'smartTag' links to app.js regex.
+// smartTag: 'anticoagulant' triggers auto-check if keywords found in meds.
 const clinicalProtocols = {
     "Allergy": {
         details: "Reaction to allergen.",
