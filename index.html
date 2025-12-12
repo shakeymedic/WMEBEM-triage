@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Triage Dashboard v4.2</title>
+    <title>Advanced Triage Dashboard v5.1</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -24,7 +24,7 @@
                     </label>
                     <span style="font-size:0.8em; margin-left:5px;">Dark Mode</span>
                 </div>
-                <button id="btn-reset">Start New</button>
+                <button id="btn-reset">Start New Patient</button>
             </div>
         </header>
 
@@ -32,51 +32,23 @@
 
             <div class="card">
                 <h2>Patient Demographics</h2>
-                 <div class="form-group checkbox-group">
-                    <input type="checkbox" id="patient-referral"><label for="patient-referral">GP / Specialty Referral</label>
+                <div class="form-group"><label>Patient Name / ID</label><input type="text" id="patient-id" placeholder="ID or Name"></div>
+                <div class="form-group"><label>Date of Birth</label><input type="date" id="patient-dob"></div>
+                <div class="form-group"><label>Calculated Age: <span id="calculated-age-display">--</span></label></div>
+                <div class="form-grid">
+                    <div class="form-group"><label>Weight (kg)</label><input type="number" id="patient-weight"></div>
+                    <div class="form-group"><label>Sex</label><select id="patient-sex"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
                 </div>
-                <div class="form-group"><label for="patient-id">Patient Name / ID</label><input type="text" id="patient-id" placeholder="e.g., John Doe"></div>
-                
-                <div class="form-group">
-                    <label for="patient-dob">Date of Birth</label>
-                    <input type="date" id="patient-dob">
-                </div>
-                <div class="form-group">
-                    <label>Calculated Age: <span id="calculated-age-display" style="font-weight: normal; color: var(--secondary-color);">--</span></label>
-                </div>
-
-                <div class="form-group"><label for="patient-weight">Weight</label><div class="input-group"><input type="number" id="patient-weight" min="0"><span>kg</span></div></div>
-                <div class="form-group"><label for="patient-sex">Sex</label><select id="patient-sex"><option value="">-- Select --</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
-                <div class="form-group" id="other-sex-container" style="display: none;"><label for="other-sex-text">Please specify:</label><input type="text" id="other-sex-text"></div>
-                
                 <div class="form-group checkbox-group" id="pregnancy-container" style="display: none;">
-                    <input type="checkbox" id="patient-pregnant"><label for="patient-pregnant">Pregnant or <6w Postpartum</label>
+                    <input type="checkbox" id="patient-pregnant"><label>Pregnant / <6w Postpartum</label>
                 </div>
             </div>
             
-             <div class="card">
+            <div class="card">
                 <h2>Clinical History</h2>
-                <div class="form-group">
-                    <div class="label-with-checkbox">
-                        <label for="allergies">Allergies</label>
-                        <button class="quick-btn" onclick="setQuickText('allergies', 'NKDA')">NKDA</button>
-                    </div>
-                    <textarea id="allergies" rows="2" placeholder="e.g., Penicillin..."></textarea>
-                </div>
-                <div class="form-group">
-                    <div class="label-with-checkbox">
-                        <label for="pmh">Past Medical History</label>
-                        <button class="quick-btn" onclick="setQuickText('pmh', 'Nil known')">Nil</button>
-                    </div>
-                    <textarea id="pmh" rows="3" placeholder="e.g., IHD, Asthma..."></textarea>
-                </div>
-                <div class="form-group">
-                    <div class="label-with-checkbox">
-                        <label for="meds">Prescribed Medications</label>
-                        <button class="quick-btn" onclick="setQuickText('meds', 'Nil known')">Nil</button>
-                    </div>
-                    <textarea id="meds" rows="3" placeholder="e.g., Aspirin, Anticoagulants..."></textarea>
-                </div>
+                <div class="form-group"><div class="label-with-checkbox"><label>Allergies</label><button class="quick-btn" onclick="setQuickText('allergies', 'NKDA')">NKDA</button></div><textarea id="allergies" rows="2"></textarea></div>
+                <div class="form-group"><div class="label-with-checkbox"><label>PMH</label><button class="quick-btn" onclick="setQuickText('pmh', 'Nil known')">Nil</button></div><textarea id="pmh" rows="2"></textarea></div>
+                <div class="form-group"><div class="label-with-checkbox"><label>Meds</label><button class="quick-btn" onclick="setQuickText('meds', 'Nil known')">Nil</button></div><textarea id="meds" rows="2"></textarea></div>
             </div>
 
             <div class="card span-2">
@@ -84,27 +56,22 @@
                 <div class="dashboard">
                     <div id="complaint-section">
                         <div class="form-group">
-                            <label for="mts-flowchart-input">Primary Complaint (Searchable):</label>
-                            <input list="flowcharts" id="mts-flowchart-input" placeholder="Type to search e.g. 'Chest'">
+                            <label>Primary Complaint (Search):</label>
+                            <input list="flowcharts" id="mts-flowchart-input" placeholder="Start typing (e.g., Chest Pain)...">
                             <datalist id="flowcharts"></datalist>
                         </div>
                         
                         <div class="form-group">
-                            <label>Pain Score (0-10)</label>
+                            <label>Pain Score: <span id="pain-score-val" class="pain-value">0</span>/10</label>
                             <div class="pain-slider-container">
-                                <span>0</span>
-                                <input type="range" id="pain-score" min="0" max="10" value="0">
-                                <span>10</span>
-                                <span id="pain-score-val" class="pain-value">0</span>
+                                <span>0</span><input type="range" id="pain-score" min="0" max="10" value="0"><span>10</span>
                             </div>
                         </div>
-
-                        <div class="form-group"><label for="complaint-info">History of Presenting Complaint:</label><textarea id="complaint-info" rows="4" placeholder="e.g., Took 16 paracetamol tablets 2 hours ago..."></textarea></div>
                     </div>
                     <div id="discriminator-section">
-                        <label>Select Highest Priority Discriminator:</label>
-                        <div id="discriminators-container" style="max-height: 250px; overflow-y: auto; padding-right: 10px;">
-                            <p style="opacity:0.6;">Select a complaint first.</p>
+                        <label>Select Discriminator:</label>
+                        <div id="discriminators-container">
+                            <p style="opacity:0.6;">Select a complaint to view options.</p>
                         </div>
                     </div>
                 </div>
@@ -114,82 +81,66 @@
                 <h2 id="obs-title">Physiological Observations</h2>
                 <div class="dashboard">
                     <div id="obs-form-container">
-                        <p style="opacity:0.6;">Enter Date of Birth to unlock.</p>
+                        <p style="opacity:0.6;">Enter DOB to unlock relevant scoring.</p>
                     </div>
                     <div id="ews-display-container" style="display: none;">
-                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <h3 style="margin: 0;" id="ews-title">Total Score:</h3>
-                            <span id="total-ews-score" style="font-size: 2.5em; font-weight: bold; color: var(--primary-color);">0</span>
-                             <div id="meows-trigger-display" style="display:none;"></div>
-                        </div>
+                        <h3 style="margin-top:0;">Visual Chart</h3>
                         <div id="visual-ews-container"></div>
                     </div>
                 </div>
             </div>
             
-             <div class="card span-2">
-                <h2>Opportunistic Screening</h2>
-                <div class="dashboard">
-                     <div>
-                        <h3>Smoking & Frailty</h3>
-                        <div class="form-group"><label for="smoking-status">Smoking Status</label><select id="smoking-status"><option value="">-- Select --</option><option value="Current">Current Smoker</option><option value="Ex">Ex-Smoker</option><option value="Never">Never Smoked</option></select></div>
-                        
-                        <div id="frailty-scale-container" style="display: none;">
-                            <div class="form-group">
-                                <label for="frailty-scale">Clinical Frailty Scale (>=65y)</label>
-                                <select id="frailty-scale"><option value="">-- Select --</option><option value="1">1 - Very Fit</option><option value="2">2 - Well</option><option value="3">3 - Managing Well</option><option value="4">4 - Vulnerable</option><option value="5">5 - Mildly Frail</option><option value="6">6 - Moderately Frail</option><option value="7">7 - Severely Frail</option><option value="8">8 - Very Severely Frail</option><option value="9">9 - Terminally Ill</option></select>
-                            </div>
-                        </div>
-                        
-                        <h3>Safeguarding</h3>
-                        <div class="form-group"><label for="da-screen-asked">Asked about domestic abuse (alone)?</label><select id="da-screen-asked"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-                        <div class="form-group" id="da-screen-result-container" style="display:none;"><label for="da-screen-result">Does the patient report feeling unsafe?</label><select id="da-screen-result"><option value="">-- Select --</option><option value="Yes">Yes - Unsafe</option><option value="No">No - Safe</option></select></div>
-                    </div>
+            <div id="paediatric-dosing-card" class="card" style="display: none; border: 2px solid var(--orange);">
+                <h2>Paediatric Safety (Weight Based)</h2>
+                <div class="form-group checkbox-group" style="background: rgba(237, 135, 45, 0.1); padding: 10px;">
+                    <input type="checkbox" id="renal-impairment"><label style="color:var(--orange); font-weight:bold;">Renal Impairment / Dehydration</label>
                 </div>
-            </div>
-
-            <div id="paediatric-dosing-card" class="card" style="display: none;">
-                <h2>Paediatric Dosing Safety</h2>
-                <div class="form-group checkbox-group" style="background: rgba(237, 135, 45, 0.1); padding: 10px; border-radius: 4px;">
-                    <input type="checkbox" id="renal-impairment">
-                    <label for="renal-impairment" style="color:var(--orange); font-weight:bold;">Dehydration / Renal Impairment (Avoid NSAIDs)</label>
-                </div>
-                <p>Calculations based on weight: <strong id="dosing-weight">N/A kg</strong>.</p>
                 <div id="paediatric-dosing-results"></div>
             </div>
             
-            <div class="card">
-                <h2>Live Alerts</h2>
-                <ul id="alerts-list"></ul>
-            </div>
-            
-            <div class="card">
-                <h2>Action Plan</h2>
-                <div id="summary-priority-display">Awaiting Triage</div>
-                 <div class="form-group checkbox-group" style="margin-top: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
-                    <input type="checkbox" id="tick-all-actions"><label for="tick-all-actions">Tick All</label>
+            <div class="card span-2">
+                <h2>Triage Decision & Plan</h2>
+                <div class="dashboard">
+                    <div>
+                        <div id="summary-priority-display" class="summary-priority-Blue">AWAITING DATA</div>
+                        <ul id="priority-reasons" style="font-size:0.9em; color:var(--secondary-color);"></ul>
+                        
+                        <div class="override-box">
+                            <div class="form-group checkbox-group">
+                                <input type="checkbox" id="override-toggle">
+                                <label for="override-toggle"><strong>Clinical Override</strong></label>
+                            </div>
+                            <div id="override-controls" style="display:none; margin-top:10px;">
+                                <select id="override-priority">
+                                    <option value="">Select Priority</option>
+                                    <option value="Red">Red (Immediate)</option>
+                                    <option value="Orange">Orange (Very Urgent)</option>
+                                    <option value="Yellow">Yellow (Urgent)</option>
+                                    <option value="Green">Green (Standard)</option>
+                                    <option value="Blue">Blue (Non-Urgent)</option>
+                                </select>
+                                <input type="text" id="override-rationale" placeholder="Reason for override (Mandatory)..." style="margin-top:5px;">
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3>Clinical Protocol</h3>
+                        <div id="actions-list-container">
+                            <p style="opacity:0.6;">Select a presenting complaint.</p>
+                        </div>
+                    </div>
                 </div>
-                <ul id="actions-list"><li>Awaiting triage completion.</li></ul>
             </div>
             
             <div class="card full-width">
-                <h2>Notes & Handover</h2>
-                <div class="dashboard">
-                    <div>
-                        <label for="epr-note">Triage Note (EPR)</label>
-                        <textarea id="epr-note" rows="10" readonly></textarea>
-                        <button id="btn-copy-note" type="button" style="margin-top: 10px;">Copy formatted</button>
-                    </div>
-                    <div>
-                        <label for="sbar-note">SBAR Handover</label>
-                        <textarea id="sbar-note" rows="10" readonly></textarea>
-                        <button id="btn-copy-sbar" type="button" style="margin-top: 10px;">Copy formatted</button>
-                    </div>
-                </div>
+                <h2>Documentation</h2>
+                <label>EPR Note</label>
+                <textarea id="epr-note" rows="8" readonly></textarea>
+                <button id="btn-copy-note" type="button" style="margin-top: 10px;">Copy to Clipboard</button>
             </div>
         </div>
         <footer>
-            <p><strong>Disclaimer:</strong> This application is for educational and demonstration purposes only. V4.2</p>
+            <p>V5.1 | Educational Use Only | Always adhere to local trust guidelines.</p>
         </footer>
     </div>
     
