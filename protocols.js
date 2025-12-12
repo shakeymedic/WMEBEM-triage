@@ -1,454 +1,302 @@
-// protocols.js - Clinical Configuration v4.3
-// COMPLETE DATABASE: Standard Bundles, Dosing, Pain, Clinical Protocols, & FULL MTS FLOWCHARTS.
+// protocols.js - Clinical Configuration v5.1 (Complete)
+// INCLUDES: Full MTS Database, PAT Matrix Integration, NEWS2/PEWS Scoring.
 
-// --- 1. STANDARD INVESTIGATION BUNDLES ---
-const standardBundles = {
-    'Routine': ['FBC', 'U&E', 'CRP', 'LFT', 'Bone Profile'],
-    'Surgical': ['FBC', 'U&E', 'CRP', 'LFT', 'Amylase', 'Group & Save', 'Lactate'],
-    'Cardiac': ['FBC', 'U&E', 'CRP', 'Lipids', 'HbA1c', 'Troponin (High Sensitivity)', 'Coagulation'],
-    'Trauma': ['FBC', 'U&E', 'Coagulation', 'Group & Save', 'Lactate', 'Bone Profile'],
-    'Sepsis': ['FBC', 'U&E', 'CRP', 'LFT', 'Lactate', 'Coagulation', 'Blood Cultures', 'Glucose'],
-    'Confused': ['FBC', 'U&E', 'CRP', 'LFT', 'Bone Profile', 'B12/Folate', 'TSH', 'Glucose'],
-    'Overdose': ['FBC', 'U&E', 'LFT', 'INR', 'Paracetamol Level', 'Salicylate Level', 'Glucose'],
-    'Resp': ['FBC', 'U&E', 'CRP', 'Bone Profile'],
-    'Stroke': ['FBC', 'U&E', 'CRP', 'Glucose', 'Lipids', 'Coagulation', 'ESR'],
-    'Vasculitis': ['FBC', 'U&E', 'CRP', 'LFT', 'Bone Profile', 'ESR', 'Urinalysis'],
-    'Coag': ['FBC', 'U&E', 'LFT', 'Coagulation', 'Group & Save']
+// --- 1. SCORING THRESHOLDS (NEWS2) ---
+const scoringRules = {
+    news2: {
+        rr: [
+            { max: 8, score: 3, color: 'Red', label: '≤8' },
+            { max: 11, score: 1, color: 'Yellow', label: '9-11' },
+            { max: 20, score: 0, color: 'Green', label: '12-20' },
+            { max: 24, score: 2, color: 'Orange', label: '21-24' },
+            { max: 999, score: 3, color: 'Red', label: '≥25' }
+        ],
+        sats1: [ // Scale 1 (Standard)
+            { max: 91, score: 3, color: 'Red', label: '≤91' },
+            { max: 93, score: 2, color: 'Orange', label: '92-93' },
+            { max: 95, score: 1, color: 'Yellow', label: '94-95' },
+            { max: 100, score: 0, color: 'Green', label: '≥96' }
+        ],
+        sats2: [ // Scale 2 (CO2 Retainers - 88-92% Target)
+            { max: 83, score: 3, color: 'Red', label: '≤83' },
+            { max: 85, score: 2, color: 'Orange', label: '84-85' },
+            { max: 87, score: 1, color: 'Yellow', label: '86-87' },
+            { max: 92, score: 0, color: 'Green', label: '88-92' },
+            { max: 93, score: 1, color: 'Yellow', label: '93' },
+            { max: 94, score: 2, color: 'Orange', label: '94' },
+            { max: 96, score: 3, color: 'Red', label: '95-96' },
+            { max: 100, score: 3, color: 'Red', label: '≥97' }
+        ],
+        sbp: [
+            { max: 90, score: 3, color: 'Red', label: '≤90' },
+            { max: 100, score: 2, color: 'Orange', label: '91-100' },
+            { max: 110, score: 1, color: 'Yellow', label: '101-110' },
+            { max: 219, score: 0, color: 'Green', label: '111-219' },
+            { max: 999, score: 3, color: 'Red', label: '≥220' }
+        ],
+        hr: [
+            { max: 40, score: 3, color: 'Red', label: '≤40' },
+            { max: 50, score: 1, color: 'Yellow', label: '41-50' },
+            { max: 90, score: 0, color: 'Green', label: '51-90' },
+            { max: 110, score: 1, color: 'Yellow', label: '91-110' },
+            { max: 130, score: 2, color: 'Orange', label: '111-130' },
+            { max: 999, score: 3, color: 'Red', label: '≥131' }
+        ],
+        temp: [
+            { max: 35.0, score: 3, color: 'Red', label: '≤35.0' },
+            { max: 36.0, score: 1, color: 'Yellow', label: '35.1-36.0' },
+            { max: 38.0, score: 0, color: 'Green', label: '36.1-38.0' },
+            { max: 39.0, score: 1, color: 'Yellow', label: '38.1-39.0' },
+            { max: 99.9, score: 2, color: 'Orange', label: '≥39.1' }
+        ]
+    }
 };
 
 // --- 2. SAFETY GOVERNANCE RULES ---
 const paediatricSafety = {
-    paracetamol: { mgPerKg: 15, maxDoseMg: 1000, warning: "Max 1g per dose" },
-    ibuprofen: { mgPerKg: 10, maxDoseMg: 400, warning: "Max 400mg per dose" },
-    fluidBolus: { mlPerKg: 20, maxVolMl: 500, warning: "Review if >500ml required" }
+    paracetamol: { mgPerKg: 15, maxDoseMg: 1000, warning: "Max 1g/dose. QDS." },
+    ibuprofen: { mgPerKg: 10, maxDoseMg: 400, warning: "Max 400mg/dose. TDS." },
+    fluidBolus: { mlPerKg: 20, maxVolMl: 500, warning: "Reassess after every bolus" }
 };
 
 const painProtocols = {
-    severeThreshold: 7, // Pain score >= 7 triggers orange priority
+    severeThreshold: 7, 
     action: "Analgesia: Administer strong analgesia within 20 mins"
 };
 
 // --- 3. FULL MANCHESTER TRIAGE SYSTEM (MTS) DATA ---
+// Merged Original v4.3 Data + PAT Matrix Specifics
 const mtsFlowcharts = {
     "Abdominal Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Significant history","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Altered GCS","priority":"Yellow"},{"text":"Haemodynamic instability","priority":"Yellow"},{"text":"New onset in elderly","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Urinary symptoms","priority":"Green"},{"text":"Recent problem","priority":"Blue"},{"text":"Old problem","priority":"Blue"}],
+    "Abdominal Pain - Lower": [{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"PV Bleeding (Pregnant)","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Mild pain","priority":"Green"}],
+    "Abdominal Pain - Upper": [{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Haematemesis","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Mild pain","priority":"Green"}],
     "Abdominal Pain in Children": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Bile-stained vomit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Abdominal distension","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
-    "Allergies": [{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"Wheeze","priority":"Orange"},{"text":"Oedema of tongue/throat","priority":"Orange"},{"text":"Widespread rash","priority":"Yellow"},{"text":"Facial oedema","priority":"Yellow"},{"text":"History of severe reaction","priority":"Yellow"},{"text":"Localised rash","priority":"Green"},{"text":"Itch","priority":"Green"}],
+    "Allergy": [{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"Wheeze","priority":"Orange"},{"text":"Oedema of tongue/throat","priority":"Orange"},{"text":"Widespread rash","priority":"Yellow"},{"text":"Facial oedema","priority":"Yellow"},{"text":"History of severe reaction","priority":"Yellow"},{"text":"Localised rash","priority":"Green"},{"text":"Itch","priority":"Green"}],
     "Assault": [{"text":"Airway compromise","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Penetrating injury to head, neck, torso","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Large haematoma","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Small laceration","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
+    "Ascites": [{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Shortness of breath","priority":"Yellow"},{"text":"Abdominal distension","priority":"Green"}],
     "Back Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New extensive neurological deficit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"New focal neurological deficit","priority":"Yellow"},{"text":"Cauda equina syndrome symptoms","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Mechanical back pain","priority":"Green"},{"text":"Old problem","priority":"Blue"}],
-    "Breathing Problems": [{"text":"Apnoeic","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Moderate respiratory distress","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild respiratory distress","priority":"Green"},{"text":"Cough","priority":"Green"},{"text":"Sore throat","priority":"Green"}],
+    "Bleeding - Major": [{"text":"Active exsanguination","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"History of significant blood loss","priority":"Orange"}],
+    "Bleeding - Minor": [{"text":"Uncontrolled minor bleed","priority":"Yellow"},{"text":"Controlled bleed","priority":"Green"}],
+    "Breathless": [{"text":"Apnoeic","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Moderate respiratory distress","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild respiratory distress","priority":"Green"},{"text":"Cough","priority":"Green"},{"text":"Sore throat","priority":"Green"}],
     "Burns and Scalds": [{"text":"Major burn (>15% adult, >10% child)","priority":"Red"},{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Inhalational injury","priority":"Orange"},{"text":"Circumferential burn","priority":"Orange"},{"text":"Chemical/electrical burn","priority":"Orange"},{"text":"Moderate burn (5-15% adult, 5-10% child)","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Burn to face, hands, feet, perineum","priority":"Yellow"},{"text":"Minor burn (<5%)","priority":"Green"},{"text":"Mild pain","priority":"Green"},{"text":"Sunburn","priority":"Blue"}],
     "Chest Pain": [{"text":"Airway compromise","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Cardiac-type chest pain at rest","priority":"Yellow"},{"text":"Pleuritic chest pain","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Recent non-cardiac pain","priority":"Green"},{"text":"Musculoskeletal pain","priority":"Green"}],
+    "Chest Pain - Cardiac": [{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Cardiac pain at rest","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"}],
+    "Chest Pain - Pleuritic": [{"text":"Severe pain","priority":"Orange"},{"text":"Hypoxia","priority":"Orange"},{"text":"Pleuritic pain","priority":"Yellow"}],
+    "Chest Pain - Muscular": [{"text":"Severe pain","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Mild pain","priority":"Green"}],
     "Collapse": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"New GCS < 15","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Significant injury","priority":"Orange"},{"text":"Post-ictal","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Cardiac history","priority":"Yellow"},{"text":"Simple faint, now recovered","priority":"Green"},{"text":"Normal vital signs","priority":"Green"}],
+    "Confusion": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"New Confusion","priority":"Orange"},{"text":"Hypoglycaemia","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Yellow"}],
     "Crying Baby": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Non-blanching rash","priority":"Orange"},{"text":"High-pitched/inconsolable cry","priority":"Orange"},{"text":"Grunting/severe respiratory distress","priority":"Orange"},{"text":"Looks unwell","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Fever","priority":"Yellow"},{"text":"Parental concern","priority":"Yellow"},{"text":"Seems well","priority":"Green"}],
     "Dental Problems": [{"text":"Airway compromise","priority":"Red"},{"text":"Uncontrolled bleeding","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Facial swelling with systemic signs","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Facial swelling","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Lost filling","priority":"Blue"}],
-    "Diarrhoea and Vomiting": [{"text":"Shock","priority":"Red"},{"text":"Severe dehydration","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Moderate dehydration","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"High fever","priority":"Yellow"},{"text":"Mild dehydration","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Diarrhoea","priority":"Green"}],
+    "Diarrhoea": [{"text":"Shock","priority":"Red"},{"text":"Severe dehydration","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Moderate dehydration","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"High fever","priority":"Yellow"},{"text":"Mild dehydration","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Diarrhoea","priority":"Green"}],
     "Ear Problems": [{"text":"Severe pain","priority":"Orange"},{"text":"Sudden onset deafness","priority":"Orange"},{"text":"Mastoid tenderness","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Discharge","priority":"Yellow"},{"text":"Foreign body","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Wax","priority":"Blue"}],
     "Eye Problems": [{"text":"Sudden loss of vision","priority":"Red"},{"text":"Chemical eye injury","priority":"Red"},{"text":"Penetrating eye injury","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Reduced visual acuity","priority":"Yellow"},{"text":"Foreign body sensation","priority":"Yellow"},{"text":"Painful red eye","priority":"Yellow"},{"text":"Flash burns","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Conjunctivitis","priority":"Green"}],
-    "Falls": [{"text":"Major trauma","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Head injury with anticoagulants","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"}],
+    "Fall": [{"text":"Major trauma","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Head injury with anticoagulants","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"}],
+    "Fever": [{"text":"Shock","priority":"Red"},{"text":"Non-blanching rash","priority":"Orange"},{"text":"Neutropenia suspected","priority":"Orange"},{"text":"Hot","priority":"Green"}],
     "Fits": [{"text":"Seizing now","priority":"Red"},{"text":"Post-ictal, not recovering","priority":"Orange"},{"text":"New focal neurology","priority":"Orange"},{"text":"Suspected head injury","priority":"Orange"},{"text":"Post-ictal, recovering","priority":"Yellow"},{"text":"First fit","priority":"Yellow"},{"text":"Fever","priority":"Yellow"},{"text":"Known epileptic, recovered","priority":"Green"}],
     "Head Injury": [{"text":"GCS < 9","priority":"Red"},{"text":"GCS 9-12","priority":"Orange"},{"text":"Penetrating injury","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Focal neurological deficit","priority":"Orange"},{"text":"GCS 13-14","priority":"Yellow"},{"text":"Vomiting >1 episode","priority":"Yellow"},{"text":"History of LOC >5 mins","priority":"Yellow"},{"text":"Amnesia","priority":"Yellow"},{"text":"On anticoagulants","priority":"Yellow"},{"text":"GCS 15, no other factors","priority":"Green"}],
     "Headache": [{"text":"Reduced level of consciousness (GCS < 13)","priority":"Red"},{"text":"Sudden onset severe headache ('thunderclap')","priority":"Orange"},{"text":"New neurological deficit","priority":"Orange"},{"text":"Meningism (fever, neck stiffness, photophobia)","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New onset headache >50 years","priority":"Yellow"},{"text":"Headache with visual disturbance","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Chronic headache, unchanged","priority":"Blue"}],
+    "Headache - Sudden Onset": [{"text":"Reduced GCS","priority":"Red"},{"text":"Thunderclap","priority":"Orange"},{"text":"Meningism","priority":"Orange"}],
+    "Headache - Meningitic": [{"text":"Purpuric Rash","priority":"Red"},{"text":"Meningism","priority":"Orange"},{"text":"Fever","priority":"Yellow"}],
+    "Jaundice": [{"text":"Liver failure signs","priority":"Orange"},{"text":"Unwell","priority":"Yellow"},{"text":"Well","priority":"Green"}],
+    "Joint Swelling": [{"text":"Septic arthritis suspected","priority":"Orange"},{"text":"Hot/Red joint","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"}],
     "Limb Problem (Injury)": [{"text":"Major trauma","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Neurovascular compromise","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Obvious deformity/dislocation","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Large wound","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"},{"text":"Minor injury","priority":"Blue"}],
     "Limb Problem (Non-Injury)": [{"text":"Neurovascular compromise","priority":"Red"},{"text":"Severe pain","priority":"Orange"},{"text":"Hot, swollen, tender joint","priority":"Orange"},{"text":"Suspected DVT","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Cellulitis","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Chronic pain","priority":"Blue"}],
     "Mental Health Problem": [{"text":"Immediate risk to self or others","priority":"Red"},{"text":"Violent or aggressive","priority":"Red"},{"text":"Severe distress or agitation","priority":"Orange"},{"text":"Acute psychosis","priority":"Orange"},{"text":"Overdose (conscious)","priority":"Orange"},{"text":"Suicidal ideation with plan","priority":"Yellow"},{"text":"Distressed","priority":"Yellow"},{"text":"Self-harm (minor)","priority":"Yellow"},{"text":"Low mood, no immediate risk","priority":"Green"},{"text":"Request for medication","priority":"Blue"}],
-    "Overdose and Poisoning": [{"text":"Unresponsive","priority":"Red"},{"text":"Seizing now","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Orange"},{"text":"High-risk substance (e.g., TCA, Paracetamol > guideline)","priority":"Orange"},{"text":"Deliberate self-harm intent","priority":"Yellow"},{"text":"Symptomatic but stable","priority":"Yellow"},{"text":"Asymptomatic, low-risk substance","priority":"Green"},{"text":"Information request","priority":"Blue"}],
+    "Overdose": [{"text":"Unresponsive","priority":"Red"},{"text":"Seizing now","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Orange"},{"text":"High-risk substance","priority":"Orange"},{"text":"Deliberate self-harm intent","priority":"Yellow"},{"text":"Symptomatic but stable","priority":"Yellow"},{"text":"Asymptomatic, low-risk substance","priority":"Green"},{"text":"Information request","priority":"Blue"}],
+    "Palpitations": [{"text":"Shock","priority":"Orange"},{"text":"Chest Pain","priority":"Orange"},{"text":"History of Arrhythmia","priority":"Yellow"},{"text":"Pulse irregular","priority":"Yellow"}],
     "Pregnancy": [{"text":"Imminent delivery","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Heavy vaginal bleeding","priority":"Orange"},{"text":"Seizing (eclampsia)","priority":"Orange"},{"text":"Reduced fetal movements","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Minor vaginal bleeding","priority":"Yellow"},{"text":"Ruptured membranes","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"}],
     "Rash": [{"text":"Shock","priority":"Red"},{"text":"Non-blanching rash with fever/lethargy","priority":"Orange"},{"text":"Stridor or wheeze","priority":"Orange"},{"text":"Widespread, blistering rash","priority":"Orange"},{"text":"Non-blanching rash, patient well","priority":"Yellow"},{"text":"Widespread rash with fever","priority":"Yellow"},{"text":"Localised blistering rash","priority":"Yellow"},{"text":"Itchy rash","priority":"Green"},{"text":"Localised rash, patient well","priority":"Green"}],
-    "Shortness of Breath in Children": [{"text":"Apnoeic or exhausted","priority":"Red"},{"text":"Severe respiratory distress (e.g., grunting, marked recession, cyanosis)","priority":"Orange"},{"text":"Stridor at rest","priority":"Orange"},{"text":"Altered level of consciousness","priority":"Orange"},{"text":"Moderate respiratory distress (e.g., some recession, nasal flaring)","priority":"Yellow"},{"text":"Audible wheeze","priority":"Yellow"},{"text":"History of apnoea","priority":"Yellow"},{"text":"Mild increased work of breathing","priority":"Green"},{"text":"Cough/coryza, no distress","priority":"Green"}],
+    "Seizure": [{"text":"Seizing now","priority":"Red"},{"text":"Status Epilepticus","priority":"Orange"},{"text":"First seizure","priority":"Yellow"},{"text":"Known epilepsy - recovered","priority":"Green"}],
+    "Shortness of Breath": [{"text":"Apnoeic","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Moderate respiratory distress","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild respiratory distress","priority":"Green"},{"text":"Cough","priority":"Green"},{"text":"Sore throat","priority":"Green"}],
+    "Tiredness": [{"text":"Shock","priority":"Orange"},{"text":"Severe Anaemia suspected","priority":"Orange"},{"text":"Chronic","priority":"Blue"}],
     "Unwell Adult": [{"text":"Unresponsive or airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"New GCS < 15","priority":"Orange"},{"text":"High risk of sepsis (meets criteria)","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Looks very unwell","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Significant history","priority":"Yellow"},{"text":"Looks well, normal vital signs","priority":"Green"},{"text":"Symptom enquiry only","priority":"Blue"}],
     "Urinary Problems": [{"text":"Shock (septic)","priority":"Red"},{"text":"Severe pain (renal colic/retention)","priority":"Orange"},{"text":"Systemically unwell with fever","priority":"Orange"},{"text":"Acute urinary retention","priority":"Yellow"},{"text":"Visible haematuria","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Symptoms of UTI","priority":"Green"},{"text":"Catheter problem","priority":"Green"}],
+    "Vertigo": [{"text":"Cannot stand","priority":"Orange"},{"text":"Sudden onset","priority":"Yellow"},{"text":"Chronic","priority":"Blue"}],
+    "Weakness": [{"text":"FAST Positive","priority":"Orange"},{"text":"New neurological deficit","priority":"Orange"},{"text":"Sudden onset","priority":"Orange"}],
     "Worried Parent": [{"text":"Parent states 'child is dying'","priority":"Red"},{"text":"Parent states 'child is very ill'","priority":"Orange"},{"text":"Parent states 'child is ill'","priority":"Yellow"},{"text":"Parent is worried","priority":"Green"}]
 };
 
-const contextQuestions = {
-    'Chest Pain': [
-        { id: 'cp-onset', label: 'Onset (sudden/gradual)?' },
-        { id: 'cp-character', label: 'Character (sharp/dull)?' },
-        { id: 'cp-radiation', label: 'Radiation?' },
-        { id: 'cp-exertion', label: 'Worse on exertion?' },
-        { id: 'cp-pleuritic', label: 'Pleuritic (worse on inspiration)?' }
-    ],
-    'Abdominal Pain': [
-        { id: 'ap-location', label: 'Location of pain (e.g., RUQ, central)?' },
-        { id: 'ap-bowels', label: 'Change in bowel habit?' },
-        { id: 'ap-urinary', label: 'Urinary symptoms?' },
-        { id: 'ap-vomiting', label: 'Vomiting?' }
-    ]
-};
-
-const differentialDiagnoses = {
-    'Chest Pain': {
-        'default': ['ACS', 'PE', 'Aortic Dissection', 'Pericarditis', 'Pneumothorax', 'Musculoskeletal Pain', 'GORD'],
-        'pleuritic': ['PE', 'Pneumothorax', 'Pericarditis', 'Pneumonia', 'Musculoskeletal Pain']
-    },
-    'Abdominal Pain': {
-        'default': ['Appendicitis', 'Bowel Obstruction', 'Pancreatitis', 'Cholecystitis', 'Diverticulitis', 'AAA', 'Gastritis']
-    },
-    'Overdose and Poisoning': {
-        'default': ['Paracetamol Overdose', 'Salicylate Overdose', 'Opioid Overdose', 'TCA Overdose', 'Serotonin Syndrome']
-    }
-};
-
-// --- 4. CLINICAL PROTOCOLS ---
-// Maps Presenting Complaints to Investigations & Actions
+// --- 4. CLINICAL PROTOCOLS (PAT MATRIX MAPPING) ---
+// Mapped from 'PATinvestigationMatrix.xlsx - Display.csv'
 const clinicalProtocols = {
-    "Abdominal Pain": {
-        bloods: "Surgical",
-        urine: "Urinalysis + β-HCG (female <55)",
-        cannula: "conditional",
-        special: ["NBM", "Pain Score Reassessment"]
+    "Allergy": {
+        do: ["U&E", "FBC"],
+        consider: ["CRP"],
+        ask: []
     },
     "Abdominal Pain - Lower": {
-        bloods: "Surgical",
-        urine: "Urinalysis + β-HCG (Mandatory)",
-        cannula: "conditional",
-        special: ["Consider Ectopic (if female)", "Consider Appendicitis/Diverticulitis"]
+        do: ["U&E", "CRP", "Bone profile", "FBC", "VBG", "Urine Dip", "Pregnancy Test"],
+        consider: ["G&S", "Coagulation", "Beta HCG", "Bladder Scan"],
+        ask: []
     },
     "Abdominal Pain - Upper": {
-        bloods: "Surgical",
-        urine: "Urinalysis + β-HCG",
-        cannula: "conditional",
-        bedside: ["12-Lead ECG (Inferior MI?)", "VBG (Lactate)"],
-        special: ["Gastritis/Gallstones/Pancreatitis differential"]
-    },
-    "Abdominal Pain in Children": {
-        bloods: "FBC, U&E, CRP, Group & Save, Amylase",
-        urine: "Urinalysis",
-        cannula: "conditional",
-        special: ["Surgical Review", "Testicular Exam (if male)"]
-    },
-    "Diarrhoea and Vomiting": {
-        bloods: "FBC, U&E, CRP, VBG (Lactate)",
-        urine: "Urinalysis (Exclude DKA)",
-        cannula: "conditional",
-        special: ["Stool Sample (if travel/abx/bloody)", "Side Room Isolation"]
-    },
-    "GI Bleed": {
-        bloods: "Trauma",
-        urine: null,
-        cannula: true,
-        bedside: ["VBG (Lactate & Hb)"],
-        special: ["Glasgow-Blatchford Score", "NBM", "Activate Major Haemorrhage if unstable"]
-    },
-    "Jaundice": {
-        bloods: "Surgical",
-        urine: "Urinalysis (Bilirubin)",
-        cannula: true,
-        special: ["Septic Screen if febrile (Cholangitis risk)", "Viral Hepatitis Screen"]
+        do: ["U&E", "LFT", "CRP", "Amylase", "Bone profile", "FBC", "VBG", "ECG", "Pregnancy Test"],
+        consider: ["G&S", "Coagulation", "Beta HCG", "Troponin"],
+        ask: []
     },
     "Ascites": {
-        bloods: "Surgical",
-        urine: "Urinalysis",
-        cannula: "conditional",
-        special: ["Coagulation Screen", "Diagnostic Paracentesis consideration"]
+        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG"],
+        consider: ["Blood culture", "Amylase"],
+        ask: []
     },
-    "Chest Pain": {
-        bloods: "Cardiac",
-        urine: null,
-        cannula: true,
-        bedside: ["12-Lead ECG (Repeat @ 60m if normal)"],
-        imaging: ["CXR"],
-        special: ["HEART Score", "Aspirin 300mg (if cardiac & not allergic)"]
+    "Bleeding - Major": {
+        do: ["Cross Match", "G&S", "Coagulation", "U&E", "LFT", "FBC", "VBG"],
+        consider: [],
+        ask: ["If major haemorrhage protocol activated"]
+    },
+    "Bleeding - Minor": {
+        do: ["Coagulation", "U&E", "LFT", "FBC", "VBG"],
+        consider: ["G&S"],
+        ask: ["Evidence of infection?"]
+    },
+    "Breathless": {
+        do: ["U&E", "CRP", "FBC", "VBG", "ECG"],
+        consider: ["G&S", "Blood culture", "D-Dimer", "Coagulation", "Troponin", "Pregnancy Test"],
+        ask: ["On warfarin? (INR)"]
+    },
+    "Bruising - Non traumatic": {
+        do: ["Coagulation", "U&E", "LFT", "FBC"],
+        consider: [],
+        ask: ["Low sats? (ABG)"]
+    },
+    "Calf Pain and Swelling": {
+        do: ["U&E", "CRP", "FBC"],
+        consider: ["D-Dimer", "Coagulation"],
+        ask: ["Tachycardic or Bradycardic? (ECG)"]
+    },
+    "Chest Pain - Cardiac": {
+        do: ["Coagulation", "U&E", "FBC", "ECG", "Troponin"],
+        consider: ["CXR", "Cannula"],
+        ask: ["Systemically unwell?"]
+    },
+    "Chest Pain - Dyspepsia": {
+        do: ["U&E", "FBC", "ECG"],
+        consider: ["LFT", "Amylase", "Coagulation"],
+        ask: []
+    },
+    "Chest Pain - Muscular": {
+        do: ["U&E", "FBC"],
+        consider: [],
+        ask: []
     },
     "Chest Pain - Pleuritic": {
-        bloods: "FBC, U&E, CRP, Coagulation",
-        urine: "β-HCG",
-        cannula: true,
-        bedside: ["12-Lead ECG", "Well's Score Assessment"],
-        imaging: ["CXR"],
-        special: ["D-Dimer (only if Wells score low)"]
-    },
-    "Palpitations": {
-        bloods: "Routine",
-        urine: "β-HCG",
-        cannula: true,
-        bedside: ["12-Lead ECG", "Lie/Stand BP"],
-        special: ["Add Magnesium, Phosphate, TSH", "Cardiac Monitor"]
-    },
-    "Shortness of Breath": {
-        bloods: "Resp",
-        urine: null,
-        cannula: "conditional",
-        bedside: ["12-Lead ECG", "ABG (if Sats <92% or CO2 retainer risk)"],
-        imaging: ["CXR"],
-        special: ["Nebulisers if indicated", "Review for Pneumonia (CURB-65)"]
-    },
-    "Asthma": {
-        bloods: "FBC, U&E, CRP",
-        urine: null,
-        cannula: "conditional",
-        bedside: ["VBG (if severe)", "Peak Flow Measurement (Essential)"],
-        imaging: ["CXR (only if consolidation/pneumothorax suspected)"],
-        special: ["Back-to-back nebs if severe", "Steroids (Prednisolone/Hydrocortisone)"]
-    },
-    "COPD": {
-        bloods: "Resp",
-        urine: null,
-        cannula: "conditional",
-        bedside: ["ABG (Essential if Sats <92%)", "ECG"],
-        imaging: ["CXR"],
-        special: ["Controlled Oxygen (88-92% target)", "Nebulisers", "Steroids"]
-    },
-    "Headache": {
-        bloods: "Routine",
-        urine: "β-HCG",
-        cannula: "conditional",
-        special: ["Full Neuro Exam", "Fundoscopy"]
-    },
-    "Headache - Sudden Onset": {
-        bloods: "FBC, U&E, CRP, Coagulation, Group & Save",
-        urine: "β-HCG",
-        cannula: true,
-        special: ["CT Head URGENT (<1hr)", "LP if CT negative >12hrs"]
-    },
-    "Headache - Meningitic": {
-        bloods: "Sepsis",
-        urine: null,
-        cannula: true,
-        bedside: ["Blood Cultures", "Throat Swab"],
-        special: ["Urgent Antibiotics (Ceftriaxone)", "LP consideration"]
-    },
-    "Headache - Temporal Arteritis": {
-        bloods: "FBC, U&E, CRP, LFT, Bone Profile",
-        urine: null,
-        cannula: false,
-        special: ["Add ESR (Essential)", "Ophthalmology Referral if visual symptoms", "Start Steroids if high suspicion"]
-    },
-    "Head Injury": {
-        bloods: "Trauma",
-        urine: null,
-        cannula: false,
-        imaging: ["CT Head (Review NICE CG176 Criteria)"],
-        special: ["Neuro Obs (Q30m)", "Check Anticoagulant Status"]
-    },
-    "Stroke": {
-        bloods: "Stroke",
-        urine: null,
-        cannula: true,
-        bedside: ["Blood Glucose (Mandatory)", "ECG"],
-        imaging: ["CT Head URGENT"],
-        special: ["FAST Positive? -> Stroke Call", "NBM until Swallow Screen"]
-    },
-    "Seizure": {
-        bloods: "Routine",
-        urine: "β-HCG",
-        cannula: "conditional",
-        bedside: ["Blood Glucose", "ECG"],
-        special: ["Add Calcium, Magnesium", "CT Head if first seizure"]
+        do: ["Coagulation", "U&E", "CRP", "FBC", "VBG", "ECG", "CXR"],
+        consider: ["D-Dimer", "Troponin"],
+        ask: []
     },
     "Confusion": {
-        bloods: "Confused",
-        urine: "Urinalysis (Essential)",
-        cannula: "conditional",
-        bedside: ["Blood Glucose", "VBG"],
-        imaging: ["CXR", "Consider CT Head"],
-        special: ["4AT Delirium Screen", "Review medications (Anticholinergic burden)"]
+        do: ["U&E", "LFT", "CRP", "B12/Folate", "Bone profile", "TSH", "FBC", "VBG"],
+        consider: ["Blood culture", "CXR"],
+        ask: []
     },
-    "Syncope / Collapse": {
-        bloods: "FBC, U&E, CRP, Glucose",
-        urine: "β-HCG",
-        cannula: false,
-        bedside: ["12-Lead ECG", "Lie/Stand BP (Essential)"],
-        special: ["EGSYS Score", "Driving Advice", "Review drug chart"]
+    "Diarrhoea": {
+        do: ["U&E", "CRP", "Bone profile", "FBC", "VBG"],
+        consider: ["TSH", "Stool Sample"],
+        ask: []
     },
-    "Vertigo": {
-        bloods: "FBC, U&E",
-        urine: null,
-        cannula: false,
-        bedside: ["ECG", "HINTS Exam (if continuous vertigo)"],
-        special: ["Dix-Hallpike Test (if positional)", "Neuro Exam"]
-    },
-    "Falls": {
-        bloods: "Routine",
-        urine: "Urinalysis",
-        cannula: false,
-        bedside: ["Lie/Stand BP", "ECG"],
-        imaging: ["X-Ray relevant area", "CT Head if criteria met"],
-        special: ["Add CK if long lie (>1hr)", "Frailty Assessment"]
-    },
-    "Back Pain": {
-        bloods: "FBC, U&E, CRP, LFT, Bone Profile",
-        urine: "Urinalysis",
-        cannula: false,
-        bedside: ["Post-void Bladder Scan (Cauda Equina exclusion)"],
-        special: ["Neuro Exam (Perineal sensation/Anal tone)", "Add ESR if >50y (Myeloma screen)"]
-    },
-    "Limb Problem (Injury)": {
-        bloods: null,
-        urine: null,
-        cannula: false,
-        imaging: ["X-Ray as per Ottawa Rules"],
-        special: ["Analgesia", "Neurovascular Status Check"]
-    },
-    "Limb Swelling (DVT)": {
-        bloods: "FBC, U&E, Coagulation",
-        urine: "β-HCG",
-        cannula: false,
-        special: ["Wells Score (DVT)", "D-Dimer (only if Wells Low/Mod)"]
-    },
-    "Joint Swelling - Septic": {
-        bloods: "Sepsis",
-        urine: null,
-        cannula: true,
-        special: ["Orthopaedic Review", "Joint Aspiration", "NBM"]
-    },
-    "Joint Swelling - Other": {
-        bloods: "FBC, U&E, CRP, Urate",
-        urine: null,
-        cannula: false,
-        imaging: ["X-Ray"],
-        special: ["Analgesia", "Rule out septic arthritis"]
-    },
-    "Burns and Scalds": {
-        bloods: "FBC, U&E, CRP, Glucose, Coagulation, Group & Save",
-        urine: null,
-        cannula: true,
-        special: ["Lund & Browder Chart (TBSA)", "Fluid Resus (Parkland)", "Check Tetanus", "ECG (if electrical)"]
-    },
-    "Assault": {
-        bloods: "Trauma",
-        urine: "β-HCG",
-        cannula: "conditional",
-        imaging: ["X-Ray/CT as indicated"],
-        special: ["Police involvement?", "Forensic documentation", "Safeguarding"]
-    },
-    "Wounds": {
-        bloods: null,
-        urine: null,
-        cannula: false,
-        imaging: ["X-Ray (check for foreign body/glass)"],
-        special: ["Tetanus Check", "Irrigation", "Closure"]
-    },
-    "Bites and Stings": {
-        bloods: "FBC, U&E, CRP",
-        urine: null,
-        cannula: "conditional",
-        special: ["Tetanus Check", "Antibiotic prophylaxis?", "X-Ray if teeth retained"]
-    },
-    "Eye Problems": {
-        bloods: null,
-        urine: null,
-        cannula: false,
-        special: ["Visual Acuity (Essential)", "Fluorescein Stain", "Evert Lids", "Ophth Referral if visual loss"]
-    },
-    "Ear Problems": {
-        bloods: null,
-        urine: null,
-        cannula: false,
-        special: ["Otoscopy", "Antibiotics if systemically unwell"]
-    },
-    "Sore Throat": {
-        bloods: "FBC, U&E, CRP, LFT (Glandular fever screen)",
-        urine: null,
-        cannula: "conditional",
-        special: ["Centor/FeverPAIN Score", "Throat Swab?", "Rule out Quinsy (Trismus?)"]
-    },
-    "Dental Problems": {
-        bloods: null,
-        urine: null,
-        cannula: false,
-        special: ["Analgesia", "Dental Nerve Block?", "Refer to Dentist/MaxFax"]
+    "Fall": {
+        do: ["Coagulation", "U&E", "FBC", "VBG", "ECG", "Lying/Standing BP"],
+        consider: ["CRP", "CK"],
+        ask: []
     },
     "Fever": {
-        bloods: "Sepsis",
-        urine: "Urinalysis",
-        cannula: true,
-        bedside: ["VBG (Lactate)", "Blood Cultures x2"],
-        imaging: ["CXR"],
-        special: ["Sepsis Six Pathway", "Source Isolation"]
+        do: ["U&E", "LFT", "CRP", "FBC", "VBG", "Blood culture", "Urine Dip", "Pregnancy Test", "CXR"],
+        consider: [],
+        ask: []
     },
-    "Neutropenic Sepsis": {
-        bloods: "Sepsis",
-        urine: "Urinalysis + Culture",
-        cannula: true,
-        bedside: ["VBG (Lactate)", "Peripheral Blood Culture", "Line Blood Culture"],
-        special: ["Urgent Antibiotics (<1hr)", "Protective Isolation", "MASCC Score"]
+    "Headache - Tension/Migraine": {
+        do: ["U&E", "FBC"],
+        consider: [],
+        ask: []
     },
-    "Overdose and Poisoning": {
-        bloods: "Overdose",
-        urine: "Urinalysis (Toxicology if indicated)",
-        cannula: true,
-        bedside: ["12-Lead ECG (Essential for TCA/cardiotoxins)"],
-        special: ["Psych Liaison Referral", "Toxbase Check", "Paracetamol Level @ 4hrs"]
+    "Headache - Sudden Onset": {
+        do: ["Coagulation", "U&E", "FBC", "Pregnancy Test"],
+        consider: [],
+        ask: []
     },
-    "Allergies": {
-        bloods: "Mast Cell Tryptase (if Anaphylaxis)",
-        urine: null,
-        cannula: "conditional",
-        special: ["Chlorphenamine/Hydrocortisone", "Observe 4-6hrs (Biphasic reaction)"]
+    "Headache - Meningitic": {
+        do: ["Coagulation", "U&E", "CRP", "FBC", "VBG"],
+        consider: [],
+        ask: []
+    },
+    "Headache - New, 50yrs+": {
+        do: ["U&E", "FBC", "ESR"],
+        consider: [],
+        ask: []
+    },
+    "Jaundice": {
+        do: ["Coagulation", "U&E", "LFT", "CRP", "Amylase", "LDH", "FBC", "VBG", "Pregnancy Test"],
+        consider: ["Blood culture"],
+        ask: []
+    },
+    "Joint Swelling - Other": {
+        do: ["Coagulation", "U&E", "FBC"],
+        consider: [],
+        ask: []
+    },
+    "Joint Swelling - Septic Arthritis": {
+        do: ["Coagulation", "U&E", "FBC", "VBG"],
+        consider: [],
+        ask: []
+    },
+    "Transient Loss of Consciousness": {
+        do: ["U&E", "LFT", "CRP", "FBC", "ECG"],
+        consider: [],
+        ask: []
+    },
+    "Overdose / Poisoning": {
+        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "ECG", "Pregnancy Test"],
+        consider: ["G&S"],
+        ask: ["Check Toxbase"]
+    },
+    "Palpitations": {
+        do: ["U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "TSH", "FBC", "ECG", "Pregnancy Test"],
+        consider: ["D-Dimer", "Troponin"],
+        ask: []
     },
     "Rash": {
-        bloods: "FBC, U&E, CRP, LFT, Coagulation",
-        urine: "Urinalysis",
-        cannula: "conditional",
-        special: ["Glass Test (blanching?)", "Photographs"]
+        do: ["U&E", "LFT", "CRP", "FBC"],
+        consider: [],
+        ask: []
     },
-    "Cellulitis": {
-        bloods: "FBC, U&E, CRP",
-        urine: null,
-        cannula: "conditional",
-        special: ["Mark erythema line", "Wound swab (only if broken skin)"]
+    "Seizure - Known Epileptic": {
+        do: ["U&E", "FBC"],
+        consider: [],
+        ask: []
     },
-    "Unwell Adult": {
-        bloods: "Routine",
-        urine: "Urinalysis",
-        cannula: true,
-        bedside: ["VBG", "ECG"],
-        special: ["Review NEWS2 Triggers"]
+    "Seizure - First": {
+        do: ["Coagulation", "U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "FBC", "VBG", "ECG", "Pregnancy Test"],
+        consider: ["Blood culture"],
+        ask: []
     },
-    "Hyponatraemia": {
-        bloods: "FBC, U&E, LFT, TSH, Cortisol, Glucose, Lipids",
-        urine: "Urinalysis",
-        cannula: "conditional",
-        special: ["Paired Serum/Urine Osmolality", "Paired Serum/Urine Sodium", "Fluid Status Assess"]
+    "Septic": {
+        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "Blood culture", "ECG", "CXR"],
+        consider: [],
+        ask: []
     },
-    "Diabetes": {
-        bloods: "FBC, U&E, CRP, Glucose, VBG (pH/Bicarb/Ketones)",
-        urine: "Urinalysis (Ketones)",
-        cannula: true,
-        special: ["Blood Ketones", "DKA Pathway"]
+    "Tiredness / General Weakness": {
+        do: ["U&E", "TSH", "FBC", "VBG", "ESR"],
+        consider: [],
+        ask: []
     },
-    "Urinary Problems": {
-        bloods: "FBC, U&E, CRP",
-        urine: "Urinalysis + Culture",
-        cannula: false,
-        bedside: ["Bladder Scan (if retention)"],
-        special: ["Prostate Exam (male retention)", "Catheterisation?"]
+    "Tremor": {
+        do: ["U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "TSH", "FBC"],
+        consider: [],
+        ask: []
     },
-    "Testicular Pain": {
-        bloods: "FBC, U&E, CRP",
-        urine: "Urinalysis + STI Screen",
-        cannula: "conditional",
-        special: ["Urgent Surgical Review (Exclude Torsion)", "NBM"]
+    "Vertigo": {
+        do: ["Coagulation", "U&E", "FBC"],
+        consider: [],
+        ask: []
     },
-    "Pregnancy": {
-        bloods: "FBC, U&E, LFT, Coagulation, Group & Save, Urate",
-        urine: "Urinalysis (Protein)",
-        cannula: "conditional",
-        special: ["Refer to Maternity Triage", "BP Check (Pre-eclampsia)"]
+    "Weakness - Unilateral": {
+        do: ["Coagulation", "U&E", "LFT", "CRP", "Lipids", "FBC", "VBG", "ECG"],
+        consider: [],
+        ask: []
     },
-    "PV Bleeding": {
-        bloods: "FBC, Group & Save (essential)",
-        urine: "Pregnancy Test (Mandatory)",
-        cannula: "conditional",
-        special: ["Speculum Exam", "Refer Early Pregnancy Unit / Gynae", "Anti-D required?"]
-    },
-    "Sexual Health": {
-        bloods: "HIV, Syphilis Serology",
-        urine: "NAAT (Chlamydia/Gonorrhoea)",
-        cannula: false,
-        special: ["Refer to GUM clinic", "Partner notification"]
-    },
-    "Mental Health": {
-        bloods: "Routine, Paracetamol/Salicylate, Alcohol Level",
-        urine: "Urinalysis (Drug Screen)",
-        cannula: false,
-        special: ["Risk Assessment (Self/Others)", "Organic exclusion", "Psych Liaison"]
-    },
-    "Self Harm": {
-        bloods: "Routine, Coagulation, Paracetamol/Salicylate",
-        urine: "Urinalysis",
-        cannula: "conditional",
-        special: ["Wound care", "Psych Liaison Referral", "Tetanus"]
+    "Wheeze": {
+        do: ["U&E", "CRP", "FBC", "VBG", "CXR"],
+        consider: [],
+        ask: []
     }
 };
