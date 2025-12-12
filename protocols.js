@@ -1,5 +1,5 @@
-// protocols.js - Clinical Configuration v5.1 (Complete)
-// INCLUDES: Full MTS Database, PAT Matrix Integration, NEWS2/PEWS Scoring.
+// protocols.js - Clinical Configuration v6.1 (Smart Logic)
+// INCLUDES: Full MTS, PAT Matrix, & Smart Logic Hooks
 
 // --- 1. SCORING THRESHOLDS (NEWS2) ---
 const scoringRules = {
@@ -11,13 +11,13 @@ const scoringRules = {
             { max: 24, score: 2, color: 'Orange', label: '21-24' },
             { max: 999, score: 3, color: 'Red', label: '≥25' }
         ],
-        sats1: [ // Scale 1 (Standard)
+        sats1: [ 
             { max: 91, score: 3, color: 'Red', label: '≤91' },
             { max: 93, score: 2, color: 'Orange', label: '92-93' },
             { max: 95, score: 1, color: 'Yellow', label: '94-95' },
             { max: 100, score: 0, color: 'Green', label: '≥96' }
         ],
-        sats2: [ // Scale 2 (CO2 Retainers - 88-92% Target)
+        sats2: [ 
             { max: 83, score: 3, color: 'Red', label: '≤83' },
             { max: 85, score: 2, color: 'Orange', label: '84-85' },
             { max: 87, score: 1, color: 'Yellow', label: '86-87' },
@@ -65,7 +65,6 @@ const painProtocols = {
 };
 
 // --- 3. FULL MANCHESTER TRIAGE SYSTEM (MTS) DATA ---
-// Merged Original v4.3 Data + PAT Matrix Specifics
 const mtsFlowcharts = {
     "Abdominal Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Significant history","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Altered GCS","priority":"Yellow"},{"text":"Haemodynamic instability","priority":"Yellow"},{"text":"New onset in elderly","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Urinary symptoms","priority":"Green"},{"text":"Recent problem","priority":"Blue"},{"text":"Old problem","priority":"Blue"}],
     "Abdominal Pain - Lower": [{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"PV Bleeding (Pregnant)","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Mild pain","priority":"Green"}],
@@ -117,186 +116,257 @@ const mtsFlowcharts = {
 };
 
 // --- 4. CLINICAL PROTOCOLS (PAT MATRIX MAPPING) ---
-// Mapped from 'PATinvestigationMatrix.xlsx - Display.csv'
+// Structure: details (Verification), do (Mandatory), consider (Conditional), conditionals (Smart Logic Hooks)
+// 'question' is displayed to user. 'add' is the test added to the plan. 'smartTag' links to app.js regex.
 const clinicalProtocols = {
     "Allergy": {
+        details: "Reaction to allergen.",
         do: ["U&E", "FBC"],
-        consider: ["CRP"],
-        ask: []
+        consider: ["CRP", "Cannula"],
+        conditionals: []
     },
     "Abdominal Pain - Lower": {
-        do: ["U&E", "CRP", "Bone profile", "FBC", "VBG", "Urine Dip", "Pregnancy Test"],
+        details: "Pain in lower quadrants.",
+        do: ["U&E", "CRP", "Bone profile", "FBC", "VBG", "Urine Dip", "Pregnancy Test", "Cannula"],
         consider: ["G&S", "Coagulation", "Beta HCG", "Bladder Scan"],
-        ask: []
+        conditionals: []
     },
     "Abdominal Pain - Upper": {
-        do: ["U&E", "LFT", "CRP", "Amylase", "Bone profile", "FBC", "VBG", "ECG", "Pregnancy Test"],
+        details: "Pain in upper quadrants (epigastric, RUQ, LUQ).",
+        do: ["U&E", "LFT", "CRP", "Amylase", "Bone profile", "FBC", "VBG", "ECG", "Pregnancy Test", "Cannula"],
         consider: ["G&S", "Coagulation", "Beta HCG", "Troponin"],
-        ask: []
+        conditionals: []
     },
     "Ascites": {
-        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG"],
+        details: "Abdominal swelling/fluid.",
+        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "Cannula"],
         consider: ["Blood culture", "Amylase"],
-        ask: []
+        conditionals: []
     },
     "Bleeding - Major": {
-        do: ["Cross Match", "G&S", "Coagulation", "U&E", "LFT", "FBC", "VBG"],
+        details: "Active exsanguination or unstable.",
+        do: ["Cross Match", "G&S", "Coagulation", "U&E", "LFT", "FBC", "VBG", "Cannula"],
         consider: [],
-        ask: ["If major haemorrhage protocol activated"]
+        conditionals: [
+            { question: "Is Major Haemorrhage Protocol activated?", add: "MHP Pack 1" },
+            { question: "On Anticoagulants?", add: "Reversal Agent?", smartTag: "anticoagulant" }
+        ]
     },
     "Bleeding - Minor": {
+        details: "Controlled or minor bleeding.",
         do: ["Coagulation", "U&E", "LFT", "FBC", "VBG"],
-        consider: ["G&S"],
-        ask: ["Evidence of infection?"]
+        consider: ["G&S", "Cannula"],
+        conditionals: [
+            { question: "Evidence of infection?", add: "Blood Cultures" },
+            { question: "On Anticoagulants?", add: "Check INR/Levels", smartTag: "anticoagulant" }
+        ]
     },
     "Breathless": {
-        do: ["U&E", "CRP", "FBC", "VBG", "ECG"],
+        details: "Shortness of breath / Dyspnoea.",
+        do: ["U&E", "CRP", "FBC", "VBG", "ECG", "Cannula"],
         consider: ["G&S", "Blood culture", "D-Dimer", "Coagulation", "Troponin", "Pregnancy Test"],
-        ask: ["On warfarin? (INR)"]
+        conditionals: [
+            { question: "On Anticoagulants (Warfarin/DOAC)?", add: "INR/Coag", smartTag: "anticoagulant" }
+        ]
     },
     "Bruising - Non traumatic": {
+        details: "Spontaneous bruising.",
         do: ["Coagulation", "U&E", "LFT", "FBC"],
         consider: [],
-        ask: ["Low sats? (ABG)"]
+        conditionals: [
+            { question: "O2 Sats < 94%?", add: "ABG" },
+            { question: "On Anticoagulants?", add: "Review Meds", smartTag: "anticoagulant" }
+        ]
     },
     "Calf Pain and Swelling": {
+        details: "Unilateral sudden onset.",
         do: ["U&E", "CRP", "FBC"],
         consider: ["D-Dimer", "Coagulation"],
-        ask: ["Tachycardic or Bradycardic? (ECG)"]
+        conditionals: [
+            { question: "Tachycardic or Bradycardic?", add: "ECG" }
+        ]
     },
     "Chest Pain - Cardiac": {
-        do: ["Coagulation", "U&E", "FBC", "ECG", "Troponin"],
-        consider: ["CXR", "Cannula"],
-        ask: ["Systemically unwell?"]
+        details: "Central crushing chest pain with radiation and history of angina (chest pain on exertion).",
+        do: ["Coagulation", "U&E", "FBC", "ECG", "Troponin", "Cannula"],
+        consider: ["CXR"],
+        conditionals: [
+            { question: "Systemically unwell?", add: "Sepsis Screen" }
+        ]
     },
     "Chest Pain - Dyspepsia": {
+        details: "Indigestion / Heartburn / Acid reflux.",
         do: ["U&E", "FBC", "ECG"],
         consider: ["LFT", "Amylase", "Coagulation"],
-        ask: []
+        conditionals: []
     },
     "Chest Pain - Muscular": {
+        details: "Tender, worse on moving around.",
         do: ["U&E", "FBC"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Chest Pain - Pleuritic": {
-        do: ["Coagulation", "U&E", "CRP", "FBC", "VBG", "ECG", "CXR"],
+        details: "Worse on breathing/inspiration.",
+        do: ["Coagulation", "U&E", "CRP", "FBC", "VBG", "ECG", "CXR", "Cannula"],
         consider: ["D-Dimer", "Troponin"],
-        ask: []
+        conditionals: [
+            { question: "On Anticoagulants?", add: "Review for PE", smartTag: "anticoagulant" }
+        ]
     },
     "Confusion": {
+        details: "New or worsening confusion.",
         do: ["U&E", "LFT", "CRP", "B12/Folate", "Bone profile", "TSH", "FBC", "VBG"],
-        consider: ["Blood culture", "CXR"],
-        ask: []
+        consider: ["Blood culture", "CXR", "Cannula"],
+        conditionals: []
     },
     "Diarrhoea": {
-        do: ["U&E", "CRP", "Bone profile", "FBC", "VBG"],
+        details: "Type 6 or 7 stool.",
+        do: ["U&E", "CRP", "Bone profile", "FBC", "VBG", "Cannula"],
         consider: ["TSH", "Stool Sample"],
-        ask: []
+        conditionals: []
     },
     "Fall": {
+        details: "Mechanical fall or collapse.",
         do: ["Coagulation", "U&E", "FBC", "VBG", "ECG", "Lying/Standing BP"],
-        consider: ["CRP", "CK"],
-        ask: []
+        consider: ["CRP", "CK", "Cannula"],
+        conditionals: [
+            { question: "Head Injury Sustained?", add: "CT Head (NICE)" },
+            { question: "On Anticoagulants?", add: "CT Head (Risk)", smartTag: "anticoagulant" }
+        ]
     },
     "Fever": {
-        do: ["U&E", "LFT", "CRP", "FBC", "VBG", "Blood culture", "Urine Dip", "Pregnancy Test", "CXR"],
+        details: "Temp > 38.0 or reported.",
+        do: ["U&E", "LFT", "CRP", "FBC", "VBG", "Blood culture", "Urine Dip", "Pregnancy Test", "CXR", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: []
+    },
+    "Head Injury": {
+        details: "Trauma to head. (NICE CG176)",
+        do: ["U&E", "FBC", "Coagulation"],
+        consider: ["Cannula"],
+        conditionals: [
+            { question: "On Anticoagulants?", add: "CT Head (Mandatory)", smartTag: "anticoagulant" },
+            { question: "GCS < 15 or Vomiting?", add: "CT Head within 1h" }
+        ]
     },
     "Headache - Tension/Migraine": {
+        details: "Pulsating/Pounding/Throbbing.",
         do: ["U&E", "FBC"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Headache - Sudden Onset": {
-        do: ["Coagulation", "U&E", "FBC", "Pregnancy Test"],
+        details: "Worse pain ever, 5 min onset (Thunderclap).",
+        do: ["Coagulation", "U&E", "FBC", "Pregnancy Test", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: [
+            { question: "On Anticoagulants?", add: "Urgent CT/Reversal", smartTag: "anticoagulant" }
+        ]
     },
     "Headache - Meningitic": {
-        do: ["Coagulation", "U&E", "CRP", "FBC", "VBG"],
+        details: "Confusion, Fever, Rash, Neck Stiffness.",
+        do: ["Coagulation", "U&E", "CRP", "FBC", "VBG", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Headache - New, 50yrs+": {
+        details: "New onset in older patient.",
         do: ["U&E", "FBC", "ESR"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Jaundice": {
+        details: "Yellowing of skin/sclera.",
         do: ["Coagulation", "U&E", "LFT", "CRP", "Amylase", "LDH", "FBC", "VBG", "Pregnancy Test"],
-        consider: ["Blood culture"],
-        ask: []
+        consider: ["Blood culture", "Cannula"],
+        conditionals: []
     },
     "Joint Swelling - Other": {
+        details: "Gradual onset. Generally Well.",
         do: ["Coagulation", "U&E", "FBC"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Joint Swelling - Septic Arthritis": {
-        do: ["Coagulation", "U&E", "FBC", "VBG"],
+        details: "Sudden onset. Generally Unwell.",
+        do: ["Coagulation", "U&E", "FBC", "VBG", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Transient Loss of Consciousness": {
+        details: "Syncope / Faint.",
         do: ["U&E", "LFT", "CRP", "FBC", "ECG"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Overdose / Poisoning": {
-        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "ECG", "Pregnancy Test"],
+        details: "Ingestion of toxic substance.",
+        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "ECG", "Pregnancy Test", "Cannula"],
         consider: ["G&S"],
-        ask: ["Check Toxbase"]
+        conditionals: [
+            { question: "Is Paracetamol involved?", add: "Paracetamol Level" },
+            { question: "Is Aspirin involved?", add: "Salicylate Level" }
+        ]
     },
     "Palpitations": {
+        details: "Awareness of heartbeat.",
         do: ["U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "TSH", "FBC", "ECG", "Pregnancy Test"],
         consider: ["D-Dimer", "Troponin"],
-        ask: []
+        conditionals: []
     },
     "Rash": {
+        details: "New skin eruption.",
         do: ["U&E", "LFT", "CRP", "FBC"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Seizure - Known Epileptic": {
+        details: "History of epilepsy.",
         do: ["U&E", "FBC"],
-        consider: [],
-        ask: []
+        consider: ["Cannula"],
+        conditionals: []
     },
     "Seizure - First": {
-        do: ["Coagulation", "U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "FBC", "VBG", "ECG", "Pregnancy Test"],
+        details: "No previous history.",
+        do: ["Coagulation", "U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "FBC", "VBG", "ECG", "Pregnancy Test", "Cannula"],
         consider: ["Blood culture"],
-        ask: []
+        conditionals: []
     },
     "Septic": {
-        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "Blood culture", "ECG", "CXR"],
+        details: "Sepsis suspected (NEWS2 >5 or Red Flag).",
+        do: ["Coagulation", "U&E", "LFT", "CRP", "FBC", "VBG", "Blood culture", "ECG", "CXR", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Tiredness / General Weakness": {
+        details: "Non-specific malaise.",
         do: ["U&E", "TSH", "FBC", "VBG", "ESR"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Tremor": {
+        details: "Shaking.",
         do: ["U&E", "LFT", "CRP", "Bone profile", "Magnesium", "Phosphate", "TSH", "FBC"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Vertigo": {
+        details: "Dizziness / Room spinning.",
         do: ["Coagulation", "U&E", "FBC"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Weakness - Unilateral": {
-        do: ["Coagulation", "U&E", "LFT", "CRP", "Lipids", "FBC", "VBG", "ECG"],
+        details: "Stroke / TIA symptoms.",
+        do: ["Coagulation", "U&E", "LFT", "CRP", "Lipids", "FBC", "VBG", "ECG", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: []
     },
     "Wheeze": {
-        do: ["U&E", "CRP", "FBC", "VBG", "CXR"],
+        details: "Asthma / COPD / Infection.",
+        do: ["U&E", "CRP", "FBC", "VBG", "CXR", "Cannula"],
         consider: [],
-        ask: []
+        conditionals: []
     }
 };
