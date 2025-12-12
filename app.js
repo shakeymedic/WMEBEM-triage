@@ -1,36 +1,30 @@
-// app.js - Main Logic v4.3
-// Features: Class-based Architecture, Dark Mode, Searchable Datalist, Pain Scores, Safety Governance
+// app.js - Main Logic v5.1
+// Features: Class-based Architecture, Visual EWS, Clinical Override, PAT Matrix Protocols
 
 class TriageApp {
     constructor() {
         this.state = {
             patient: {},
             history: {},
-            screening: {},
             mts: {},
             observations: {},
             scores: {},
-            context: {},
-            override: {},
-            painScore: 0
+            presentingComplaint: '',
+            painScore: 0,
+            override: { active: false, priority: null, rationale: '' }
         };
-        this.timers = {};
         this.init();
     }
 
     init() {
         this.populateDatalist();
         this.loadTheme();
-        this.loadFromStorage();
         this.addEventListeners();
-        this.updateUI(); // Initial render
+        this.updateUI(); 
     }
-
-    // --- INITIALIZATION ---
 
     populateDatalist() {
         const datalist = document.getElementById('flowcharts');
-        // Now fully supported by the complete data in protocols.js
         if (typeof mtsFlowcharts !== 'undefined') {
             Object.keys(mtsFlowcharts).sort().forEach(name => {
                 const option = document.createElement('option');
@@ -48,66 +42,40 @@ class TriageApp {
         }
     }
 
-    loadFromStorage() {
-        const data = JSON.parse(localStorage.getItem('triage_backup_v4'));
-        if (data) {
-            this.showToast('Previous session restored.', 'info');
-            // Simplified restore logic: Iterate keys and set values
-            // In a production app, you'd map this more carefully
-        }
-    }
-
     // --- EVENT LISTENERS ---
-
     addEventListeners() {
         const container = document.querySelector('.container');
         container.addEventListener('input', (e) => this.handleInput(e));
-        container.addEventListener('change', (e) => this.handleInput(e));
         
         document.getElementById('btn-reset').addEventListener('click', () => {
-            localStorage.removeItem('triage_backup_v4');
-            window.location.reload();
+            if(confirm("Start new patient? This will clear all data.")) window.location.reload();
         });
 
-        // Dark Mode Toggle
         document.getElementById('checkbox-theme').addEventListener('change', (e) => {
-            if (e.target.checked) {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                localStorage.setItem('theme', 'dark');
-            } else {
-                document.documentElement.setAttribute('data-theme', 'light');
-                localStorage.setItem('theme', 'light');
-            }
+            const theme = e.target.checked ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
         });
 
-        // Pain Slider Visual Update
         document.getElementById('pain-score').addEventListener('input', (e) => {
             document.getElementById('pain-score-val').textContent = e.target.value;
             this.state.painScore = parseInt(e.target.value);
             this.updateUI();
         });
 
-        // Searchable Complaint Input
         document.getElementById('mts-flowchart-input').addEventListener('input', (e) => {
             const val = e.target.value;
-            // Only update state if it matches a known flowchart in the full database
             if (mtsFlowcharts[val]) {
                 this.state.presentingComplaint = val;
+                this.state.mts = {}; // Reset previous discriminator
                 this.updateUI();
             }
         });
 
-        // Discriminator Selection
         document.getElementById('discriminators-container').addEventListener('click', (e) => {
             if (e.target.classList.contains('discriminator')) {
-                const prev = document.querySelector('.selected-discriminator');
-                if (prev) {
-                    prev.classList.remove('selected-discriminator');
-                    prev.classList.remove('highlight'); // Remove visual highlight
-                }
-                
-                e.target.classList.add('selected-discriminator');
-                e.target.classList.add('highlight'); // Add visual highlight
+                document.querySelectorAll('.discriminator').forEach(el => el.classList.remove('selected-discriminator', 'highlight'));
+                e.target.classList.add('selected-discriminator', 'highlight');
                 
                 this.state.mts = {
                     priority: e.target.dataset.priority,
@@ -117,35 +85,44 @@ class TriageApp {
             }
         });
 
-        document.getElementById('btn-copy-note').addEventListener('click', () => this.copyRichText('epr-note'));
-        document.getElementById('btn-copy-sbar').addEventListener('click', () => this.copyRichText('sbar-note'));
+        // Override Listeners
+        document.getElementById('override-toggle').addEventListener('change', (e) => {
+            this.state.override.active = e.target.checked;
+            document.getElementById('override-controls').style.display = e.target.checked ? 'block' : 'none';
+            this.updateUI();
+        });
 
-        // Global Helper for Quick Buttons
+        document.getElementById('override-priority').addEventListener('change', (e) => {
+            this.state.override.priority = e.target.value;
+            this.updateUI();
+        });
+
+        document.getElementById('override-rationale').addEventListener('input', (e) => {
+            this.state.override.rationale = e.target.value;
+            this.generateNotes();
+        });
+
+        document.getElementById('btn-copy-note').addEventListener('click', () => this.copyRichText('epr-note'));
+        
         window.setQuickText = (id, text) => {
             const el = document.getElementById(id);
             if(el) { el.value = text; this.handleInput(); }
         };
     }
 
-    handleInput(e) {
+    handleInput() {
         this.gatherState();
         this.calculateScores();
         this.updateUI();
-        // Debounced Save
-        if (this.saveTimeout) clearTimeout(this.saveTimeout);
-        this.saveTimeout = setTimeout(() => {
-            // localStorage.setItem('triage_backup_v4', JSON.stringify(this.state)); 
-            // Note: saving inputs state requires mapping specific element IDs
-        }, 1000);
     }
 
-    // --- STATE MANAGEMENT ---
+    // --- STATE & CALCULATIONS ---
 
     gatherState() {
         const getVal = (id) => document.getElementById(id)?.value;
         const getCheck = (id) => document.getElementById(id)?.checked;
 
-        // Age Calculation
+        // Age
         const dob = getVal('patient-dob');
         let age = null;
         if (dob) {
@@ -163,7 +140,6 @@ class TriageApp {
             age: age,
             weight: parseFloat(getVal('patient-weight')),
             sex: getVal('patient-sex'),
-            isPregnant: getCheck('patient-pregnant')
         };
 
         this.state.history = {
@@ -174,77 +150,82 @@ class TriageApp {
         };
 
         this.state.presentingComplaint = getVal('mts-flowchart-input');
-        this.state.painScore = parseInt(getVal('pain-score'));
         
-        // Observations - Logic to grab from active form
-        this.state.observations = this.getObservationsFromForm();
-    }
-
-    getObservationsFromForm() {
+        // Observations
         const formType = document.getElementById('obs-form-container').dataset.formType;
-        let obs = {};
-        // Note: In a full implementation, you map every field ID.
-        // Simplified for this file:
         if (formType === 'news2') {
-            obs = {
-                rr: parseFloat(document.getElementById('rr')?.value),
-                sats: parseFloat(document.getElementById('sats')?.value),
-                sbp: parseFloat(document.getElementById('sbp')?.value),
-                hr: parseFloat(document.getElementById('hr')?.value),
-                temp: parseFloat(document.getElementById('temp')?.value),
-                consciousness: document.getElementById('consciousness')?.value,
-                suppO2: document.getElementById('supp-o2')?.checked
+            this.state.observations = {
+                rr: parseFloat(getVal('rr')),
+                sats: parseFloat(getVal('sats')),
+                suppO2: getCheck('supp-o2'),
+                sbp: parseFloat(getVal('sbp')),
+                hr: parseFloat(getVal('hr')),
+                consciousness: getVal('consciousness'),
+                temp: parseFloat(getVal('temp')),
+                scale2: getCheck('scale2-toggle')
             };
         }
-        return obs;
     }
 
     calculateScores() {
         const { age } = this.state.patient;
         const obs = this.state.observations;
-        this.state.scores = {};
+        this.state.scores = { news2: null };
         
         if (age === null) return;
         
-        // --- NEWS2 Logic (Simplified) ---
-        if (age >= 16) {
-            let score = 0;
-            if (obs.rr <= 8 || obs.rr >= 25) score += 3;
-            if (obs.sats <= 91) score += 3;
-            if (obs.sbp <= 90) score += 3;
-            if (obs.hr >= 131) score += 3;
-            if (obs.consciousness && obs.consciousness !== 'A') score += 3;
-            // ... Add full NEWS2 logic
-            this.state.scores.news2 = { score: score };
+        if (age >= 16 && obs.rr) {
+            let total = 0;
+            const rules = scoringRules.news2;
+            
+            const calc = (val, ruleSet) => {
+                if(isNaN(val)) return 0;
+                for (let r of ruleSet) {
+                    if (val <= r.max) return r.score;
+                }
+                return 3;
+            };
+
+            total += calc(obs.rr, rules.rr);
+            total += obs.scale2 ? calc(obs.sats, rules.sats2) : calc(obs.sats, rules.sats1);
+            total += obs.suppO2 ? 2 : 0; 
+            total += calc(obs.sbp, rules.sbp);
+            total += calc(obs.hr, rules.hr);
+            total += (obs.consciousness === 'A') ? 0 : 3;
+            total += calc(obs.temp, rules.temp);
+
+            this.state.scores.news2 = { score: total };
         }
-        
-        this.checkCriticalAlerts();
     }
 
-    // --- UI UPDATES ---
+    // --- UI RENDERING ---
 
     updateUI() {
         const { age, sex } = this.state.patient;
         
-        // Update Age Display
+        // 1. Demographics
         document.getElementById('calculated-age-display').textContent = age !== null ? `${age} years` : '--';
-        
-        // Visibility Toggles
         document.getElementById('pregnancy-container').style.display = (sex === 'Female' && age > 11 && age < 60) ? 'flex' : 'none';
         
-        // Obs Form Switch
+        // 2. Obs Form & Visuals
         this.updateObsFormType(age);
+        if (age >= 16 && this.state.observations.rr) {
+            this.renderVisualNEWS2();
+        } else {
+            document.getElementById('visual-ews-container').innerHTML = '';
+            document.getElementById('ews-display-container').style.display = 'none';
+        }
 
-        // MTS Section
+        // 3. MTS
         this.updateMTS();
         
-        // Paediatric Dosing (New V4.2 Feature)
+        // 4. Paediatrics
         this.renderPaedsDosing();
         
-        // Priority & Plan
+        // 5. Priority & Plan
         this.updatePriorityAndPlan();
         
-        // Notes
+        // 6. Notes
         this.generateNotes();
     }
 
@@ -261,21 +242,70 @@ class TriageApp {
             if (newType === 'news2') {
                 document.getElementById('obs-title').textContent = 'Physiological Observations (NEWS2)';
                 html = `
-                    <div class="form-group"><label>Resp Rate</label><div class="input-group"><input type="number" id="rr"><span>/min</span></div></div>
-                    <div class="form-group"><label>O₂ Sats</label><div class="input-group"><input type="number" id="sats" max="100"><span>%</span></div></div>
-                    <div class="form-group checkbox-group"><input type="checkbox" id="supp-o2"><label for="supp-o2">On O₂</label></div>
-                    <div class="form-group"><label>Systolic BP</label><div class="input-group"><input type="number" id="sbp"><span>mmHg</span></div></div>
-                    <div class="form-group"><label>Heart Rate</label><div class="input-group"><input type="number" id="hr"><span>bpm</span></div></div>
-                    <div class="form-group"><label>AVPU</label><select id="consciousness"><option value="A">Alert</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
-                    <div class="form-group"><label>Temp</label><div class="input-group"><input type="number" id="temp" step="0.1"><span>°C</span></div></div>
+                    <div class="form-group checkbox-group" style="margin-bottom:10px; border:1px solid var(--border-color); padding:5px;">
+                        <input type="checkbox" id="scale2-toggle"><label for="scale2-toggle">Use Scale 2 (CO₂ Retainer)</label>
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Resp Rate</label><input type="number" id="rr"></div>
+                        <div class="form-group"><label>O₂ Sats (%)</label><input type="number" id="sats"></div>
+                        <div class="form-group checkbox-group"><input type="checkbox" id="supp-o2"><label for="supp-o2">On O₂</label></div>
+                        <div class="form-group"><label>Systolic BP</label><input type="number" id="sbp"></div>
+                        <div class="form-group"><label>Heart Rate</label><input type="number" id="hr"></div>
+                        <div class="form-group"><label>AVPU</label><select id="consciousness"><option value="A">Alert</option><option value="V">Voice</option><option value="P">Pain</option><option value="U">Unresponsive</option></select></div>
+                        <div class="form-group"><label>Temp (°C)</label><input type="number" id="temp" step="0.1"></div>
+                    </div>
                 `;
             } else if (newType === 'pews') {
-                document.getElementById('obs-title').textContent = 'Paediatric Observations (PEWS)';
-                // ... Insert PEWS HTML (Simplified)
-                html = `<div class="form-group"><label>RR</label><input type="number" id="pews-rr"></div>`;
+                document.getElementById('obs-title').textContent = 'Paediatric Observations';
+                html = `<p>Paediatric scoring is simplified in this demo version.</p>`;
             }
             container.innerHTML = html;
         }
+    }
+
+    renderVisualNEWS2() {
+        const obs = this.state.observations;
+        const score = this.state.scores.news2?.score || 0;
+        const container = document.getElementById('visual-ews-container');
+        const rules = scoringRules.news2;
+
+        const createRow = (label, currentVal, ruleSet) => {
+            if(currentVal === undefined || isNaN(currentVal)) return '';
+            
+            const boxes = ruleSet.map(bucket => {
+                return `<div class="ews-box score-${bucket.score} ${this.isInBucket(currentVal, bucket, ruleSet) ? 'active-score' : ''}">
+                            ${bucket.label}
+                        </div>`;
+            }).join('');
+
+            return `<div class="ews-row">
+                        <div class="ews-label">${label}</div>
+                        <div class="ews-track">${boxes}</div>
+                        <div class="ews-val">${currentVal}</div>
+                    </div>`;
+        };
+
+        const satsRules = obs.scale2 ? rules.sats2 : rules.sats1;
+
+        let html = `
+            <div style="text-align:center; margin-bottom:10px;">
+                <span class="ews-total-badge ${score >= 5 ? 'score-red' : 'score-green'}">TOTAL NEWS2: ${score}</span>
+            </div>
+            ${createRow('Resp Rate', obs.rr, rules.rr)}
+            ${createRow('O2 Sats', obs.sats, satsRules)}
+            ${createRow('Sys BP', obs.sbp, rules.sbp)}
+            ${createRow('Heart Rate', obs.hr, rules.hr)}
+            ${createRow('Temp', obs.temp, rules.temp)}
+        `;
+        
+        container.innerHTML = html;
+        document.getElementById('ews-display-container').style.display = 'block';
+    }
+
+    isInBucket(val, bucket, allBuckets) {
+        const idx = allBuckets.indexOf(bucket);
+        const prevMax = idx === 0 ? -Infinity : allBuckets[idx-1].max;
+        return val > prevMax && val <= bucket.max;
     }
 
     updateMTS() {
@@ -283,7 +313,7 @@ class TriageApp {
         const container = document.getElementById('discriminators-container');
         
         if (!complaint || !mtsFlowcharts[complaint]) {
-            container.innerHTML = '<p style="opacity:0.6;">Select a valid complaint.</p>';
+            container.innerHTML = '<p style="opacity:0.6; padding:10px;">Select a valid complaint above to see discriminators.</p>';
             return;
         }
 
@@ -305,96 +335,163 @@ class TriageApp {
         const { age, weight } = this.state.patient;
         const card = document.getElementById('paediatric-dosing-card');
         
-        // Check if config exists (from protocols.js)
-        if (typeof paediatricSafety === 'undefined' || age >= 16 || !weight) {
+        if (age >= 16 || !weight) {
             card.style.display = 'none';
             return;
         }
 
         card.style.display = 'block';
-        document.getElementById('dosing-weight').textContent = `${weight} kg`;
-        
         const p = paediatricSafety.paracetamol;
         const i = paediatricSafety.ibuprofen;
-        const f = paediatricSafety.fluidBolus;
         
         const paraDose = Math.min(weight * p.mgPerKg, p.maxDoseMg);
         const ibuDose = Math.min(weight * i.mgPerKg, i.maxDoseMg);
-        const fluidVol = Math.min(weight * f.mlPerKg, f.maxVolMl);
         
-        const renal = this.state.history.renalImpairment;
-        
-        let html = `
-            <div style="background:var(--input-bg); padding:10px; border-radius:4px;">
-                <p><strong>Paracetamol (${p.mgPerKg}mg/kg):</strong> ${paraDose.toFixed(0)} mg <small>(${p.warning})</small></p>
-                <p style="${renal ? 'color:var(--red); font-weight:bold;' : ''}">
-                    <strong>Ibuprofen (${i.mgPerKg}mg/kg):</strong> 
-                    ${renal ? 'CONTRAINDICATED (Renal Risk)' : ibuDose.toFixed(0) + ' mg'} 
-                    <small>(${i.warning})</small>
-                </p>
-                <p><strong>Fluid Bolus (${f.mlPerKg}ml/kg):</strong> ${fluidVol.toFixed(0)} ml <small>(${f.warning})</small></p>
+        document.getElementById('paediatric-dosing-results').innerHTML = `
+            <div class="dosing-grid">
+                <div class="dose-box">
+                    <strong>Paracetamol</strong><br>
+                    <span class="dose-highlight">${paraDose.toFixed(0)} mg</span><br>
+                    <small>max 1g</small>
+                </div>
+                <div class="dose-box">
+                    <strong>Ibuprofen</strong><br>
+                    <span class="dose-highlight">${ibuDose.toFixed(0)} mg</span><br>
+                    <small>max 400mg</small>
+                </div>
             </div>
         `;
-        document.getElementById('paediatric-dosing-results').innerHTML = html;
     }
 
     updatePriorityAndPlan() {
-        const { mts, painScore, presentingComplaint, scores } = this.state;
-        let priority = mts.priority || "Blue"; // Default
+        const { mts, painScore, presentingComplaint, scores, override } = this.state;
+        
+        // 1. Calculate Base Priority
+        let priority = "Blue"; 
         let reasons = [];
-        if (mts.priority) reasons.push(`MTS: ${mts.discriminator}`);
 
-        // 1. Pain Rule (V4.2)
-        if (typeof painProtocols !== 'undefined' && painScore >= painProtocols.severeThreshold) {
-            if (priority === 'Green' || priority === 'Blue' || priority === 'Yellow') {
+        if (mts.priority) {
+            priority = mts.priority;
+            reasons.push(`MTS Discriminator: ${mts.discriminator}`);
+        }
+
+        // Pain Rule
+        if (painScore >= painProtocols.severeThreshold) {
+            if (['Green','Blue','Yellow'].includes(priority)) {
                 priority = 'Orange';
-                reasons.push("Severe Pain Trigger");
+                reasons.push("Severe Pain Score");
             }
         }
         
-        // 2. NEWS2 Rule
+        // NEWS2 Rule
         if (scores.news2?.score >= 7) {
             priority = 'Red';
-            reasons.push("NEWS2 Critical");
+            reasons.push("NEWS2 Critical (≥7)");
+        } else if (scores.news2?.score >= 5) {
+            if (priority !== 'Red') priority = 'Orange';
+            reasons.push("NEWS2 Warning (≥5)");
         }
 
-        // Render Priority
+        // 2. Apply Override
+        let finalPriority = priority;
+        
+        if (override.active && override.priority) {
+            finalPriority = override.priority;
+            reasons.push(`CLINICAL OVERRIDE: ${override.rationale}`);
+        }
+
+        // 3. Render Priority
         const summary = document.getElementById('summary-priority-display');
-        summary.textContent = `${priority} ${reasons.length ? '(' + reasons[reasons.length-1] + ')' : ''}`;
-        summary.className = `summary-priority-${priority}`;
+        summary.textContent = `${finalPriority.toUpperCase()}`;
+        summary.className = `summary-priority-${finalPriority}`;
         
-        // Render Action Plan
-        const list = document.getElementById('actions-list');
-        let actions = [];
+        document.getElementById('priority-reasons').innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
+
+        // 4. Render Plan (Split by Do/Consider/Ask)
+        const container = document.getElementById('actions-list-container');
         
-        // Pain Action
-        if (painScore >= 7) actions.push(painProtocols.action);
-        
-        // Protocol Actions
         const protocol = clinicalProtocols[presentingComplaint];
         if (protocol) {
-            if (protocol.bloods) actions.push(`Bloods: ${standardBundles[protocol.bloods]?.join(', ')}`);
-            if (protocol.bedside) protocol.bedside.forEach(b => actions.push(b));
+            let html = '';
+            
+            // "Do" Section (Green/Bold)
+            if (protocol.do && protocol.do.length > 0) {
+                html += `<div class="plan-section">
+                            <strong style="color:var(--green);">DO (Immediate):</strong>
+                            <ul>${protocol.do.map(item => `<li>${item}</li>`).join('')}</ul>
+                         </div>`;
+            }
+            
+            // "Consider" Section (Orange/Italic)
+            if (protocol.consider && protocol.consider.length > 0) {
+                html += `<div class="plan-section">
+                            <strong style="color:var(--orange);">CONSIDER (Dependent):</strong>
+                            <ul>${protocol.consider.map(item => `<li><em>${item}</em></li>`).join('')}</ul>
+                         </div>`;
+            }
+            
+            // "Ask" Section (Blue)
+            if (protocol.ask && protocol.ask.length > 0) {
+                html += `<div class="plan-section">
+                            <strong style="color:var(--primary-color);">ASK (Clinical Questions):</strong>
+                            <ul>${protocol.ask.map(item => `<li>${item}</li>`).join('')}</ul>
+                         </div>`;
+            }
+
+            // Pain Protocol
+            if (painScore >= 7) {
+                html += `<div class="plan-section" style="border-top:1px dashed #ccc; margin-top:10px; padding-top:10px;">
+                            <strong>PAIN MANAGEMENT:</strong>
+                            <ul><li>${painProtocols.action}</li></ul>
+                         </div>`;
+            }
+
+            container.innerHTML = html || '<p>No specific protocol defined.</p>';
+        } else {
+             container.innerHTML = '<p style="opacity:0.6;">Select a presenting complaint.</p>';
         }
-        
-        list.innerHTML = actions.map(a => `<li>${a}</li>`).join('');
     }
 
     generateNotes() {
-        const { patient, history, observations, scores } = this.state;
-        let note = `TRIAGE ASSESSMENT\n`;
-        note += `Patient: ${patient.id || 'Unknown'} | Age: ${patient.age}y\n`;
+        const { patient, history, observations, scores, mts, override } = this.state;
+        const now = new Date();
+        
+        let note = `EMERGENCY TRIAGE ASSESSMENT\n`;
+        note += `Date: ${now.toLocaleString()}\n`;
+        note += `---------------------------\n`;
+        note += `Patient: ${patient.id || 'Unknown'} | Age: ${patient.age}y | Sex: ${patient.sex}\n`;
         note += `Complaint: ${this.state.presentingComplaint}\n`;
+        if(mts.discriminator) note += `Discriminator: ${mts.discriminator}\n`;
         note += `Pain Score: ${this.state.painScore}/10\n`;
-        note += `Allergies: ${history.allergies}\n`;
-        note += `Observations: HR ${observations.hr||'-'}, BP ${observations.sbp||'-'}, RR ${observations.rr||'-'}, Sats ${observations.sats||'-'}%\n`;
-        if (scores.news2) note += `NEWS2 Score: ${scores.news2.score}\n`;
+        
+        if(observations.rr) {
+            note += `\nOBSERVATIONS (NEWS2: ${scores.news2?.score})\n`;
+            note += `HR:${observations.hr} BP:${observations.sbp} RR:${observations.rr} Sats:${observations.sats}% Temp:${observations.temp}\n`;
+        }
+
+        note += `\nHISTORY\nAllergies: ${history.allergies}\nPMH: ${history.pmh}\nMeds: ${history.meds}\n`;
+        
+        const protocol = clinicalProtocols[this.state.presentingComplaint];
+        if(protocol) {
+            note += `\nPLAN (Protocol: ${this.state.presentingComplaint})\n`;
+            if(protocol.do.length) note += `Requested: ${protocol.do.join(', ')}\n`;
+            if(protocol.consider.length) note += `Considered: ${protocol.consider.join(', ')}\n`;
+        }
+
+        if(override.active) {
+            note += `\n*** CLINICAL OVERRIDE ACTIVATED ***\n`;
+            note += `Priority adjusted to: ${override.priority}\n`;
+            note += `Rationale: ${override.rationale}\n`;
+        }
+
         document.getElementById('epr-note').value = note;
     }
 
-    checkCriticalAlerts() {
-        const obs = this.state.observations;
-        if (obs.sats < 90 && obs.sats > 0) this.showToast("CRITICAL HYPOXIA", "critical");
+    copyRichText(id) {
+        const el = document.getElementById(id);
+        el.select();
+        document.execCommand('copy');
+        this.showToast("Copied to clipboard", "info");
     }
 
     showToast(msg, type) {
@@ -404,15 +501,8 @@ class TriageApp {
         document.getElementById('toast-container').appendChild(t);
         setTimeout(() => t.remove(), 4000);
     }
-
-    copyRichText(id) {
-        const val = document.getElementById(id).value;
-        navigator.clipboard.writeText(val);
-        this.showToast("Copied to clipboard", "info");
-    }
 }
 
-// Start App
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new TriageApp();
 });
