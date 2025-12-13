@@ -1,4 +1,4 @@
-/* styles.css v5.1 */
+/* styles.css v8.0 */
 :root {
     --primary-color: #005EB8;
     --secondary-color: #4c6272;
@@ -7,7 +7,7 @@
     --text-color: #212b32;
     --border-color: #d8dde0;
     --input-bg: #f8f9fa;
-    --red: #d5281b; --orange: #ed872d; --yellow: #ffb81c; --green: #00a499; --blue: #005EB8;
+    --red: #d5281b; --orange: #ed872d; --yellow: #ffb81c; --green: #00a499; --blue: #005EB8; --purple: #8e44ad;
     --shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
@@ -68,6 +68,10 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid var(--bo
 .plan-section { margin-bottom: 10px; }
 .plan-section ul { margin: 5px 0 0 20px; padding: 0; }
 .plan-section li { margin-bottom: 2px; }
+.q-list { margin-top: 5px; }
+.q-item { display: flex; align-items: center; margin-bottom: 5px; }
+.q-item input { width: auto; margin-right: 10px; }
+.q-item label { margin: 0; font-weight: normal; }
 
 /* Discriminators & Priorities */
 .discriminator { padding: 10px; margin-bottom: 5px; border-radius: 4px; cursor: pointer; border-left: 5px solid transparent; background: var(--input-bg); opacity: 0.7; }
@@ -91,7 +95,29 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid var(--bo
 .dose-box { background: var(--input-bg); padding: 10px; text-align: center; border-radius: 4px; border: 1px solid var(--border-color); }
 .dose-highlight { font-size: 1.4em; color: var(--primary-color); font-weight: bold; }
 
+/* Screening Boxes */
+.screen-box { border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 10px; overflow: hidden; background: var(--input-bg); }
+.screen-header { padding: 10px; background: rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); }
+.screen-content { padding: 10px; }
+
+/* Badges */
+.badge-blue { background: var(--blue); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; }
+.badge-orange { background: var(--orange); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; }
+.badge-purple { background: var(--purple); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; }
+.badge-red { background: var(--red); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; }
+
+/* Alerts */
+.alert-box { padding: 10px; color: white; font-weight: bold; border-radius: 4px; margin-bottom: 5px; text-align: center; }
+.alert-red { background: var(--red); }
+.alert-orange { background: var(--orange); }
+
+/* AUDIT Grid */
+.audit-q { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; font-size: 0.9em; }
+.audit-q select { width: 120px; padding: 2px; }
+
 /* Utilities */
+.small-btn { font-size: 0.8em; padding: 4px 8px; border: 1px solid var(--primary-color); background: white; color: var(--primary-color); border-radius: 4px; cursor: pointer; }
+.small-btn:hover { background: var(--input-bg); }
 .quick-btn { border: 1px solid var(--primary-color); color: var(--primary-color); background: none; border-radius: 10px; font-size: 0.7em; padding: 2px 8px; cursor: pointer; margin-left: auto; }
 .theme-switch-wrapper { display: flex; align-items: center; margin-right: 15px; }
 .theme-switch { position: relative; display: inline-block; width: 40px; height: 20px; } 
