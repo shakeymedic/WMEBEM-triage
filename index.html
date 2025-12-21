@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Triage Dashboard v10.0</title>
+    <title>Advanced Triage Dashboard v11.0</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -26,10 +26,11 @@
                 <div style="font-weight:900; font-size:24px; color:var(--primary); margin-right:15px;">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v10.0 | Safe-Triage Build</span>
+                    <span class="version-tag">v11.0 | Consultant Edition</span>
                 </div>
             </div>
             <div class="header-controls">
+                <button id="btn-history" class="btn-secondary" style="margin-right:10px;">🕒 Recent</button>
                 <div class="theme-switch-wrapper">
                     <label class="theme-switch" for="checkbox-theme">
                         <input type="checkbox" id="checkbox-theme" />
@@ -124,7 +125,7 @@
                     </div>
                     <div class="obs-item full-width-checkbox">
                         <input type="checkbox" id="obs-scale2" data-js="obs-scale2">
-                        <label for="obs-scale2">Use Scale 2 (CO₂ Retainer)</label>
+                        <label for="obs-scale2">Use Scale 2 (CO₂)</label>
                     </div>
                 </div>
 
@@ -143,29 +144,32 @@
                 </div>
 
                 <div class="form-group mt-10">
-                    <label>Presenting Complaint (Search)</label>
-                    <input list="flowcharts" id="input-complaint" data-js="input-complaint" placeholder="Start typing (e.g. Chest Pain)...">
+                    <label>
+                        Presenting Complaint 
+                        <button class="mic-btn" data-target="input-complaint" title="Dictate">🎤</button>
+                    </label>
+                    <input list="flowcharts" id="input-complaint" data-js="input-complaint" placeholder="Type or Dictate...">
                     <datalist id="flowcharts"></datalist>
                 </div>
 
                 <div class="split-view">
                     <div class="history-inputs">
                         <div class="form-group">
-                            <label>Allergies <button class="btn-tiny" data-action="quickText" data-target="allergies" data-val="NKDA">NKDA</button></label>
+                            <label>Allergies <button class="btn-tiny" data-action="quickText" data-target="allergies" data-val="NKDA">NKDA</button> <button class="mic-btn" data-target="allergies">🎤</button></label>
                             <textarea id="allergies" data-js="allergies" rows="1"></textarea>
                         </div>
                         <div class="form-group">
-                            <label>PMH <button class="btn-tiny" data-action="quickText" data-target="pmh" data-val="Nil known">Nil</button></label>
+                            <label>PMH <button class="btn-tiny" data-action="quickText" data-target="pmh" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="pmh">🎤</button></label>
                             <textarea id="pmh" data-js="pmh" rows="2"></textarea>
                         </div>
                         <div class="form-group">
-                            <label>Meds <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button></label>
+                            <label>Meds <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
                             <textarea id="meds" data-js="meds" rows="2"></textarea>
                         </div>
                     </div>
 
                     <div class="discriminator-panel">
-                        <label>Triage Discriminator (Select First Applicable)</label>
+                        <label>Triage Discriminator</label>
                         <div id="discriminator-container" class="scroll-box">
                             <p class="placeholder-text">Select a complaint above to view flowcharts.</p>
                         </div>
@@ -228,7 +232,7 @@
 
             <div class="card full-width">
                 <h2>6. EPR Note</h2>
-                <textarea id="epr-note" rows="6" readonly class="code-font"></textarea>
+                <textarea id="epr-note" rows="8" readonly class="code-font"></textarea>
                 <div class="note-controls">
                     <button id="btn-copy">Copy to Clipboard</button>
                 </div>
@@ -242,8 +246,14 @@
 
         </div>
         
+        <div id="history-sidebar">
+            <h3>Recent Patients</h3>
+            <div id="history-list"></div>
+            <button onclick="document.getElementById('history-sidebar').classList.remove('open')" style="margin-top:20px; width:100%;">Close</button>
+        </div>
+        
         <footer>
-            <p>v10.0 | Educational Use Only | Adhere to local Trust Guidelines</p>
+            <p>v11.0 | Educational Use Only | Adhere to local Trust Guidelines</p>
         </footer>
     </div>
     
