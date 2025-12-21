@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Triage Dashboard v9.0</title>
+    <title>Advanced Triage Dashboard v10.0</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -23,10 +23,10 @@
     <div class="container">
         <header>
              <div id="logo-container">
-                <img id="logo" src="https://iili.io/KGQOvkl.md.png" alt="WMEBEM Logo">
+                <div style="font-weight:900; font-size:24px; color:var(--primary); margin-right:15px;">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v9.0 | Safe-Triage Build</span>
+                    <span class="version-tag">v10.0 | Safe-Triage Build</span>
                 </div>
             </div>
             <div class="header-controls">
@@ -57,10 +57,19 @@
                     <div class="form-group"><label>Sex</label><select id="patient-sex" data-js="patient-sex"><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
                 </div>
                 
+                <div class="form-group mt-10">
+                    <label>Mobility (for Streaming)</label>
+                    <select id="patient-mobility" data-js="patient-mobility">
+                        <option value="Walking">Walking</option>
+                        <option value="Wheelchair">Wheelchair</option>
+                        <option value="Trolley">Trolley / Bed Bound</option>
+                    </select>
+                </div>
+
                 <div id="female-health-section" class="hidden alert-section">
                     <div class="form-group checkbox-group">
                         <input type="checkbox" id="check-pregnant" data-js="check-pregnant">
-                        <label>Pregnant / Postpartum (<6w)</label>
+                        <label>Pregnant / Postpartum (&lt;6w)</label>
                     </div>
                     <div class="form-group">
                         <label>LMP (Last Menstrual Period)</label>
@@ -70,8 +79,7 @@
             </div>
 
             <div class="card span-2" id="card-obs">
-                <h2 id="obs-title">2. Physiology (NEWS2)</h2>
-                <div id="news2-disclaimer" class="hidden warning-box">NEWS2 is invalid for under 16s. Use local PEWS.</div>
+                <h2 id="obs-title">2. Physiology</h2>
                 
                 <div id="obs-form" class="obs-grid">
                     <div class="obs-item">
@@ -82,14 +90,15 @@
                         <label>SpO₂ (%)</label>
                         <input type="number" id="obs-sats" data-js="obs-sats" placeholder="--">
                     </div>
-                    <div class="obs-item">
-                        <label>On Air/O₂</label>
-                        <select id="obs-o2" data-js="obs-o2">
-                            <option value="">Select...</option>
-                            <option value="Air">Air</option>
-                            <option value="O2">Oxygen</option>
-                        </select>
+                    
+                    <div class="obs-item span-2-mobile">
+                        <label>Oxygen</label>
+                        <div class="segmented-control" id="seg-o2">
+                            <button data-value="Air" class="active">Air</button>
+                            <button data-value="O2">O₂</button>
+                        </div>
                     </div>
+
                     <div class="obs-item">
                         <label>Systolic BP</label>
                         <input type="number" id="obs-sbp" data-js="obs-sbp" placeholder="--">
@@ -98,16 +107,17 @@
                         <label>Heart Rate</label>
                         <input type="number" id="obs-hr" data-js="obs-hr" placeholder="--">
                     </div>
-                    <div class="obs-item">
+                    
+                    <div class="obs-item span-2-mobile">
                         <label>AVPU</label>
-                        <select id="obs-avpu" data-js="obs-avpu">
-                            <option value="">Select...</option>
-                            <option value="A">Alert</option>
-                            <option value="V">Voice</option>
-                            <option value="P">Pain</option>
-                            <option value="U">Unresponsive</option>
-                        </select>
+                        <div class="segmented-control" id="seg-avpu">
+                            <button data-value="A" class="active">A</button>
+                            <button data-value="V">V</button>
+                            <button data-value="P">P</button>
+                            <button data-value="U">U</button>
+                        </div>
                     </div>
+
                     <div class="obs-item">
                         <label>Temp (°C)</label>
                         <input type="number" id="obs-temp" data-js="obs-temp" step="0.1" placeholder="--">
@@ -125,12 +135,11 @@
                 <h2>3. History & Complaint</h2>
                 <div class="quick-actions-bar">
                     <span class="label-small">Quick Complaints:</span>
-                    <button class="btn-chip" onclick="app.setComplaint('Chest Pain')">Chest Pain</button>
-                    <button class="btn-chip" onclick="app.setComplaint('Abdominal Pain')">Abdo Pain</button>
-                    <button class="btn-chip" onclick="app.setComplaint('Shortness of Breath')">SOB</button>
-                    <button class="btn-chip" onclick="app.setComplaint('Fall')">Fall</button>
-                    <button class="btn-chip" onclick="app.setComplaint('Head Injury')">Head Injury</button>
-                    <button class="btn-chip" onclick="app.setComplaint('Unwell Adult')">Unwell Adult</button>
+                    <button class="btn-chip" data-action="setComplaint" data-val="Chest Pain">Chest Pain</button>
+                    <button class="btn-chip" data-action="setComplaint" data-val="Abdominal Pain">Abdo Pain</button>
+                    <button class="btn-chip" data-action="setComplaint" data-val="Shortness of Breath">SOB</button>
+                    <button class="btn-chip" data-action="setComplaint" data-val="Fall">Fall</button>
+                    <button class="btn-chip" data-action="setComplaint" data-val="Head Injury">Head Injury</button>
                 </div>
 
                 <div class="form-group mt-10">
@@ -142,21 +151,21 @@
                 <div class="split-view">
                     <div class="history-inputs">
                         <div class="form-group">
-                            <label>Allergies <button class="btn-tiny" onclick="app.setQuickText('allergies', 'NKDA')">NKDA</button></label>
+                            <label>Allergies <button class="btn-tiny" data-action="quickText" data-target="allergies" data-val="NKDA">NKDA</button></label>
                             <textarea id="allergies" data-js="allergies" rows="1"></textarea>
                         </div>
                         <div class="form-group">
-                            <label>PMH <button class="btn-tiny" onclick="app.setQuickText('pmh', 'Nil known')">Nil</button></label>
+                            <label>PMH <button class="btn-tiny" data-action="quickText" data-target="pmh" data-val="Nil known">Nil</button></label>
                             <textarea id="pmh" data-js="pmh" rows="2"></textarea>
                         </div>
                         <div class="form-group">
-                            <label>Meds <button class="btn-tiny" onclick="app.setQuickText('meds', 'Nil known')">Nil</button></label>
+                            <label>Meds <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button></label>
                             <textarea id="meds" data-js="meds" rows="2"></textarea>
                         </div>
                     </div>
 
                     <div class="discriminator-panel">
-                        <label>Triage Discriminator</label>
+                        <label>Triage Discriminator (Select First Applicable)</label>
                         <div id="discriminator-container" class="scroll-box">
                             <p class="placeholder-text">Select a complaint above to view flowcharts.</p>
                         </div>
@@ -166,18 +175,7 @@
                 <div class="pain-section mt-15">
                     <label>Pain Score: <span id="pain-val">0</span>/10</label>
                     <div class="pain-btn-group" id="pain-btn-container">
-                        <button class="pain-btn" data-val="0">0</button>
-                        <button class="pain-btn" data-val="1">1</button>
-                        <button class="pain-btn" data-val="2">2</button>
-                        <button class="pain-btn" data-val="3">3</button>
-                        <button class="pain-btn" data-val="4">4</button>
-                        <button class="pain-btn" data-val="5">5</button>
-                        <button class="pain-btn" data-val="6">6</button>
-                        <button class="pain-btn" data-val="7">7</button>
-                        <button class="pain-btn" data-val="8">8</button>
-                        <button class="pain-btn" data-val="9">9</button>
-                        <button class="pain-btn" data-val="10">10</button>
-                    </div>
+                        </div>
                 </div>
             </div>
 
@@ -191,6 +189,10 @@
                 <div class="plan-grid">
                     <div class="priority-box">
                         <div id="priority-display" class="priority-badge priority-Blue">WAITING</div>
+                        
+                        <div class="stream-badge" id="stream-display">Stream: Pending</div>
+                        <div class="timer-badge" id="timer-display">Retriage: --</div>
+
                         <div id="priority-reasons"></div>
                         
                         <div class="override-section">
@@ -209,6 +211,17 @@
                         <div id="protocol-actions">
                              <p class="placeholder-text">Select a complaint to view protocol.</p>
                         </div>
+                        <div id="sepsis-actions" class="hidden warning-box mt-10">
+                            <strong>SEPSIS 6 TRIGGERED:</strong>
+                            <ul>
+                                <li>Give Oxygen (target 94-98%)</li>
+                                <li>Take Blood Cultures</li>
+                                <li>Give IV Antibiotics</li>
+                                <li>Give Fluid Challenge</li>
+                                <li>Measure Lactate & Hb</li>
+                                <li>Measure Urine Output</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -222,18 +235,18 @@
             </div>
             
             <div id="paeds-panel" class="card" style="display:none; border-color:var(--orange);">
-                <h3>Paediatric Safety Check</h3>
+                <h3>Paediatric Safety</h3>
                 <div id="paeds-content"></div>
+                <div id="pews-content" class="mt-10"></div>
             </div>
 
         </div>
         
         <footer>
-            <p>v9.0 | Educational Use Only | Adhere to local Trust Guidelines</p>
+            <p>v10.0 | Educational Use Only | Adhere to local Trust Guidelines</p>
         </footer>
     </div>
     
-    <script src="protocols.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
