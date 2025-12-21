@@ -1,4 +1,4 @@
-/* styles.css v11.0 */
+/* styles.css v12.0 */
 :root {
     --primary: #005EB8; /* NHS Blue */
     --secondary: #425563;
@@ -28,7 +28,6 @@
         --shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
 }
-/* Manual Dark Mode Override */
 [data-theme="dark"] {
     --bg-body: #1a1d21;
     --bg-card: #2d3339;
@@ -126,20 +125,28 @@ button { cursor: pointer; border: none; border-radius: 4px; font-weight: 600; tr
 .warning-box { background: rgba(213, 40, 27, 0.1); border: 1px solid var(--red); color: var(--red); padding: 10px; border-radius: 4px; font-weight: bold; margin-bottom: 10px; }
 .alert-section { background: rgba(237, 135, 45, 0.1); padding: 10px; border-radius: 4px; border: 1px solid var(--orange); margin-top: 10px; }
 
-/* Phase 2 Additions */
+/* Phase 2: Speech & History */
 .mic-btn { background: transparent; border: 1px solid var(--border); color: var(--secondary); padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-left: 8px; }
 .mic-btn.listening { background: var(--red); color: white; animation: pulse 1s infinite; border-color: var(--red); }
-    
-.protocol-check { display: flex; align-items: center; gap: 8px; padding: 6px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; }
-.protocol-check:hover { background: rgba(0,0,0,0.02); }
-.protocol-check input { width: auto; margin: 0; }
-.protocol-check.checked { text-decoration: line-through; color: var(--green); }
-
 #history-sidebar { position: fixed; right: -300px; top: 0; width: 300px; height: 100%; background: var(--bg-card); box-shadow: -5px 0 15px rgba(0,0,0,0.1); transition: right 0.3s; z-index: 2000; padding: 20px; overflow-y: auto; border-left: 1px solid var(--border); }
 #history-sidebar.open { right: 0; }
 .history-item { padding: 10px; border: 1px solid var(--border); margin-bottom: 10px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
 .history-item:hover { border-color: var(--primary); background: rgba(0,94,184,0.05); }
 .history-meta { font-size: 0.75rem; color: var(--secondary); display: flex; justify-content: space-between; margin-top: 5px; }
+
+/* Phase 3: Precision Diagnostics */
+.cannula-badge { display: flex; align-items: center; padding: 12px; border-radius: 6px; margin-bottom: 15px; border: 1px solid transparent; }
+.cannula-green { background: rgba(0, 127, 59, 0.1); border-color: var(--green); color: var(--green); }
+.cannula-amber { background: rgba(237, 135, 45, 0.1); border-color: var(--orange); color: var(--orange); }
+.cannula-red { background: rgba(213, 40, 27, 0.1); border-color: var(--red); color: var(--red); }
+
+.test-category { margin-bottom: 10px; border-top: 1px solid var(--border); padding-top: 5px; }
+.test-category h4 { margin: 5px 0; font-size: 0.9rem; color: var(--secondary); }
+
+.protocol-check { display: flex; align-items: center; gap: 8px; padding: 6px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; }
+.protocol-check:hover { background: rgba(0,0,0,0.02); }
+.protocol-check input { width: auto; margin: 0; }
+.protocol-check.checked { text-decoration: line-through; color: var(--green); }
 
 /* Modal */
 #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; justify-content: center; align-items: center; }
