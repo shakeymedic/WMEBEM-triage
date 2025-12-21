@@ -1,508 +1,458 @@
-// app.js v9.0 - Safe, Robust, Clinical Logic
-// Depends on: clinicalData (protocols.js)
+import { clinicalData } from './protocols.js';
 
 class TriageApp {
     constructor() {
-        this.data = window.clinicalData;
-        this.state = {
-            patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false },
-            obs: { rr: null, sats: null, o2: null, sbp: null, hr: null, avpu: null, temp: null, scale2: false },
-            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '' },
-            triage: { discriminator: null, priority: null, reasons: [], override: null, newsScore: 0 },
-            conditionals: [],
-            sepsisAlertShown: false
-        };
+        this.data = clinicalData;
         
-        this.dom = {}; // Cache DOM elements
-        this.init();
-    }
+        // Initial State
+        this.state = {
+            patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
+            obs: { rr: null, sats: null, o2: 'Air', sbp: null, hr: null, avpu: 'A', temp: null, scale2: false },
+            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '' },
+            triage: { 
+                discriminator: null, 
+                basePriority: 'Blue', // The MTS priority
+                finalPriority: 'Blue', // The calculated priority (after modifiers)
+                reasons: [], 
+                override: null, 
+                newsScore: 0,
+                stream: 'Pending',
+                timer: '--'
+            },
+            ui: { sepsisAlertShown: false, redFlagChecked: false }
+        };
 
-    init() {
         this.cacheDOM();
         this.bindEvents();
         this.populateDatalist();
-        this.loadTheme();
-        this.renderScreening(); 
+        this.renderPainButtons();
     }
 
+    // --- CORE ARCHITECTURE ---
+
+    setState(updates) {
+        // Deep merge logic simplified for this use case
+        this.state = { ...this.state, ...updates };
+        if (updates.patient || updates.obs || updates.history) {
+             this.runClinicalLogic();
+        }
+        this.render();
+    }
+
+    runClinicalLogic() {
+        // 1. Calculate Demographics (Age)
+        if (this.state.patient.dob) {
+            const diff = Date.now() - new Date(this.state.patient.dob).getTime();
+            this.state.patient.age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+        }
+
+        // 2. Calculate NEWS2 (Adults) or PEWS (Kids)
+        if (this.state.patient.age >= 16) {
+            this.calcNEWS2();
+        } else {
+            this.state.triage.newsScore = 0; // Reset for kids
+        }
+
+        // 3. Calculate Triage Priority
+        this.calcTriagePriority();
+
+        // 4. Calculate Streaming & Timer
+        this.calcStreamAndTimer();
+    }
+
+    // --- CLINICAL CALCULATORS ---
+
+    calcNEWS2() {
+        const obs = this.state.obs;
+        const rules = this.data.scoring.news2;
+        let score = 0;
+
+        const getScore = (val, buckets) => {
+            if (val === null) return 0;
+            const match = buckets.find(b => val <= b.max);
+            return match ? match.score : 3;
+        };
+
+        if(obs.rr !== null) score += getScore(obs.rr, rules.rr);
+        if(obs.sats !== null) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1);
+        if(obs.sbp !== null) score += getScore(obs.sbp, rules.sbp);
+        if(obs.hr !== null) score += getScore(obs.hr, rules.hr);
+        if(obs.temp !== null) score += getScore(obs.temp, rules.temp);
+        
+        if (obs.avpu !== 'A') score += 3;
+        if (obs.o2 === 'O2') score += 2;
+
+        this.state.triage.newsScore = score;
+    }
+
+    calcTriagePriority() {
+        let p = this.state.triage.discriminator ? this.state.triage.basePriority : 'Blue';
+        let reasons = this.state.triage.discriminator ? [`MTS: ${this.state.triage.discriminator}`] : [];
+
+        // MODIFIER: PAIN > 7
+        // Expert Committee: Only upgrade if shock present. Otherwise "Analgesia Priority".
+        if (this.state.history.pain >= 7) {
+            const isShocked = (this.state.obs.hr > 110) || (this.state.obs.sbp && this.state.obs.sbp < 90);
+            if (isShocked) {
+                if (['Yellow', 'Green', 'Blue'].includes(p)) {
+                    p = 'Orange';
+                    reasons.push('Severe Pain + Shock Signs');
+                }
+            } else {
+                reasons.push('Plan: Priority Analgesia Required');
+            }
+        }
+
+        // MODIFIER: NEWS2 (Adults)
+        if (this.state.patient.age >= 16) {
+            if (this.state.triage.newsScore >= 7) {
+                p = 'Red';
+                reasons.push('NEWS2 ≥ 7');
+            } else if (this.state.triage.newsScore >= 5 && p !== 'Red') {
+                p = 'Orange';
+                reasons.push('NEWS2 ≥ 5 (Sepsis Screen?)');
+            }
+        }
+
+        // MODIFIER: OVERRIDE
+        if (this.state.triage.override) {
+            p = this.state.triage.override.level;
+            reasons.push(`OVERRIDE: ${this.state.triage.override.reason}`);
+        }
+
+        this.state.triage.finalPriority = p;
+        this.state.triage.reasons = reasons;
+    }
+
+    calcStreamAndTimer() {
+        const p = this.state.triage.finalPriority;
+        const mobility = this.state.patient.mobility;
+        
+        // Timer Logic
+        const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
+        this.state.triage.timer = timers[p] || '--';
+
+        // Streaming Logic
+        let stream = 'Majors'; // Default
+        
+        if (p === 'Red' || p === 'Orange') {
+            stream = 'RESUS / MAJORS';
+        } else if (p === 'Green' || p === 'Blue') {
+            if (mobility === 'Walking') stream = 'See & Treat / Minors';
+            else stream = 'Majors (Mobility)'; // Green patient but needs bed
+        } else {
+            stream = 'Majors';
+        }
+
+        this.state.triage.stream = stream;
+    }
+
+    // --- RENDERING ---
+
+    render() {
+        this.renderDemographics();
+        this.renderNEWS2();
+        this.renderPaedsSafety();
+        this.renderPlan();
+        this.renderNote();
+    }
+
+    renderDemographics() {
+        const p = this.state.patient;
+        document.getElementById('calculated-age-display').textContent = p.age !== null ? `Age: ${p.age}` : 'Age: --';
+        
+        // Show/Hide Pregnancy
+        const isFemaleRepro = p.sex === 'Female' && p.age >= 12 && p.age <= 55;
+        document.getElementById('female-health-section').classList.toggle('hidden', !isFemaleRepro);
+
+        // Disable Adult Obs for Kids
+        const isPaeds = p.age !== null && p.age < 16;
+        document.getElementById('obs-form').style.opacity = isPaeds ? '0.5' : '1';
+        // Note: We don't disable pointerEvents completely so we can still record them, just visually dim
+    }
+
+    renderNEWS2() {
+        const container = document.getElementById('visual-ews-container');
+        container.innerHTML = '';
+        
+        if (this.state.patient.age < 16) {
+            container.innerHTML = '<div style="text-align:center; opacity:0.6;">Adult NEWS2 disabled. See Paeds Safety below.</div>';
+            return;
+        }
+
+        const score = this.state.triage.newsScore;
+        const el = document.createElement('div');
+        el.className = `priority-badge ${score >= 5 ? 'priority-Red' : 'priority-Green'}`;
+        if(score >= 5) el.classList.add('pulse-alert');
+        el.style.fontSize = '1.2rem';
+        el.style.padding = '10px';
+        el.textContent = `NEWS2 Score: ${score}`;
+        container.appendChild(el);
+    }
+
+    renderPaedsSafety() {
+        const p = this.state.patient;
+        const panel = document.getElementById('paeds-panel');
+        const content = document.getElementById('paeds-content');
+        const pewsContent = document.getElementById('pews-content');
+
+        if (p.age === null || p.age >= 16) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'block';
+        
+        // 1. Drugs
+        const weight = p.weight || 0;
+        const safeWeight = Math.min(weight, this.data.paedsSafety.weightCapKg);
+        const para = Math.min(safeWeight * 15, 1000).toFixed(0);
+        const ibu = Math.min(safeWeight * 10, 400).toFixed(0);
+        
+        content.innerHTML = weight > 0 
+            ? `<strong>Weight ${weight}kg</strong><br>Paracetamol: ${para}mg | Ibuprofen: ${ibu}mg`
+            : `<span style="color:var(--red)">Enter Weight for drug doses</span>`;
+
+        // 2. Simple Traffic Light (PEWS)
+        // Identify Age Group
+        let group = 'teen';
+        if (p.age < 1) group = 'infant';
+        else if (p.age < 5) group = 'toddler';
+        else if (p.age < 12) group = 'child';
+
+        const limits = this.data.paedsSafety.pewsRanges[group];
+        const obs = this.state.obs;
+        let flags = [];
+
+        if (obs.rr && obs.rr > limits.maxRR) flags.push(`RR High (> ${limits.maxRR})`);
+        if (obs.hr && obs.hr > limits.maxHR) flags.push(`HR High (> ${limits.maxHR})`);
+        if (obs.sats && obs.sats < 94) flags.push(`SpO2 Low (< 94%)`);
+
+        if (flags.length > 0) {
+            pewsContent.innerHTML = `<div class="warning-box"><strong>ABNORMAL PHYSIOLOGY (${group.toUpperCase()}):</strong><br>${flags.join('<br>')}</div>`;
+        } else {
+            pewsContent.innerHTML = `<div style="color:var(--green); text-align:center;">Vitals within normal range for ${group}</div>`;
+        }
+    }
+
+    renderPlan() {
+        const t = this.state.triage;
+        
+        // Priority Badge
+        const badge = document.getElementById('priority-display');
+        badge.className = `priority-badge priority-${t.finalPriority}`;
+        if(t.finalPriority === 'Red') badge.classList.add('pulse-alert');
+        badge.textContent = t.finalPriority.toUpperCase();
+
+        // Stream & Timer
+        document.getElementById('stream-display').textContent = `Stream: ${t.stream}`;
+        document.getElementById('timer-display').textContent = `Retriage Due: ${t.timer}`;
+
+        // Reasons
+        document.getElementById('priority-reasons').innerHTML = t.reasons.map(r => `<div>• ${r}</div>`).join('');
+
+        // Sepsis Actions (Dynamic Injection)
+        const showSepsis = (t.newsScore >= 5 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
+        document.getElementById('sepsis-actions').classList.toggle('hidden', !showSepsis);
+    }
+
+    renderNote() {
+        const p = this.state.patient;
+        const t = this.state.triage;
+        
+        let txt = `TRIAGE NOTE - ${new Date().toLocaleString()}\n`;
+        txt += `ID: ${document.getElementById('patient-id').value || 'Unknown'} | ${p.age}y ${p.sex} | Mobility: ${p.mobility}\n`;
+        txt += `Complaint: ${this.state.history.complaint} (${t.discriminator || 'None'})\n`;
+        txt += `Obs: RR${this.state.obs.rr || '-'} Sat${this.state.obs.sats || '-'}${this.state.obs.o2} BP${this.state.obs.sbp || '-'} HR${this.state.obs.hr || '-'} T${this.state.obs.temp || '-'} ${this.state.obs.avpu}\n`;
+        if (p.age >= 16) txt += `NEWS2: ${t.newsScore}\n`;
+        
+        txt += `\nOUTCOME: ${t.finalPriority.toUpperCase()}\n`;
+        txt += `Stream: ${t.stream}\n`;
+        if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
+        
+        const alg = document.getElementById('allergies').value;
+        const pmh = document.getElementById('pmh').value;
+        if(alg) txt += `\nAllergies: ${alg}`;
+        if(pmh) txt += `\nPMH: ${pmh}`;
+        
+        document.getElementById('epr-note').value = txt;
+    }
+
+    // --- EVENTS & UI HANDLERS ---
+
     cacheDOM() {
-        // Helper to grab by data-js attribute for decoupling CSS classes from JS hooks
-        const get = (id) => document.querySelector(`[data-js="${id}"]`);
         this.dom = {
-            dob: get('patient-dob'),
-            weight: get('patient-weight'),
-            sex: get('patient-sex'),
-            ageDisplay: document.getElementById('calculated-age-display'),
-            femaleSection: document.getElementById('female-health-section'),
-            
-            // Obs
-            rr: get('obs-rr'), sats: get('obs-sats'), o2: get('obs-o2'),
-            sbp: get('obs-sbp'), hr: get('obs-hr'), avpu: get('obs-avpu'),
-            temp: get('obs-temp'), scale2: get('obs-scale2'),
-            
-            // History
-            complaint: get('input-complaint'),
-            
-            // Output
-            discriminatorBox: document.getElementById('discriminator-container'),
-            priorityBadge: document.getElementById('priority-display'),
-            reasonsList: document.getElementById('priority-reasons'),
-            newsContainer: document.getElementById('visual-ews-container'),
-            note: document.getElementById('epr-note')
+            complaintInput: document.getElementById('input-complaint'),
+            discriminatorBox: document.getElementById('discriminator-container')
         };
     }
 
     bindEvents() {
-        // Demographics Inputs
-        ['dob', 'weight', 'sex'].forEach(k => {
-            this.dom[k]?.addEventListener('change', () => this.handleDemographics());
-        });
-        
-        // Obs Inputs (Debounced)
-        const obsKeys = ['rr', 'sats', 'o2', 'sbp', 'hr', 'avpu', 'temp', 'scale2'];
-        obsKeys.forEach(k => {
-            const el = this.dom[k];
-            if(el) el.addEventListener('input', () => this.handleObs());
+        // Input Listeners with Data Binding
+        const bind = (id, key, path = 'obs', transform = (v) => v) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
+                const val = el.type === 'checkbox' ? e.target.checked : transform(e.target.value);
+                
+                // Special handling for nested state updates
+                if (path === 'obs') this.setState({ obs: { ...this.state.obs, [key]: val } });
+                if (path === 'patient') this.setState({ patient: { ...this.state.patient, [key]: val } });
+            });
+        };
+
+        // Bind Obs
+        bind('obs-rr', 'rr', 'obs', parseFloat);
+        bind('obs-sats', 'sats', 'obs', parseFloat);
+        bind('obs-sbp', 'sbp', 'obs', parseFloat);
+        bind('obs-hr', 'hr', 'obs', parseFloat);
+        bind('obs-temp', 'temp', 'obs', parseFloat);
+        bind('obs-scale2', 'scale2', 'obs');
+
+        // Bind Demographics
+        bind('patient-dob', 'dob', 'patient');
+        bind('patient-weight', 'weight', 'patient', parseFloat);
+        bind('patient-sex', 'sex', 'patient');
+        bind('patient-mobility', 'mobility', 'patient');
+
+        // Segmented Controls (Custom Logic)
+        document.querySelectorAll('.segmented-control button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const parent = e.target.parentElement;
+                parent.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                
+                const val = e.target.dataset.value;
+                if (parent.id === 'seg-avpu') this.setState({ obs: { ...this.state.obs, avpu: val } });
+                if (parent.id === 'seg-o2') this.setState({ obs: { ...this.state.obs, o2: val } });
+            });
         });
 
         // Complaint Search
-        this.dom.complaint.addEventListener('input', (e) => this.handleComplaint(e.target.value));
+        this.dom.complaintInput.addEventListener('input', (e) => this.handleComplaint(e.target.value));
 
-        // Pain Buttons
-        document.getElementById('pain-btn-container').addEventListener('click', (e) => {
-            if(e.target.tagName === 'BUTTON') {
-                document.querySelectorAll('.pain-btn').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-                this.state.history.pain = parseInt(e.target.dataset.val);
-                document.getElementById('pain-val').textContent = this.state.history.pain;
-                this.calcTriage();
+        // Quick Actions (Delegation)
+        document.querySelector('.dashboard').addEventListener('click', (e) => {
+            const action = e.target.dataset.action;
+            if (action === 'setComplaint') {
+                this.dom.complaintInput.value = e.target.dataset.val;
+                this.handleComplaint(e.target.dataset.val);
+            }
+            if (action === 'quickText') {
+                const target = document.getElementById(e.target.dataset.target);
+                target.value = e.target.dataset.val;
             }
         });
 
-        // Theme Toggle
-        document.getElementById('checkbox-theme').addEventListener('change', (e) => {
-            const theme = e.target.checked ? 'dark' : 'light';
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
-        });
-
-        // Override
-        document.querySelector('[data-js="check-override"]').addEventListener('change', (e) => {
-            document.getElementById('override-options').classList.toggle('hidden', !e.target.checked);
-            this.calcTriage();
-        });
-        document.querySelector('[data-js="sel-override"]').addEventListener('change', () => this.calcTriage());
-
-        // Copy Note
-        document.getElementById('btn-copy').addEventListener('click', () => {
-            this.dom.note.select();
-            document.execCommand('copy');
-            this.showToast('Copied to clipboard', 'success');
+        // Override Toggle
+        document.getElementById('check-override').addEventListener('change', (e) => {
+             const div = document.getElementById('override-options');
+             div.classList.toggle('hidden', !e.target.checked);
+             if (!e.target.checked) this.setState({ triage: { ...this.state.triage, override: null } });
         });
         
-        // Modal Close
-        document.getElementById('modal-close').addEventListener('click', () => {
-            document.getElementById('modal-overlay').classList.add('hidden');
-        });
-
-        // Reset
-        document.getElementById('btn-reset').addEventListener('click', () => {
-             if(confirm("Start new patient?")) location.reload();
-        });
-    }
-
-    handleDemographics() {
-        const dobVal = this.dom.dob.value;
-        if(dobVal) {
-            const dob = new Date(dobVal);
-            const diff = Date.now() - dob.getTime();
-            const ageDate = new Date(diff);
-            this.state.patient.age = Math.abs(ageDate.getUTCFullYear() - 1970);
-            this.dom.ageDisplay.textContent = `Age: ${this.state.patient.age}`;
-            
-            // Safety: Disable NEWS2 for under 16
-            const isPaeds = this.state.patient.age < 16;
-            document.getElementById('news2-disclaimer').classList.toggle('hidden', !isPaeds);
-            document.getElementById('obs-form').style.opacity = isPaeds ? '0.3' : '1';
-            document.getElementById('obs-form').style.pointerEvents = isPaeds ? 'none' : 'auto';
-            if(isPaeds) {
-                this.dom.newsContainer.innerHTML = '';
-                this.state.triage.newsScore = 0;
-            }
-        }
-
-        const sex = this.dom.sex.value;
-        this.state.patient.sex = sex;
-        
-        // Pregnancy Section Logic
-        const isFemaleRepro = sex === 'Female' && this.state.patient.age >= 12 && this.state.patient.age <= 55;
-        this.dom.femaleSection.classList.toggle('hidden', !isFemaleRepro);
-        
-        this.renderScreening();
-        this.renderPaedsSafety();
-        this.generateNote();
-    }
-
-    handleObs() {
-        // Clamp and Sanitise
-        const val = (id) => {
-            const el = this.dom[id];
-            if (!el || el.value === "") return null;
-            let v = parseFloat(el.value);
-            // Safety Clamping
-            if (id === 'sats' && v > 100) v = 100;
-            if (id === 'hr' && v > 300) v = 300;
-            return v;
+        // Override Inputs
+        const updateOverride = () => {
+            if (!document.getElementById('check-override').checked) return;
+            this.setState({ 
+                triage: { 
+                    ...this.state.triage, 
+                    override: { 
+                        level: document.getElementById('sel-override').value,
+                        reason: document.getElementById('txt-override').value
+                    } 
+                } 
+            });
         };
-
-        this.state.obs = {
-            rr: val('rr'), sats: val('sats'), o2: this.dom.o2.value || null,
-            sbp: val('sbp'), hr: val('hr'), avpu: this.dom.avpu.value || null,
-            temp: val('temp'), scale2: this.dom.scale2.checked
-        };
-
-        if (this.state.patient.age >= 16) {
-            this.renderVisualNEWS2();
-        }
-        this.calcTriage();
+        document.getElementById('sel-override').addEventListener('change', updateOverride);
+        document.getElementById('txt-override').addEventListener('input', updateOverride);
     }
 
     handleComplaint(val) {
+        // Red Flag Interception
+        if (val.toLowerCase() === 'headache' && !this.state.ui.redFlagChecked) {
+             if (confirm("RED FLAG CHECK: Is there any history of trauma or fall?")) {
+                 val = "Head Injury";
+                 this.dom.complaintInput.value = val;
+             }
+             this.state.ui.redFlagChecked = true; // Prevent loop
+        }
+
+        this.setState({ history: { ...this.state.history, complaint: val } });
+        
         if (!this.data.mtsFlowcharts[val]) return;
-        this.state.history.complaint = val;
-        
-        // Render Discriminators safely
+
         const container = this.dom.discriminatorBox;
-        container.innerHTML = ''; // Clear current
+        container.innerHTML = '';
         
-        // SORT: Red -> Orange -> Yellow -> Green -> Blue
-        const priorityOrder = { "Red": 1, "Orange": 2, "Yellow": 3, "Green": 4, "Blue": 5 };
-        const sorted = [...this.data.mtsFlowcharts[val]].sort((a,b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+        const sorted = [...this.data.mtsFlowcharts[val]].sort((a,b) => {
+             const order = { "Red": 1, "Orange": 2, "Yellow": 3, "Green": 4, "Blue": 5 };
+             return order[a.priority] - order[b.priority];
+        });
 
         sorted.forEach(item => {
             const div = document.createElement('div');
             div.className = `discriminator priority-${item.priority}`;
             div.textContent = item.text;
             div.onclick = () => {
-                // Deselect others
                 Array.from(container.children).forEach(c => c.classList.remove('selected'));
                 div.classList.add('selected');
-                this.state.triage.discriminator = item.text;
-                this.state.triage.priority = item.priority; // Base MTS priority
-                this.calcTriage();
+                
+                this.setState({ 
+                    triage: { 
+                        ...this.state.triage, 
+                        discriminator: item.text, 
+                        basePriority: item.priority 
+                    } 
+                });
             };
             container.appendChild(div);
         });
         
-        this.renderProtocolActions();
-        this.generateNote();
-    }
-
-    renderVisualNEWS2() {
-        const obs = this.state.obs;
-        if (obs.rr === null || obs.hr === null) return; // Wait for data
-        
-        const container = this.dom.newsContainer;
-        container.innerHTML = '';
-        
-        let totalScore = 0;
-        const rules = this.data.scoring.news2;
-        
-        const buildRow = (label, value, bucketArray) => {
-            if (value === null) return;
-            const row = document.createElement('div');
-            row.className = 'ews-row';
-            
-            const key = document.createElement('div');
-            key.className = 'ews-key';
-            key.textContent = label;
-            row.appendChild(key);
-
-            const track = document.createElement('div');
-            track.className = 'ews-bar';
-            
-            // Logic: iterate buckets. If value matches bucket range, add score.
-            let matched = false;
-            let currentBucketScore = 0;
-            
-            // To visualize nicely, we just render the cells colored
-            // And add the 'active' class to the correct one.
-            
-            bucketArray.forEach((bucket, index) => {
-                const c = document.createElement('div');
-                c.className = `ews-cell cell-${bucket.score}`;
-                c.textContent = bucket.label;
-                
-                // Determining range
-                const prevMax = index === 0 ? -999 : bucketArray[index-1].max;
-                
-                if (!matched && value <= bucket.max && value > prevMax) {
-                    c.classList.add('active');
-                    currentBucketScore = bucket.score;
-                    matched = true;
-                }
-                track.appendChild(c);
-            });
-            
-            totalScore += currentBucketScore;
-            row.appendChild(track);
-            container.appendChild(row);
-        };
-        
-        // Use Scale 2 rules if checked
-        buildRow('RR', obs.rr, rules.rr);
-        buildRow('SpO2', obs.sats, obs.scale2 ? rules.sats2 : rules.sats1);
-        buildRow('BP', obs.sbp, rules.sbp);
-        buildRow('HR', obs.hr, rules.hr);
-        buildRow('Temp', obs.temp, rules.temp);
-        
-        // AVPU & O2 Score
-        if(obs.avpu && obs.avpu !== 'A') totalScore += 3;
-        if(obs.o2 === 'O2') totalScore += 2;
-        
-        const scoreDiv = document.createElement('div');
-        scoreDiv.style.fontWeight = 'bold';
-        scoreDiv.style.textAlign = 'center';
-        scoreDiv.style.marginTop = '5px';
-        scoreDiv.style.padding = '5px';
-        scoreDiv.style.background = totalScore >= 5 ? 'var(--red)' : 'var(--green)';
-        scoreDiv.style.color = 'white';
-        scoreDiv.style.borderRadius = '4px';
-        scoreDiv.textContent = `NEWS2 Total: ${totalScore}`;
-        container.prepend(scoreDiv);
-        
-        // Sepsis Trigger
-        if (totalScore >= 5) this.triggerSepsisModal(totalScore);
-        
-        this.state.triage.newsScore = totalScore;
-    }
-
-    triggerSepsisModal(score) {
-        if(this.state.sepsisAlertShown) return; // Don't spam
-        const modal = document.getElementById('modal-overlay');
-        document.getElementById('modal-title').textContent = "SEPSIS ALERT (NEWS2 ≥ 5)";
-        document.getElementById('modal-message').innerHTML = `
-            Patient has a NEWS2 score of <strong>${score}</strong>.<br><br>
-            1. Is there a likely source of infection?<br>
-            2. Are there Red Flags present?<br><br>
-            <strong>If YES, start Sepsis 6 immediately.</strong>
-        `;
-        modal.classList.remove('hidden');
-        this.state.sepsisAlertShown = true;
-    }
-
-    renderScreening() {
-        const container = document.getElementById('screening-container');
-        container.innerHTML = '';
-        const age = this.state.patient.age;
-        if(age === null) return;
-
-        // Frailty
-        if (age >= 65) {
-            const div = document.createElement('div');
-            div.className = 'form-group';
-            div.innerHTML = `<label>Frailty (Silver Book)</label>`;
-            const sel = document.createElement('select');
-            sel.innerHTML = '<option value="">Select CFS...</option>';
-            this.data.screening.frailty.options.forEach(opt => {
-                sel.add(new Option(opt.text, opt.val));
-            });
-            div.appendChild(sel);
-            container.appendChild(div);
-        }
-
-        // Alcohol (Dismissible)
-        const alcDiv = document.createElement('div');
-        alcDiv.className = 'form-group';
-        alcDiv.style.background = 'rgba(0,0,0,0.02)';
-        alcDiv.style.padding = '10px';
-        alcDiv.innerHTML = `
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <label>AUDIT-C (Alcohol)</label>
-                <button class="btn-tiny" style="color:red;" onclick="this.parentElement.parentElement.remove()">Not Relevant (X)</button>
-            </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px;">
-               <select id="audit1"><option>Freq?</option><option value="0">Never</option><option value="4">4+/wk</option></select>
-               <select id="audit2"><option>Units?</option><option value="0">1-2</option><option value="4">10+</option></select>
-               <select id="audit3"><option>Binge?</option><option value="0">Never</option><option value="4">Daily</option></select>
-            </div>`;
-        container.appendChild(alcDiv);
+        // Protocol View
+        this.renderProtocol(val);
     }
     
-    renderPaedsSafety() {
-        const age = this.state.patient.age;
-        const weight = parseFloat(this.dom.weight.value);
-        const panel = document.getElementById('paeds-panel');
-        const content = document.getElementById('paeds-content');
-        
-        if (age >= 16 || !weight) {
-            panel.style.display = 'none';
-            return;
-        }
-        
-        panel.style.display = 'block';
-        const safeWeight = Math.min(weight, this.data.paedsSafety.weightCapKg);
-        const p = this.data.paedsSafety.paracetamol;
-        const i = this.data.paedsSafety.ibuprofen;
-        
-        const pDose = Math.min(safeWeight * p.mgPerKg, p.maxDoseMg);
-        const iDose = Math.min(safeWeight * i.mgPerKg, i.maxDoseMg);
-        
-        let html = `<p style="color:var(--orange); font-weight:bold;">${this.data.paedsSafety.disclaimer}</p>`;
-        if (weight > 50) html += `<p style="color:var(--red); font-weight:bold;">⚠️ Weight > 50kg. Adult dosing applies.</p>`;
-        else {
-            html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:4px; text-align:center;">
-                    <strong>Paracetamol</strong><br>
-                    <span style="font-size:1.2rem; color:var(--primary); font-weight:bold;">${pDose.toFixed(0)} mg</span><br>
-                    <small>QDS (Max 1g)</small>
-                </div>
-                <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:4px; text-align:center;">
-                    <strong>Ibuprofen</strong><br>
-                    <span style="font-size:1.2rem; color:var(--primary); font-weight:bold;">${iDose.toFixed(0)} mg</span><br>
-                    <small>TDS (Max 400mg)</small>
-                </div>
-            </div>`;
-        }
-        content.innerHTML = html;
-    }
-
-    renderProtocolActions() {
-        const proto = this.data.protocols[this.state.history.complaint];
+    renderProtocol(complaint) {
+        const proto = this.data.protocols[complaint];
         const container = document.getElementById('protocol-actions');
         container.innerHTML = '';
         
-        if (!proto) {
-            container.innerHTML = '<p class="placeholder-text">No specific protocol logic loaded.</p>';
-            return;
+        if (proto) {
+            const ul = document.createElement('ul');
+            proto.do.forEach(item => { const li = document.createElement('li'); li.innerHTML = `<strong>${item}</strong>`; ul.appendChild(li); });
+            if(proto.consider) proto.consider.forEach(item => { const li = document.createElement('li'); li.innerHTML = `Consider: ${item}`; ul.appendChild(li); });
+            container.appendChild(ul);
+        } else {
+            container.textContent = "No specific protocol loaded.";
         }
-        
-        const ul = document.createElement('ul');
-        proto.do.forEach(item => {
-            const li = document.createElement('li');
-            li.innerHTML = `<strong>${item}</strong>`;
-            ul.appendChild(li);
-        });
-        if(proto.consider) {
-            proto.consider.forEach(item => {
-                const li = document.createElement('li');
-                li.style.color = 'var(--secondary)';
-                li.innerHTML = `Consider: <em>${item}</em>`;
-                ul.appendChild(li);
-            });
-        }
-        container.appendChild(ul);
     }
 
-    calcTriage() {
-        // 1. Base MTS
-        let p = this.state.triage.priority || 'Blue';
-        let reasons = [];
-        if (this.state.triage.discriminator) reasons.push(`MTS: ${this.state.triage.discriminator}`);
-        
-        // 2. Modifiers
-        // Pain
-        if (this.state.history.pain >= 7) {
-            // Upgrade to Orange if currently lower
-            if (['Yellow', 'Green', 'Blue'].includes(p)) {
-                p = 'Orange';
-                reasons.push('Severe Pain (Score 7+)');
-            }
+    renderPainButtons() {
+        const c = document.getElementById('pain-btn-container');
+        for (let i = 0; i <= 10; i++) {
+            const b = document.createElement('button');
+            b.className = 'pain-btn';
+            b.textContent = i;
+            b.onclick = () => {
+                document.querySelectorAll('.pain-btn').forEach(x => x.classList.remove('active'));
+                b.classList.add('active');
+                document.getElementById('pain-val').textContent = i;
+                this.setState({ history: { ...this.state.history, pain: i } });
+            };
+            c.appendChild(b);
         }
-        
-        // NEWS2 (Adults)
-        if (this.state.patient.age >= 16 && this.state.triage.newsScore >= 7) {
-            p = 'Red';
-            reasons.push('NEWS2 ≥ 7');
-        } else if (this.state.patient.age >= 16 && this.state.triage.newsScore >= 5 && p !== 'Red') {
-            p = 'Orange';
-            reasons.push('NEWS2 ≥ 5');
-        }
-        
-        // 3. Override
-        const ovCheck = document.querySelector('[data-js="check-override"]');
-        if (ovCheck && ovCheck.checked) {
-            const ovSel = document.querySelector('[data-js="sel-override"]').value;
-            if(ovSel) {
-                p = ovSel;
-                reasons.push(`CLINICAL OVERRIDE: ${document.querySelector('[data-js="txt-override"]').value}`);
-            }
-        }
-
-        // Render
-        const badge = this.dom.priorityBadge;
-        badge.className = `priority-badge priority-${p}`;
-        badge.textContent = p.toUpperCase();
-        
-        this.dom.reasonsList.innerHTML = reasons.map(r => `<div>• ${r}</div>`).join('');
-        this.generateNote();
     }
 
-    generateNote() {
-        const s = this.state;
-        let t = `TRIAGE NOTE - ${new Date().toLocaleString()}\n`;
-        t += `ID: ${document.getElementById('patient-id').value} | Age: ${s.patient.age || '?'} | Sex: ${s.patient.sex}\n`;
-        t += `Complaint: ${s.history.complaint} (${s.triage.discriminator || 'Not selected'})\n`;
-        if(s.patient.age >= 16) t += `NEWS2: ${s.triage.newsScore || '-'} (RR${s.obs.rr} O2%${s.obs.sats} BP${s.obs.sbp} HR${s.obs.hr} ${s.obs.avpu})\n`;
-        else t += `Paeds Obs: RR${s.obs.rr} O2%${s.obs.sats} BP${s.obs.sbp} HR${s.obs.hr} ${s.obs.avpu}\n`;
-        
-        t += `Pain: ${s.history.pain}/10\n`;
-        t += `Outcome: ${this.dom.priorityBadge.textContent}\n`;
-        
-        // Add Allergies/PMH if present
-        const alg = document.getElementById('allergies').value;
-        if(alg) t += `Allergies: ${alg}\n`;
-        
-        this.dom.note.value = t;
-    }
-    
-    // Helpers
     populateDatalist() {
         const dl = document.getElementById('flowcharts');
-        if(!this.data || !this.data.mtsFlowcharts) return;
         Object.keys(this.data.mtsFlowcharts).sort().forEach(key => {
             const opt = document.createElement('option');
             opt.value = key;
             dl.appendChild(opt);
         });
     }
-
-    setComplaint(c) {
-        this.dom.complaint.value = c;
-        this.handleComplaint(c);
-    }
-    
-    setQuickText(id, txt) {
-        const el = document.querySelector(`[data-js="${id}"]`);
-        if(el) {
-            el.value = txt;
-            el.dispatchEvent(new Event('input')); // Trigger update
-        }
-    }
-    
-    showToast(msg, type) {
-        const t = document.createElement('div');
-        t.textContent = msg;
-        t.style.background = type === 'success' ? 'var(--green)' : 'var(--red)';
-        t.style.color = 'white';
-        t.style.padding = '10px 20px';
-        t.style.borderRadius = '4px';
-        t.style.marginTop = '10px';
-        t.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
-        t.style.fontWeight = 'bold';
-        
-        const container = document.getElementById('toast-container');
-        container.appendChild(t);
-        setTimeout(() => t.remove(), 3000);
-    }
-    
-    loadTheme() {
-         if(localStorage.getItem('theme') === 'dark') {
-             document.getElementById('checkbox-theme').checked = true;
-             document.documentElement.setAttribute('data-theme', 'dark');
-         }
-    }
 }
 
-// Start
+// Initialise
 document.addEventListener('DOMContentLoaded', () => { window.app = new TriageApp(); });
