@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMEBEM Triage Dashboard v14.0</title>
+    <title>WMEBEM Triage Dashboard v15.0</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -26,7 +26,7 @@
                 <div class="logo-text">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v14.0 | Full MTS Edition</span>
+                    <span class="version-tag">v15.0 | Intelligent Screening</span>
                 </div>
             </div>
             <div class="header-controls">
@@ -144,7 +144,7 @@
                     </div>
                 </div>
 
-                <div id="visual-ews-container" class="mt-15">
+                <div id="visual-ews-container" class="mt-15 news-display-grid">
                     </div>
             </section>
             
@@ -180,7 +180,8 @@
                         </div>
                         <div class="form-group">
                             <label>Meds <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
-                            <textarea id="meds" data-js="meds" rows="2"></textarea>
+                            <textarea id="meds" data-js="meds" rows="2" placeholder="Start typing to detect anticoagulants..."></textarea>
+                            <div id="meds-alert" class="meds-status-bar"></div>
                         </div>
                     </div>
 
@@ -199,9 +200,10 @@
                 </div>
             </section>
 
-            <section class="card" id="card-screening">
-                <h2>4. Mandatory Screening</h2>
-                <div id="screening-container"></div>
+            <section class="card span-2" id="card-screening">
+                <h2>4. Mandatory Screening & Safety</h2>
+                <div id="screening-container" class="screening-grid">
+                    </div>
             </section>
 
             <section class="card span-2" id="card-plan">
@@ -216,15 +218,16 @@
                         <div id="priority-reasons"></div>
                         
                         <div class="override-section">
-                            <label><input type="checkbox" id="check-override" data-js="check-override"> Clinical Override</label>
-                            <div id="override-options" class="hidden">
+                            <button id="btn-override-toggle" class="btn-override-toggle">🔓 Clinical Override</button>
+                            <div id="override-options" class="hidden override-panel">
+                                <label>Manual Priority Assignment:</label>
                                 <select id="sel-override" data-js="sel-override">
                                     <option value="Red">Red (Immediate)</option>
                                     <option value="Orange">Orange (15m)</option>
                                     <option value="Yellow">Yellow (60m)</option>
                                     <option value="Green">Green (120m)</option>
                                 </select>
-                                <input type="text" id="txt-override" data-js="txt-override" placeholder="Reason (Mandatory)">
+                                <input type="text" id="txt-override" data-js="txt-override" placeholder="Reason (Mandatory for Audit)">
                             </div>
                         </div>
                     </div>
@@ -274,7 +277,7 @@
         </aside>
         
         <footer>
-            <p>v14.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
+            <p>v15.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
         </footer>
     </div>
     
