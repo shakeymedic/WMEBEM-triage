@@ -4,7 +4,6 @@ class TriageApp {
     constructor() {
         this.data = clinicalData;
         
-        // Initial State
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, hr: null, avpu: 'A', temp: null, scale2: false },
@@ -63,11 +62,9 @@ class TriageApp {
             this.state.patient.age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
         }
 
-        // Meds Risk Check
         this.checkMedsRisks();
 
         const p = this.state.patient;
-        
         if (p.pregnant || (p.age !== null && p.age < 16)) {
             this.state.triage.newsScore = 0; 
             this.state.triage.newsBreakdown = [];
@@ -83,12 +80,10 @@ class TriageApp {
         const meds = (this.state.history.meds || '').toLowerCase();
         let risks = [];
         
-        // Scan against High Risk Maps
         Object.entries(this.data.highRiskDrugs).forEach(([key, warning]) => {
             if (meds.includes(key)) risks.push(warning);
         });
 
-        // Safe words logic
         const safeWords = ['nil', 'none', 'nkda', 'no meds', 'nothing'];
         const el = document.getElementById('meds-alert');
         
@@ -169,9 +164,6 @@ class TriageApp {
 
     calcStreamAndTimer() {
         const p = this.state.triage.finalPriority;
-        const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
-        this.state.triage.timer = timers[p] || '--';
-
         let stream = 'Majors';
         if (p === 'Red' || p === 'Orange') stream = 'RESUS / MAJORS';
         else if (p === 'Green' || p === 'Blue') {
@@ -181,6 +173,9 @@ class TriageApp {
         
         if (this.state.patient.age !== null && this.state.patient.age < 16) stream = `Paeds (${stream})`;
         this.state.triage.stream = stream;
+        
+        const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
+        this.state.triage.timer = timers[p] || '--';
     }
 
     cacheDOM() {
@@ -221,7 +216,6 @@ class TriageApp {
         bind('allergies', 'allergies', 'history');
         bind('pmh', 'pmh', 'history');
         
-        // Plan Narrative Binding
         document.getElementById('plan-narrative').addEventListener('input', (e) => {
             this.setState({ history: { planNarrative: e.target.value } });
         });
@@ -229,8 +223,6 @@ class TriageApp {
         // Meds Autocomplete Logic
         this.dom.medsInput.addEventListener('keyup', (e) => this.handleMedsAutocomplete(e));
         this.dom.medsInput.addEventListener('blur', () => setTimeout(() => this.dom.suggestionsBox.classList.add('hidden'), 200));
-        
-        // Meds State Update (Input event for state, Keyup for suggestions)
         this.dom.medsInput.addEventListener('input', (e) => this.setState({ history: { meds: e.target.value } }));
 
         document.querySelectorAll('.segmented-control button').forEach(btn => {
@@ -259,6 +251,29 @@ class TriageApp {
                 target.value = e.target.dataset.val;
                 target.dispatchEvent(new Event('input')); 
             }
+        });
+
+        // Body Map Interaction
+        const btnBodyMap = document.getElementById('btn-body-map');
+        const modalBodyMap = document.getElementById('modal-bodymap');
+        btnBodyMap.addEventListener('click', () => modalBodyMap.classList.remove('hidden'));
+        document.getElementById('btn-close-map').addEventListener('click', () => modalBodyMap.classList.add('hidden'));
+        document.querySelectorAll('.map-zone').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const val = e.target.dataset.val;
+                this.dom.complaintInput.value = val;
+                this.handleComplaint(val);
+                modalBodyMap.classList.add('hidden');
+            });
+        });
+
+        // SBAR Generation
+        document.getElementById('btn-sbar').addEventListener('click', () => {
+            this.generateSBAR();
+            document.getElementById('modal-sbar').classList.remove('hidden');
+        });
+        document.getElementById('btn-close-sbar').addEventListener('click', () => {
+            document.getElementById('modal-sbar').classList.add('hidden');
         });
 
         // Override Toggle
@@ -321,8 +336,6 @@ class TriageApp {
         if (matches.length > 0) {
             this.dom.suggestionsBox.innerHTML = matches.map(m => `<div class="suggestion-item">${m}</div>`).join('');
             this.dom.suggestionsBox.classList.remove('hidden');
-            
-            // Re-bind suggestion clicks
             this.dom.suggestionsBox.querySelectorAll('.suggestion-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const wordToReplace = lastWord;
@@ -341,12 +354,10 @@ class TriageApp {
     renderScreening() {
         const container = document.getElementById('screening-container');
         container.innerHTML = '';
-
         Object.entries(this.data.screening).forEach(([key, data]) => {
             const div = document.createElement('div');
             div.className = 'screening-item';
             div.id = `screen-${key}`;
-            
             let html = `<span class="screening-title">${data.label}</span>`;
             if (data.options) {
                 html += `<select id="screen-input-${key}" class="w-full"><option value="">Select...</option>`;
@@ -361,15 +372,17 @@ class TriageApp {
             div.innerHTML = html;
             container.appendChild(div);
             
-            // Internal logic for toggle switch active states
             const toggle = div.querySelector('.segmented-control');
             if(toggle) {
                 toggle.querySelectorAll('button').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
                         e.target.classList.add('active');
+                        this.renderNote(); 
                     });
                 });
+            } else {
+                div.querySelector('select')?.addEventListener('change', () => this.renderNote());
             }
         });
     }
@@ -378,6 +391,8 @@ class TriageApp {
         const age = this.state.patient.age;
         const frailtyDiv = document.getElementById('screen-frailty');
         if(frailtyDiv) frailtyDiv.style.display = (age !== null && age >= 65) ? 'block' : 'none';
+        const fallsDiv = document.getElementById('screen-falls');
+        if(fallsDiv) fallsDiv.style.display = (age !== null && age >= 65) ? 'block' : 'none';
     }
 
     renderPainButtons() {
@@ -421,6 +436,30 @@ class TriageApp {
 
         this.setState({ history: { ...this.state.history, complaint: val } });
         
+        // Render Calculator Logic
+        const calcBox = document.getElementById('calculator-container');
+        const calcData = this.data.calculators ? this.data.calculators[val] : null;
+        
+        if (calcData) {
+            calcBox.classList.remove('hidden');
+            let html = `<span class="calc-title">🧮 ${calcData.title}</span>`;
+            calcData.criteria.forEach((c, idx) => {
+                html += `<div class="calc-item"><label>${c.text}</label>
+                         <input type="checkbox" data-score="${c.points}" class="calc-trigger"></div>`;
+            });
+            html += `<div class="calc-score-display">Score: <span id="calc-score-val">0</span></div>`;
+            calcBox.innerHTML = html;
+            
+            const triggers = calcBox.querySelectorAll('.calc-trigger');
+            triggers.forEach(t => t.addEventListener('change', () => {
+                let s = 0;
+                triggers.forEach(x => { if(x.checked) s += parseFloat(x.dataset.score); });
+                document.getElementById('calc-score-val').textContent = s;
+            }));
+        } else {
+            calcBox.classList.add('hidden');
+        }
+
         if (!this.data.mtsFlowcharts[val]) return;
 
         const container = this.dom.discriminatorBox;
@@ -633,30 +672,56 @@ class TriageApp {
             txt += `\nActions:\n- ${this.state.actionsTaken.join('\n- ')}\n`;
         }
         
-        // Append Screening Data
         const getScreenVal = (id) => {
             const el = document.getElementById(id);
             if(el) return el.value;
-            // Check toggles
             const toggle = document.querySelector(`#toggle-${id.replace('screen-input-', '')} .active`);
             if(toggle) return toggle.textContent;
             return null;
         }
         
-        // Loop screening to find positives
+        let screenTxt = '';
         Object.keys(this.data.screening).forEach(key => {
-            // Simplified check for now
             const val = getScreenVal(`screen-input-${key}`) || getScreenVal(key);
             if(val && val !== 'No' && val !== 'Select...') {
-                txt += `\n${this.data.screening[key].label}: ${val}`;
+                screenTxt += `\n${this.data.screening[key].label}: ${val}`;
             }
         });
+        if(screenTxt) txt += `\n${screenTxt}`;
 
         if (h.planNarrative) {
             txt += `\n\nPLAN / NARRATIVE:\n${h.planNarrative}`;
         }
         
         document.getElementById('epr-note').value = txt;
+    }
+
+    generateSBAR() {
+        const p = this.state.patient;
+        const t = this.state.triage;
+        const h = this.state.history;
+        
+        const s = `I have ${p.id || 'a patient'}, ${p.age}y ${p.sex}, presenting with ${h.complaint}. Priority ${t.finalPriority}.`;
+        
+        let b = `${h.pmh || 'Nil PMH'}. `;
+        if(h.riskFlags.length > 0) b += `Alert: ${h.riskFlags.join(', ')}. `;
+        if(h.anticoagulated) b += `On Anticoagulants. `;
+        
+        let a = `NEWS2 ${t.newsScore}. `;
+        if(t.newsScore > 0) a += `(${t.newsBreakdown.join(', ')}). `;
+        if(h.pain > 0) a += `Pain ${h.pain}/10. `;
+        
+        let r = `Streamed to ${t.stream}. `;
+        const proto = this.data.protocols[h.complaint];
+        if(proto && proto.tests) {
+            r += `Plan: ${proto.tests.bedside.join(', ')} & Bloods. `;
+        }
+        if(t.finalPriority === 'Red') r += `Requires immediate review.`;
+        
+        document.getElementById('sbar-s').textContent = s;
+        document.getElementById('sbar-b').textContent = b;
+        document.getElementById('sbar-a').textContent = a;
+        document.getElementById('sbar-r').textContent = r;
     }
 
     debouncedSave() {
