@@ -1,21 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Triage Dashboard v11.0</title>
+    <title>WMEBEM Triage Dashboard v12.0</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
     <div id="toast-container"></div>
     
-    <div id="modal-overlay" class="hidden">
-        <div id="modal-box">
-            <h3 id="modal-title">Alert</h3>
+    <div id="modal-overlay" class="hidden" aria-hidden="true">
+        <div id="modal-box" role="dialog" aria-modal="true">
+            <h3 id="modal-title">Clinical Alert</h3>
             <p id="modal-message">Message</p>
             <div id="modal-actions">
-                <button id="modal-close">Acknowledge</button>
+                <button id="modal-close" class="btn-primary">Acknowledge</button>
             </div>
         </div>
     </div>
@@ -23,45 +23,60 @@
     <div class="container">
         <header>
              <div id="logo-container">
-                <div style="font-weight:900; font-size:24px; color:var(--primary); margin-right:15px;">WMEBEM</div>
+                <div class="logo-text">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v11.0 | Consultant Edition</span>
+                    <span class="version-tag">v12.0 | Consultant Approved</span>
                 </div>
             </div>
             <div class="header-controls">
-                <button id="btn-history" class="btn-secondary" style="margin-right:10px;">🕒 Recent</button>
-                <div class="theme-switch-wrapper">
+                <button id="btn-history" class="btn-secondary" title="View Recent Patients">🕒 History</button>
+                <div class="theme-switch-wrapper" title="Toggle Dark Mode">
                     <label class="theme-switch" for="checkbox-theme">
                         <input type="checkbox" id="checkbox-theme" />
                         <div class="slider"></div>
                     </label>
-                    <span class="theme-label">Dark Mode</span>
                 </div>
-                <button id="btn-reset" class="btn-secondary">New Patient</button>
+                <button id="btn-reset" class="btn-warning">New Patient</button>
             </div>
         </header>
 
-        <div class="dashboard">
+        <main class="dashboard">
 
-            <div class="card" id="card-demographics">
-                <h2>1. Patient Demographics</h2>
+            <section class="card" id="card-demographics">
+                <h2>1. Patient ID & Demographics</h2>
                 <div class="form-grid">
-                    <div class="form-group"><label>Patient ID / Name</label><input type="text" id="patient-id" data-js="patient-id" placeholder="Scan or Type..."></div>
-                    <div class="form-group"><label>Date of Birth</label><input type="date" id="patient-dob" data-js="patient-dob"></div>
+                    <div class="form-group">
+                        <label for="patient-id">Patient ID / Name</label>
+                        <input type="text" id="patient-id" data-js="patient-id" placeholder="Scan or Type..." autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="patient-dob">Date of Birth</label>
+                        <input type="date" id="patient-dob" data-js="patient-dob">
+                    </div>
                 </div>
                 <div class="info-row">
                     <span id="calculated-age-display" class="highlight-text">Age: --</span>
                 </div>
                 <div class="form-grid">
-                    <div class="form-group"><label>Weight (kg)</label><input type="number" id="patient-weight" data-js="patient-weight" placeholder="Req. for Paeds"></div>
-                    <div class="form-group"><label>Sex</label><select id="patient-sex" data-js="patient-sex"><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+                    <div class="form-group">
+                        <label for="patient-weight">Weight (kg) <small class="text-muted">(Req. for Paeds)</small></label>
+                        <input type="number" id="patient-weight" data-js="patient-weight" placeholder="kg">
+                    </div>
+                    <div class="form-group">
+                        <label for="patient-sex">Sex</label>
+                        <select id="patient-sex" data-js="patient-sex">
+                            <option value="">Select...</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <div class="form-group mt-10">
-                    <label>Mobility (for Streaming)</label>
+                    <label for="patient-mobility">Mobility (Streaming)</label>
                     <select id="patient-mobility" data-js="patient-mobility">
-                        <option value="Walking">Walking</option>
+                        <option value="Walking">Walking / Self-Caring</option>
                         <option value="Wheelchair">Wheelchair</option>
                         <option value="Trolley">Trolley / Bed Bound</option>
                     </select>
@@ -70,72 +85,73 @@
                 <div id="female-health-section" class="hidden alert-section">
                     <div class="form-group checkbox-group">
                         <input type="checkbox" id="check-pregnant" data-js="check-pregnant">
-                        <label>Pregnant / Postpartum (&lt;6w)</label>
+                        <label for="check-pregnant">Pregnant / Postpartum (< 6w)</label>
                     </div>
                     <div class="form-group">
-                        <label>LMP (Last Menstrual Period)</label>
+                        <label for="date-lmp">LMP (Last Menstrual Period)</label>
                         <input type="date" id="date-lmp" data-js="date-lmp">
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="card span-2" id="card-obs">
-                <h2 id="obs-title">2. Physiology</h2>
+            <section class="card span-2" id="card-obs">
+                <h2 id="obs-title">2. Physiology (NEWS2)</h2>
                 
                 <div id="obs-form" class="obs-grid">
                     <div class="obs-item">
-                        <label>Resp Rate</label>
-                        <input type="number" id="obs-rr" data-js="obs-rr" placeholder="--">
+                        <label for="obs-rr">Resp Rate</label>
+                        <input type="number" id="obs-rr" data-js="obs-rr" placeholder="RR">
                     </div>
                     <div class="obs-item">
-                        <label>SpO₂ (%)</label>
-                        <input type="number" id="obs-sats" data-js="obs-sats" placeholder="--">
+                        <label for="obs-sats">SpO₂ (%)</label>
+                        <input type="number" id="obs-sats" data-js="obs-sats" placeholder="%">
                     </div>
                     
                     <div class="obs-item span-2-mobile">
-                        <label>Oxygen</label>
+                        <label>Oxygen Delivery</label>
                         <div class="segmented-control" id="seg-o2">
-                            <button data-value="Air" class="active">Air</button>
-                            <button data-value="O2">O₂</button>
+                            <button data-value="Air" class="active" type="button">Air</button>
+                            <button data-value="O2" type="button">O₂</button>
                         </div>
                     </div>
 
                     <div class="obs-item">
-                        <label>Systolic BP</label>
-                        <input type="number" id="obs-sbp" data-js="obs-sbp" placeholder="--">
+                        <label for="obs-sbp">Systolic BP</label>
+                        <input type="number" id="obs-sbp" data-js="obs-sbp" placeholder="mmHg">
                     </div>
                     <div class="obs-item">
-                        <label>Heart Rate</label>
-                        <input type="number" id="obs-hr" data-js="obs-hr" placeholder="--">
+                        <label for="obs-hr">Heart Rate</label>
+                        <input type="number" id="obs-hr" data-js="obs-hr" placeholder="BPM">
                     </div>
                     
                     <div class="obs-item span-2-mobile">
-                        <label>AVPU</label>
+                        <label>AVPU / GCS</label>
                         <div class="segmented-control" id="seg-avpu">
-                            <button data-value="A" class="active">A</button>
-                            <button data-value="V">V</button>
-                            <button data-value="P">P</button>
-                            <button data-value="U">U</button>
+                            <button data-value="A" class="active" type="button">A</button>
+                            <button data-value="V" type="button">V</button>
+                            <button data-value="P" type="button">P</button>
+                            <button data-value="U" type="button">U</button>
                         </div>
                     </div>
 
                     <div class="obs-item">
-                        <label>Temp (°C)</label>
-                        <input type="number" id="obs-temp" data-js="obs-temp" step="0.1" placeholder="--">
+                        <label for="obs-temp">Temp (°C)</label>
+                        <input type="number" id="obs-temp" data-js="obs-temp" step="0.1" placeholder="°C">
                     </div>
                     <div class="obs-item full-width-checkbox">
                         <input type="checkbox" id="obs-scale2" data-js="obs-scale2">
-                        <label for="obs-scale2">Use Scale 2 (CO₂)</label>
+                        <label for="obs-scale2">Scale 2 (CO₂ Retainer)</label>
                     </div>
                 </div>
 
-                <div id="visual-ews-container" class="mt-15"></div>
-            </div>
+                <div id="visual-ews-container" class="mt-15">
+                    </div>
+            </section>
             
-            <div class="card span-2">
+            <section class="card span-2">
                 <h2>3. History & Complaint</h2>
                 <div class="quick-actions-bar">
-                    <span class="label-small">Quick Complaints:</span>
+                    <span class="label-small">Common:</span>
                     <button class="btn-chip" data-action="setComplaint" data-val="Chest Pain">Chest Pain</button>
                     <button class="btn-chip" data-action="setComplaint" data-val="Abdominal Pain">Abdo Pain</button>
                     <button class="btn-chip" data-action="setComplaint" data-val="Shortness of Breath">SOB</button>
@@ -146,9 +162,9 @@
                 <div class="form-group mt-10">
                     <label>
                         Presenting Complaint 
-                        <button class="mic-btn" data-target="input-complaint" title="Dictate">🎤</button>
+                        <button class="mic-btn" data-target="input-complaint" title="Dictate Complaint">🎤</button>
                     </label>
-                    <input list="flowcharts" id="input-complaint" data-js="input-complaint" placeholder="Type or Dictate...">
+                    <input list="flowcharts" id="input-complaint" data-js="input-complaint" placeholder="Type or Dictate..." autocomplete="off">
                     <datalist id="flowcharts"></datalist>
                 </div>
 
@@ -181,15 +197,15 @@
                     <div class="pain-btn-group" id="pain-btn-container">
                         </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="card" id="card-screening">
-                <h2>4. Screening</h2>
+            <section class="card" id="card-screening">
+                <h2>4. Mandatory Screening</h2>
                 <div id="screening-container"></div>
-            </div>
+            </section>
 
-            <div class="card span-2" id="card-plan">
-                <h2>5. Triage Decision & Plan</h2>
+            <section class="card span-2" id="card-plan">
+                <h2>5. Decision & Plan</h2>
                 <div class="plan-grid">
                     <div class="priority-box">
                         <div id="priority-display" class="priority-badge priority-Blue">WAITING</div>
@@ -203,7 +219,10 @@
                             <label><input type="checkbox" id="check-override" data-js="check-override"> Clinical Override</label>
                             <div id="override-options" class="hidden">
                                 <select id="sel-override" data-js="sel-override">
-                                    <option value="Red">Red</option><option value="Orange">Orange</option><option value="Yellow">Yellow</option><option value="Green">Green</option>
+                                    <option value="Red">Red (Immediate)</option>
+                                    <option value="Orange">Orange (15m)</option>
+                                    <option value="Yellow">Yellow (60m)</option>
+                                    <option value="Green">Green (120m)</option>
                                 </select>
                                 <input type="text" id="txt-override" data-js="txt-override" placeholder="Reason (Mandatory)">
                             </div>
@@ -216,7 +235,7 @@
                              <p class="placeholder-text">Select a complaint to view protocol.</p>
                         </div>
                         <div id="sepsis-actions" class="hidden warning-box mt-10">
-                            <strong>SEPSIS 6 TRIGGERED:</strong>
+                            <strong>⚡ SEPSIS 6 TRIGGERED:</strong>
                             <ul>
                                 <li>Give Oxygen (target 94-98%)</li>
                                 <li>Take Blood Cultures</li>
@@ -228,32 +247,34 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="card full-width">
+            <section class="card full-width">
                 <h2>6. EPR Note</h2>
                 <textarea id="epr-note" rows="8" readonly class="code-font"></textarea>
                 <div class="note-controls">
-                    <button id="btn-copy">Copy to Clipboard</button>
+                    <button id="btn-copy" class="btn-primary">Copy to Clipboard</button>
+                </div>
+            </section>
+            
+            <div id="paeds-panel" class="card full-width" style="display:none; border-color:var(--orange);">
+                <h3>Paediatric Safety</h3>
+                <div class="split-view">
+                    <div id="paeds-content"></div>
+                    <div id="pews-content"></div>
                 </div>
             </div>
-            
-            <div id="paeds-panel" class="card" style="display:none; border-color:var(--orange);">
-                <h3>Paediatric Safety</h3>
-                <div id="paeds-content"></div>
-                <div id="pews-content" class="mt-10"></div>
-            </div>
 
-        </div>
+        </main>
         
-        <div id="history-sidebar">
+        <aside id="history-sidebar">
             <h3>Recent Patients</h3>
             <div id="history-list"></div>
-            <button onclick="document.getElementById('history-sidebar').classList.remove('open')" style="margin-top:20px; width:100%;">Close</button>
-        </div>
+            <button id="btn-close-history" class="btn-secondary" style="margin-top:20px; width:100%;">Close</button>
+        </aside>
         
         <footer>
-            <p>v11.0 | Educational Use Only | Adhere to local Trust Guidelines</p>
+            <p>v12.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
         </footer>
     </div>
     
