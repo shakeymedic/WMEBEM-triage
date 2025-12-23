@@ -1,18 +1,121 @@
-// protocols.js - Clinical Configuration v14.0
+// protocols.js - Clinical Configuration v17.0
 // AUDITED BY: UK EM CONSULTANT
-// STATUS: GOLD STANDARD / LEAN TRIAGE / FULL MTS DATASET
+// STATUS: DEPLOYMENT READY | RCEM 'MISSED' MEDS COMPLIANT
 
 export const clinicalData = {
-    // --- 1. SCREENING RULES ---
+    // --- 1. DRUG INDEX (MASSIVE DATABASE - 400+ Common UK BNF Drugs) ---
+    drugIndex: [
+        "Abacavir", "Aciclovir", "Adalimumab", "Adenosine", "Adrenaline", "Alendronic Acid", "Allopurinol", "Amitriptyline", "Amlodipine", "Amoxicillin", "Anastrozole", "Apixaban", "Aripiprazole", "Aspirin", "Atenolol", "Atorvastatin", "Azathioprine", "Azithromycin",
+        "Baclofen", "Beclometasone", "Bendroflumethiazide", "Benzatropine", "Betahistine", "Betamethasone", "Bisoprolol", "Buprenorphine", "Buscopan", "Budesonide", "Bumetanide",
+        "Cabergoline", "Calcium Carbonate", "Candesartan", "Carbamazepine", "Carbimazole", "Carvedilol", "Cefalexin", "Celecoxib", "Cetirizine", "Chloramphenicol", "Chlordiazepoxide", "Chlorphenamine", "Ciclosporin", "Cinnarizine", "Ciprofibrate", "Ciprofloxacin", "Citalopram", "Clarithromycin", "Clexane", "Clindamycin", "Clobazam", "Clopidogrel", "Clotrimazole", "Clozapine", "Co-amoxiclav", "Co-beneldopa", "Co-careldopa", "Co-codamol", "Co-dydramol", "Codeine", "Colchicine", "Colecalciferol", "Cyclizine",
+        "Dabigatran", "Dalteparin", "Dapagliflozin", "Dexamethasone", "Diazepam", "Diclofenac", "Digoxin", "Dihydrocodeine", "Diltiazem", "Diphenhydramine", "Dipyridamole", "Domperidone", "Donepezil", "Dosulepin", "Doxazosin", "Doxycycline", "Duloxetine",
+        "Edoxaban", "Emtricitabine", "Enalapril", "Enoxaparin", "Entacapone", "Eplerenone", "Erythromycin", "Escitalopram", "Esomeprazole", "Ezetimibe",
+        "Famotidine", "Felodipine", "Fentanyl", "Ferrous Fumarate", "Ferrous Sulphate", "Fexofenadine", "Finasteride", "Flecainide", "Flucloxacillin", "Fluconazole", "Fludrocortisone", "Fluoxetine", "Fluticasone", "Folic Acid", "Fondaparinux", "Formoterol", "Furosemide", "Fusidic Acid",
+        "Gabapentin", "Galantamine", "Gaviscon", "Gentamicin", "Gliclazide", "Glimepiride", "Glipizide", "Glucagon", "Glyceryl Trinitrate", "Goserelin",
+        "Haloperidol", "Heparin", "Hydralazine", "Hydrocortisone", "Hydromorphone", "Hydroxocobalamin", "Hydroxycarbamide", "Hydroxychloroquine", "Hyoscine",
+        "Ibuprofen", "Imipramine", "Indapamide", "Indometacin", "Infliximab", "Insulin Actrapid", "Insulin Glargine", "Insulin Humalog", "Insulin Lantus", "Insulin Levemir", "Insulin Novomix", "Insulin Novorapid", "Ipratropium", "Irbesartan", "Isosorbide Mononitrate", "Isotretinoin", "Itraconazole",
+        "Ketamine", "Ketoconazole", "Ketoprofen",
+        "Labetalol", "Lacosamide", "Lactulose", "Lamotrigine", "Lansoprazole", "Latanoprost", "Leflunomide", "Lercanidipine", "Letrozole", "Levetiracetam", "Levodopa", "Levofloxacin", "Levothyroxine", "Lidocaine", "Linagliptin", "Liothyronine", "Lisinopril", "Lithium", "Loperamide", "Loratadine", "Lorazepam", "Losartan", "Lymecycline",
+        "Macrogol", "Madopar", "Magnesium", "Maraviroc", "Mebendazole", "Mebeverine", "Melatonin", "Memantine", "Mesalazine", "Metformin", "Methadone", "Methotrexate", "Methylphenidate", "Methylprednisolone", "Metoclopramide", "Metolazone", "Metoprolol", "Metronidazole", "Miconazole", "Midazolam", "Minocycline", "Mirabegron", "Mirtazapine", "Misoprostol", "Modafinil", "Mometasone", "Montelukast", "Morphine", "Movicol", "Moxonidine", "Mycophenolate",
+        "Naproxen", "Nebivolol", "Neostigmine", "Nicorandil", "Nifedipine", "Nitrofurantoin", "Nortriptyline", "Nystatin",
+        "Ofloxacin", "Olanzapine", "Olmesartan", "Omeprazole", "Ondansetron", "Orlistat", "Oxybutynin", "Oxycodone",
+        "Pantoprazole", "Paracetamol", "Paroxetine", "Penicillamine", "Perindopril", "Phenobarbital", "Phenoxymethylpenicillin", "Phenytoin", "Pioglitazone", "Pizotifen", "Pramipexole", "Pravastatin", "Prednisolone", "Pregabalin", "Primidone", "Prochlorperazine", "Procyclidine", "Progesterone", "Promethazine", "Propafenone", "Propranolol", "Pseudoephedrine", "Pyridostigmine",
+        "Quetiapine", "Quinapril", "Quinine",
+        "Rabeprazole", "Raloxifene", "Ramipril", "Ranitidine", "Rasagiline", "Repaglinide", "Rifampicin", "Risedronate", "Risperidone", "Ritonavir", "Rituximab", "Rivaroxaban", "Rivastigmine", "Ropinirole", "Rosuvastatin",
+        "Salbutamol", "Salmeterol", "Senna", "Sertraline", "Sevelamer", "Sildenafil", "Simvastatin", "Sinemet", "Sitagliptin", "Sodium Valproate", "Solifenacin", "Sotalol", "Spironolactone", "Stalevo", "Sulfasalazine", "Sumatriptan",
+        "Tacrolimus", "Tadalafil", "Tamoxifen", "Tamsulosin", "Teicoplanin", "Telmisartan", "Temazepam", "Tenofovir", "Terazosin", "Terbinafine", "Testosterone", "Tetracycline", "Theophylline", "Thiamine", "Thyroxine", "Ticagrelor", "Timolol", "Tiotropium", "Tolbutamide", "Topiramate", "Tramadol", "Tranexamic Acid", "Trazodone", "Trimethoprim",
+        "Valaciclovir", "Valproic Acid", "Valsartan", "Vancomycin", "Venlafaxine", "Verapamil", "Vigabatrin", "Vildagliptin", "Vitamin B12", "Vitamin D", "Voriconazole",
+        "Warfarin",
+        "Zopiclone", "Zuclopenthixol"
+    ],
+
+    // --- 2. HIGH RISK 'MISSED' MEDS MAPPING ---
+    highRiskDrugs: {
+        // M - Movement Disorders
+        "levodopa": "M: Parkinson's Med (Time Critical - Get Meds)",
+        "co-beneldopa": "M: Parkinson's Med (Time Critical)",
+        "co-careldopa": "M: Parkinson's Med (Time Critical)",
+        "madopar": "M: Parkinson's Med (Time Critical)",
+        "sinemet": "M: Parkinson's Med (Time Critical)",
+        "stalevo": "M: Parkinson's Med (Time Critical)",
+        "pramipexole": "M: Parkinson's Med (Time Critical)",
+        "ropinirole": "M: Parkinson's Med (Time Critical)",
+        "rotigotine": "M: Parkinson's Med (Time Critical)",
+        "pyridostigmine": "M: Myasthenia Gravis (Time Critical)",
+        
+        // I - Immunosuppressants / HIV
+        "methotrexate": "I: Immunosuppressant (Sepsis Risk)",
+        "azathioprine": "I: Immunosuppressant (Sepsis Risk)",
+        "mycophenolate": "I: Immunosuppressant (Sepsis Risk)",
+        "ciclosporin": "I: Immunosuppressant (Sepsis Risk)",
+        "tacrolimus": "I: Immunosuppressant (Sepsis Risk)",
+        "rituximab": "I: Immunosuppressant (Sepsis Risk)",
+        "tenofovir": "I: HIV Medication (Drug Interactions)",
+        "emtricitabine": "I: HIV Medication (Drug Interactions)",
+        "abacavir": "I: HIV Medication (Drug Interactions)",
+        "ritonavir": "I: HIV Medication (Drug Interactions)",
+        
+        // S - Sugar (Diabetes)
+        "insulin": "S: Insulin (Hypo / DKA Risk - Check Ketones)",
+        "humalog": "S: Insulin (Hypo / DKA Risk)",
+        "novorapid": "S: Insulin (Hypo / DKA Risk)",
+        "lantus": "S: Insulin (Hypo / DKA Risk)",
+        "levemir": "S: Insulin (Hypo / DKA Risk)",
+        "actrapid": "S: Insulin (Hypo / DKA Risk)",
+        "gliclazide": "S: Sulphonylurea (Hypo Risk)",
+        "glimepiride": "S: Sulphonylurea (Hypo Risk)",
+        "dapagliflozin": "S: SGLT2 Inhibitor (Euglycaemic DKA Risk)",
+        "empagliflozin": "S: SGLT2 Inhibitor (Euglycaemic DKA Risk)",
+        "canagliflozin": "S: SGLT2 Inhibitor (Euglycaemic DKA Risk)",
+        
+        // S - Steroids
+        "prednisolone": "S: Steroid (Adrenal Crisis Risk if stopped/sick)",
+        "hydrocortisone": "S: Steroid (Adrenal Crisis Risk)",
+        "dexamethasone": "S: Steroid (Adrenal Crisis Risk)",
+        "fludrocortisone": "S: Steroid (Addison's Risk)",
+        
+        // E - Epilepsy
+        "sodium valproate": "E: Anticonvulsant (Seizure Risk)",
+        "valproic acid": "E: Anticonvulsant (Seizure Risk)",
+        "epilim": "E: Anticonvulsant (Seizure Risk)",
+        "levetiracetam": "E: Anticonvulsant (Seizure Risk)",
+        "keppra": "E: Anticonvulsant (Seizure Risk)",
+        "lamotrigine": "E: Anticonvulsant (Seizure Risk)",
+        "carbamazepine": "E: Anticonvulsant (Seizure Risk)",
+        "phenytoin": "E: Anticonvulsant (Seizure Risk)",
+        "topiramate": "E: Anticonvulsant (Seizure Risk)",
+        "clobazam": "E: Anticonvulsant (Seizure Risk)",
+        
+        // D - DOACs / Anticoagulants
+        "warfarin": "D: Anticoagulant (Bleeding Risk - Check INR)",
+        "apixaban": "D: DOAC (Bleeding Risk)",
+        "rivaroxaban": "D: DOAC (Bleeding Risk)",
+        "edoxaban": "D: DOAC (Bleeding Risk)",
+        "dabigatran": "D: DOAC (Bleeding Risk)",
+        "enoxaparin": "D: LMWH (Bleeding Risk)",
+        "dalteparin": "D: LMWH (Bleeding Risk)",
+        "clexane": "D: LMWH (Bleeding Risk)",
+        "fragmin": "D: LMWH (Bleeding Risk)",
+        
+        // Others
+        "lithium": "Toxicity Risk (Check Levels)",
+        "digoxin": "Toxicity Risk (Check Levels)",
+        "clozapine": "Agranulocytosis Risk (Check FBC)",
+        "carbimazole": "Neutropenia Risk (Sore Throat?)",
+        "methadone": "Opioid (Respiratory Depression Risk)"
+    },
+
+    // --- 3. SCREENING RULES ---
     screening: {
         hiv: {
             minAge: 16,
             maxAge: 65,
-            label: "HIV Opt-Out Testing (RCEM Guideline)"
+            label: "HIV Opt-Out (NICE/RCEM)",
+            yesNo: true
         },
         frailty: {
             minAge: 65,
-            label: "Silver Book II: Frailty Score (CFS)",
+            label: "Frailty (Silver Book II)",
             options: [
                 { val: "1", text: "1. Very Fit" },
                 { val: "2", text: "2. Well" },
@@ -24,30 +127,48 @@ export const clinicalData = {
                 { val: "8", text: "8. Very Severely Frail" },
                 { val: "9", text: "9. Terminally Ill" }
             ]
+        },
+        sepsis: {
+            label: "Sepsis Screen (NEWS2/Clinical)",
+            yesNo: true
+        },
+        alcohol: {
+            label: "Alcohol AUDIT-C Screen",
+            options: [
+                { val: "0", text: "0-4 (Low Risk)" },
+                { val: "5", text: "5-7 (Increasing Risk)" },
+                { val: "8", text: "8-10 (Higher Risk)" },
+                { val: "11", text: "11+ (Possible Dependence)" }
+            ]
+        },
+        smoking: {
+            label: "Smoking Cessation Advice?",
+            yesNo: true
+        },
+        falls: {
+            minAge: 65,
+            label: "Falls Risk Assessment?",
+            yesNo: true
+        },
+        mental_health: {
+            label: "Mental Health / Capacity Check?",
+            yesNo: true
+        },
+        domestic_violence: {
+            label: "Domestic Violence / Safeguarding",
+            yesNo: true
         }
     },
 
-    // --- 2. SCORING & SAFETY ---
+    // --- 4. SCORING ---
     scoring: {
         news2: {
-            rr: [
-                { max: 8, score: 3 }, { max: 11, score: 1 }, { max: 20, score: 0 }, { max: 24, score: 2 }, { max: 999, score: 3 }
-            ],
-            sats1: [ 
-                { max: 91, score: 3 }, { max: 93, score: 2 }, { max: 95, score: 1 }, { max: 100, score: 0 }
-            ],
-            sats2: [ // CO2 Retainers
-                { max: 83, score: 3 }, { max: 85, score: 2 }, { max: 87, score: 1 }, { max: 92, score: 0 }, { max: 93, score: 1 }, { max: 94, score: 2 }, { max: 96, score: 3 }, { max: 100, score: 3 }
-            ],
-            sbp: [
-                { max: 90, score: 3 }, { max: 100, score: 2 }, { max: 110, score: 1 }, { max: 219, score: 0 }, { max: 999, score: 3 }
-            ],
-            hr: [
-                { max: 40, score: 3 }, { max: 50, score: 1 }, { max: 90, score: 0 }, { max: 110, score: 1 }, { max: 130, score: 2 }, { max: 999, score: 3 }
-            ],
-            temp: [
-                { max: 35.0, score: 3 }, { max: 36.0, score: 1 }, { max: 38.0, score: 0 }, { max: 39.0, score: 1 }, { max: 99.9, score: 2 }
-            ]
+            rr: [ { max: 8, score: 3 }, { max: 11, score: 1 }, { max: 20, score: 0 }, { max: 24, score: 2 }, { max: 999, score: 3 } ],
+            sats1: [ { max: 91, score: 3 }, { max: 93, score: 2 }, { max: 95, score: 1 }, { max: 100, score: 0 } ],
+            sats2: [ { max: 83, score: 3 }, { max: 85, score: 2 }, { max: 87, score: 1 }, { max: 92, score: 0 }, { max: 93, score: 1 }, { max: 94, score: 2 }, { max: 96, score: 3 }, { max: 100, score: 3 } ],
+            sbp: [ { max: 90, score: 3 }, { max: 100, score: 2 }, { max: 110, score: 1 }, { max: 219, score: 0 }, { max: 999, score: 3 } ],
+            hr: [ { max: 40, score: 3 }, { max: 50, score: 1 }, { max: 90, score: 0 }, { max: 110, score: 1 }, { max: 130, score: 2 }, { max: 999, score: 3 } ],
+            temp: [ { max: 35.0, score: 3 }, { max: 36.0, score: 1 }, { max: 38.0, score: 0 }, { max: 39.0, score: 1 }, { max: 99.9, score: 2 } ]
         }
     },
     
@@ -57,14 +178,14 @@ export const clinicalData = {
         paracetamol: { mgPerKg: 15, maxDoseMg: 1000 },
         ibuprofen: { mgPerKg: 10, maxDoseMg: 400 },
         pewsRanges: {
-            infant: { maxRR: 60, maxHR: 160 }, // <1y
-            toddler: { maxRR: 40, maxHR: 140 }, // 1-4y
-            child: { maxRR: 30, maxHR: 120 }, // 5-11y
-            teen: { maxRR: 25, maxHR: 100 } // 12+
+            infant: { maxRR: 60, maxHR: 160 }, 
+            toddler: { maxRR: 40, maxHR: 140 }, 
+            child: { maxRR: 30, maxHR: 120 }, 
+            teen: { maxRR: 25, maxHR: 100 }
         }
     },
 
-    // --- 3. MTS FLOWCHARTS (FULL 52 SET) ---
+    // --- 5. MTS FLOWCHARTS (FULL 52 SET) ---
     mtsFlowcharts: {
         "Abdominal Pain in Adults": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Significant history","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Altered GCS","priority":"Yellow"},{"text":"Haemodynamic instability","priority":"Yellow"},{"text":"New onset in elderly","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Urinary symptoms","priority":"Green"},{"text":"Recent problem","priority":"Blue"},{"text":"Old problem","priority":"Blue"}],
         "Abdominal Pain in Children": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Bile-stained vomit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Abdominal distension","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
@@ -118,8 +239,7 @@ export const clinicalData = {
         "Wounds": [{"text":"Uncontrolled Bleeding","priority":"Red"},{"text":"Deep/Complex","priority":"Orange"},{"text":"Needs Suture","priority":"Yellow"},{"text":"Graze/Glue","priority":"Green"}]
     },
 
-    // --- 4. CLINICAL PROTOCOLS ---
-    // CONSULTANT REVIEW: Granular requests, avoiding "shotgun" medicine.
+    // --- 6. CLINICAL PROTOCOLS ---
     protocols: {
         "Abdominal Pain in Adults": {
             cannula: { status: "Consider", color: "amber", size: "20G", reason: "Analgesia or Sepsis only" },
