@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMEBEM Triage Dashboard v15.0</title>
+    <title>WMEBEM Triage Dashboard v17.0</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -26,7 +26,7 @@
                 <div class="logo-text">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v15.0 | Intelligent Screening</span>
+                    <span class="version-tag">v17.0 | RCEM 'MISSED' Ready</span>
                 </div>
             </div>
             <div class="header-controls">
@@ -144,8 +144,7 @@
                     </div>
                 </div>
 
-                <div id="visual-ews-container" class="mt-15 news-display-grid">
-                    </div>
+                <div id="visual-ews-container" class="mt-15 news-display-grid"></div>
             </section>
             
             <section class="card span-2">
@@ -178,9 +177,10 @@
                             <label>PMH <button class="btn-tiny" data-action="quickText" data-target="pmh" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="pmh">🎤</button></label>
                             <textarea id="pmh" data-js="pmh" rows="2"></textarea>
                         </div>
-                        <div class="form-group">
-                            <label>Meds <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
-                            <textarea id="meds" data-js="meds" rows="2" placeholder="Start typing to detect anticoagulants..."></textarea>
+                        <div class="form-group position-relative">
+                            <label>Meds <small class="text-muted">(Auto-scans for 'MISSED' Meds)</small> <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
+                            <textarea id="meds" data-js="meds" rows="3" placeholder="e.g. Warfarin, Sinemet, Insulin..."></textarea>
+                            <div id="meds-suggestions" class="suggestions-box hidden"></div>
                             <div id="meds-alert" class="meds-status-bar"></div>
                         </div>
                     </div>
@@ -195,15 +195,13 @@
 
                 <div class="pain-section mt-15">
                     <label>Pain Score: <span id="pain-val">0</span>/10</label>
-                    <div class="pain-btn-group" id="pain-btn-container">
-                        </div>
+                    <div class="pain-btn-group" id="pain-btn-container"></div>
                 </div>
             </section>
 
             <section class="card span-2" id="card-screening">
-                <h2>4. Mandatory Screening & Safety</h2>
-                <div id="screening-container" class="screening-grid">
-                    </div>
+                <h2>4. Mandatory & Opportunistic Screening</h2>
+                <div id="screening-container" class="screening-grid"></div>
             </section>
 
             <section class="card span-2" id="card-plan">
@@ -250,11 +248,16 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="plan-narrative mt-15">
+                    <label>Triage Narrative / Additional Plan <button class="mic-btn" data-target="plan-narrative">🎤</button></label>
+                    <textarea id="plan-narrative" class="w-full" rows="3" placeholder="Enter specific instructions, escalation notes, or social concerns here..."></textarea>
+                </div>
             </section>
 
             <section class="card full-width">
                 <h2>6. EPR Note</h2>
-                <textarea id="epr-note" rows="8" readonly class="code-font"></textarea>
+                <textarea id="epr-note" rows="10" readonly class="code-font"></textarea>
                 <div class="note-controls">
                     <button id="btn-copy" class="btn-primary">Copy to Clipboard</button>
                 </div>
@@ -277,7 +280,7 @@
         </aside>
         
         <footer>
-            <p>v15.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
+            <p>v17.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
         </footer>
     </div>
     
