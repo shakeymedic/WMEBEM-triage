@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMEBEM Triage Dashboard v17.0</title>
+    <title>WMEBEM Triage v18.0</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#005EB8">
+    <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
 
@@ -20,13 +23,46 @@
         </div>
     </div>
 
+    <div id="modal-sbar" class="hidden" aria-hidden="true">
+        <div id="modal-box-sbar" role="dialog" aria-modal="true">
+            <h3>📢 SBAR Handover Script</h3>
+            <div class="sbar-content">
+                <div class="sbar-section"><strong>S:</strong> <span id="sbar-s"></span></div>
+                <div class="sbar-section"><strong>B:</strong> <span id="sbar-b"></span></div>
+                <div class="sbar-section"><strong>A:</strong> <span id="sbar-a"></span></div>
+                <div class="sbar-section"><strong>R:</strong> <span id="sbar-r"></span></div>
+            </div>
+            <div id="modal-actions-sbar">
+                <button id="btn-close-sbar" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-bodymap" class="hidden" aria-hidden="true">
+        <div id="modal-box-bodymap">
+            <h3>Select Body Area</h3>
+            <div class="body-map-grid">
+                <button class="map-zone" data-val="Head Injury">Head / Face</button>
+                <button class="map-zone" data-val="Neck Pain">Neck</button>
+                <button class="map-zone" data-val="Chest Pain">Chest</button>
+                <button class="map-zone" data-val="Abdominal Pain in Adults">Abdomen</button>
+                <button class="map-zone" data-val="Back Pain">Back</button>
+                <button class="map-zone" data-val="Limb Problems">Arms / Legs</button>
+                <button class="map-zone" data-val="Urinary Problems">Pelvis / GU</button>
+                <button class="map-zone" data-val="Rash">Skin / Rash</button>
+                <button class="map-zone" data-val="Unwell Adult">General / Systemic</button>
+            </div>
+            <button id="btn-close-map" class="btn-secondary mt-15 w-full">Cancel</button>
+        </div>
+    </div>
+
     <div class="container">
         <header>
              <div id="logo-container">
                 <div class="logo-text">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v17.0 | RCEM 'MISSED' Ready</span>
+                    <span class="version-tag">v18.0 | Platinum Edition</span>
                 </div>
             </div>
             <div class="header-controls">
@@ -150,9 +186,10 @@
             <section class="card span-2">
                 <h2>3. History & Complaint</h2>
                 <div class="quick-actions-bar">
-                    <span class="label-small">Common:</span>
+                    <button class="btn-chip" id="btn-body-map">👤 Body Map</button>
+                    <span class="label-small"> | </span>
                     <button class="btn-chip" data-action="setComplaint" data-val="Chest Pain">Chest Pain</button>
-                    <button class="btn-chip" data-action="setComplaint" data-val="Abdominal Pain in Adults">Abdo Pain</button>
+                    <button class="btn-chip" data-action="setComplaint" data-val="Abdominal Pain in Adults">Abdo</button>
                     <button class="btn-chip" data-action="setComplaint" data-val="Shortness of Breath in Adults">SOB</button>
                     <button class="btn-chip" data-action="setComplaint" data-val="Fall">Fall</button>
                     <button class="btn-chip" data-action="setComplaint" data-val="Head Injury">Head Injury</button>
@@ -163,7 +200,7 @@
                         Presenting Complaint 
                         <button class="mic-btn" data-target="input-complaint" title="Dictate Complaint">🎤</button>
                     </label>
-                    <input list="flowcharts" id="input-complaint" data-js="input-complaint" placeholder="Type or Dictate..." autocomplete="off">
+                    <input list="flowcharts" id="input-complaint" data-js="input-complaint" placeholder="Type, Dictate or use Body Map..." autocomplete="off">
                     <datalist id="flowcharts"></datalist>
                 </div>
 
@@ -178,7 +215,7 @@
                             <textarea id="pmh" data-js="pmh" rows="2"></textarea>
                         </div>
                         <div class="form-group position-relative">
-                            <label>Meds <small class="text-muted">(Auto-scans for 'MISSED' Meds)</small> <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
+                            <label>Meds <small class="text-muted">(RCEM 'MISSED' Scan)</small> <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
                             <textarea id="meds" data-js="meds" rows="3" placeholder="e.g. Warfarin, Sinemet, Insulin..."></textarea>
                             <div id="meds-suggestions" class="suggestions-box hidden"></div>
                             <div id="meds-alert" class="meds-status-bar"></div>
@@ -232,6 +269,8 @@
                     
                     <div class="protocol-box">
                         <h3>Clinical Protocol</h3>
+                        <div id="calculator-container" class="hidden calc-box">
+                            </div>
                         <div id="protocol-actions">
                              <p class="placeholder-text">Select a complaint to view protocol.</p>
                         </div>
@@ -260,6 +299,7 @@
                 <textarea id="epr-note" rows="10" readonly class="code-font"></textarea>
                 <div class="note-controls">
                     <button id="btn-copy" class="btn-primary">Copy to Clipboard</button>
+                    <button id="btn-sbar" class="btn-secondary" style="margin-left: 10px;">📢 Generate SBAR Handover</button>
                 </div>
             </section>
             
@@ -280,10 +320,15 @@
         </aside>
         
         <footer>
-            <p>v17.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
+            <p>v18.0 | Educational Use Only | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
         </footer>
     </div>
     
     <script type="module" src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
 </body>
 </html>
