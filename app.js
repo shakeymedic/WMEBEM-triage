@@ -6,7 +6,7 @@ class TriageApp {
         
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
-            obs: { rr: null, sats: null, o2: 'Air', sbp: null, hr: null, avpu: 'A', temp: null, scale2: false },
+            obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
             history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], planNarrative: '' },
             triage: { 
                 discriminator: null, 
@@ -16,6 +16,7 @@ class TriageApp {
                 override: null, 
                 newsScore: 0,
                 newsBreakdown: [],
+                pewsGroup: null,
                 stream: 'Pending',
                 timer: '--'
             },
@@ -50,7 +51,6 @@ class TriageApp {
                 this.state[key] = updates[key];
             }
         }
-        
         this.runClinicalLogic();
         this.render();
         this.debouncedSave();
@@ -65,9 +65,13 @@ class TriageApp {
         this.checkMedsRisks();
 
         const p = this.state.patient;
-        if (p.pregnant || (p.age !== null && p.age < 16)) {
-            this.state.triage.newsScore = 0; 
-            this.state.triage.newsBreakdown = [];
+        this.state.triage.newsScore = 0;
+        this.state.triage.newsBreakdown = [];
+
+        if (p.pregnant) {
+            this.calcMEOWS();
+        } else if (p.age !== null && p.age < 16) {
+            this.calcPEWS();
         } else {
             this.calcNEWS2();
         }
@@ -79,14 +83,11 @@ class TriageApp {
     checkMedsRisks() {
         const meds = (this.state.history.meds || '').toLowerCase();
         let risks = [];
-        
         Object.entries(this.data.highRiskDrugs).forEach(([key, warning]) => {
             if (meds.includes(key)) risks.push(warning);
         });
-
         const safeWords = ['nil', 'none', 'nkda', 'no meds', 'nothing'];
         const el = document.getElementById('meds-alert');
-        
         if (risks.length > 0) {
             this.state.history.riskFlags = risks;
             el.innerHTML = `⚠️ SAFETY ALERTS: ${[...new Set(risks)].join(', ')}`;
@@ -107,7 +108,6 @@ class TriageApp {
         const rules = this.data.scoring.news2;
         let score = 0;
         let breakdown = [];
-
         const getScore = (val, buckets, label) => {
             if (val === null || val === '') return 0;
             const match = buckets.find(b => val <= b.max);
@@ -115,7 +115,6 @@ class TriageApp {
             if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
             return s;
         };
-
         if(obs.rr) score += getScore(obs.rr, rules.rr, 'RR');
         if(obs.sats) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1, 'SpO2');
         if(obs.sbp) score += getScore(obs.sbp, rules.sbp, 'BP');
@@ -123,7 +122,63 @@ class TriageApp {
         if(obs.temp) score += getScore(obs.temp, rules.temp, 'Temp');
         if (obs.avpu !== 'A') { score += 3; breakdown.push(`AVPU: ${obs.avpu} (+3)`); }
         if (obs.o2 === 'O2') { score += 2; breakdown.push(`O2: On (+2)`); }
+        this.state.triage.newsScore = score;
+        this.state.triage.newsBreakdown = breakdown;
+    }
 
+    calcPEWS() {
+        const obs = this.state.obs;
+        const age = this.state.patient.age;
+        if (age === null) return;
+        let group = 'teen';
+        if (age < 1) group = 'infant';
+        else if (age < 5) group = 'toddler';
+        else if (age < 12) group = 'child';
+        
+        const data = this.data.scoring.pews[group];
+        let score = 0;
+        let breakdown = [];
+        const getScore = (val, buckets, label) => {
+            if (val === null || val === '') return 0;
+            const match = buckets.find(b => val <= b.max);
+            const s = match ? match.score : 3;
+            if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
+            return s;
+        };
+        if (obs.rr) score += getScore(obs.rr, data.rr, 'RR');
+        if (obs.hr) score += getScore(obs.hr, data.hr, 'HR');
+        if (obs.sats && obs.sats < 94) { score += 3; breakdown.push('Sats <94 (+3)'); }
+        if (obs.o2 === 'O2') { score += 2; breakdown.push('O2 (+2)'); }
+        if (obs.crt > 2) { score += 1; breakdown.push('CRT >2s (+1)'); }
+        if (obs.avpu !== 'A') { score += 3; breakdown.push('AVPU (+3)'); }
+        
+        this.state.triage.newsScore = score;
+        this.state.triage.newsBreakdown = breakdown;
+        this.state.triage.pewsGroup = group;
+    }
+
+    calcMEOWS() {
+        // Red/Yellow trigger system logic translated to score for visual consistency
+        const obs = this.state.obs;
+        let score = 0;
+        let breakdown = [];
+        // Triggers based on Standard MEOWS
+        if(obs.rr < 10 || obs.rr > 30) { score+=3; breakdown.push('RR Red'); }
+        else if(obs.rr > 20) { score+=1; breakdown.push('RR Yellow'); }
+        
+        if(obs.hr < 40 || obs.hr > 120) { score+=3; breakdown.push('HR Red'); }
+        else if(obs.hr > 100) { score+=1; breakdown.push('HR Yellow'); }
+        
+        if(obs.sbp < 90 || obs.sbp > 160) { score+=3; breakdown.push('SBP Red'); }
+        else if(obs.sbp > 150) { score+=1; breakdown.push('SBP Yellow'); }
+        
+        if(obs.dbp > 100) { score+=3; breakdown.push('DBP >100 (Red)'); }
+        else if(obs.dbp >= 90) { score+=1; breakdown.push('DBP >90 (Yellow)'); }
+        
+        if(obs.sats < 95) { score+=3; breakdown.push('Sats <95 (Red)'); }
+        if(obs.temp > 38 || obs.temp < 35) { score+=3; breakdown.push('Temp Red'); }
+        else if(obs.temp > 37.5 || obs.temp < 36) { score+=1; breakdown.push('Temp Yellow'); }
+        
         this.state.triage.newsScore = score;
         this.state.triage.newsBreakdown = breakdown;
     }
@@ -140,17 +195,19 @@ class TriageApp {
             }
         }
 
-        if (this.state.patient.age >= 16 && !this.state.patient.pregnant) {
-            if (this.state.triage.newsScore >= 7) {
-                p = 'Red';
-                reasons.push(`NEWS2 Score ${this.state.triage.newsScore} (≥7)`);
-            } else if (this.state.triage.newsScore >= 5 && p !== 'Red') {
-                p = 'Orange';
-                reasons.push(`NEWS2 Score ${this.state.triage.newsScore} (≥5 Sepsis?)`);
-            } else if (this.state.triage.newsScore >= 3 && p === 'Green') {
-                p = 'Yellow'; 
-                reasons.push(`NEWS2 Score ${this.state.triage.newsScore}`);
-            }
+        const score = this.state.triage.newsScore;
+        const isPaeds = this.state.patient.age !== null && this.state.patient.age < 16;
+        const isPreg = this.state.patient.pregnant;
+
+        if (isPaeds) {
+            if (score >= 7) { p = 'Red'; reasons.push(`PEWS ${score} (High Risk)`); }
+            else if (score >= 5 && p !== 'Red') { p = 'Orange'; reasons.push(`PEWS ${score} (Mod Risk)`); }
+        } else if (isPreg) {
+            if (score >= 3) { p = 'Orange'; reasons.push(`MEOWS Abnormal (Score ${score})`); }
+        } else {
+            if (score >= 7) { p = 'Red'; reasons.push(`NEWS2 ${score} (≥7)`); }
+            else if (score >= 5 && p !== 'Red') { p = 'Orange'; reasons.push(`NEWS2 ${score} (≥5 Sepsis?)`); }
+            else if (score >= 3 && p === 'Green') { p = 'Yellow'; reasons.push(`NEWS2 ${score}`); }
         }
 
         if (this.state.triage.override) {
@@ -164,6 +221,9 @@ class TriageApp {
 
     calcStreamAndTimer() {
         const p = this.state.triage.finalPriority;
+        const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
+        this.state.triage.timer = timers[p] || '--';
+
         let stream = 'Majors';
         if (p === 'Red' || p === 'Orange') stream = 'RESUS / MAJORS';
         else if (p === 'Green' || p === 'Blue') {
@@ -172,10 +232,8 @@ class TriageApp {
         }
         
         if (this.state.patient.age !== null && this.state.patient.age < 16) stream = `Paeds (${stream})`;
+        if (this.state.patient.pregnant) stream = `Maternity / ${stream}`;
         this.state.triage.stream = stream;
-        
-        const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
-        this.state.triage.timer = timers[p] || '--';
     }
 
     cacheDOM() {
@@ -204,8 +262,10 @@ class TriageApp {
         bind('obs-rr', 'rr', 'obs', parseFloat); 
         bind('obs-sats', 'sats', 'obs', parseFloat);
         bind('obs-sbp', 'sbp', 'obs', parseFloat); 
+        bind('obs-dbp', 'dbp', 'obs', parseFloat); 
         bind('obs-hr', 'hr', 'obs', parseFloat);
         bind('obs-temp', 'temp', 'obs', parseFloat); 
+        bind('obs-crt', 'crt', 'obs', parseFloat); 
         bind('obs-scale2', 'scale2', 'obs');
         bind('patient-dob', 'dob', 'patient'); 
         bind('patient-id', 'id', 'patient');
@@ -220,7 +280,6 @@ class TriageApp {
             this.setState({ history: { planNarrative: e.target.value } });
         });
 
-        // Meds Autocomplete Logic
         this.dom.medsInput.addEventListener('keyup', (e) => this.handleMedsAutocomplete(e));
         this.dom.medsInput.addEventListener('blur', () => setTimeout(() => this.dom.suggestionsBox.classList.add('hidden'), 200));
         this.dom.medsInput.addEventListener('input', (e) => this.setState({ history: { meds: e.target.value } }));
@@ -253,7 +312,6 @@ class TriageApp {
             }
         });
 
-        // Body Map Interaction
         const btnBodyMap = document.getElementById('btn-body-map');
         const modalBodyMap = document.getElementById('modal-bodymap');
         btnBodyMap.addEventListener('click', () => modalBodyMap.classList.remove('hidden'));
@@ -267,7 +325,6 @@ class TriageApp {
             });
         });
 
-        // SBAR Generation
         document.getElementById('btn-sbar').addEventListener('click', () => {
             this.generateSBAR();
             document.getElementById('modal-sbar').classList.remove('hidden');
@@ -276,7 +333,6 @@ class TriageApp {
             document.getElementById('modal-sbar').classList.add('hidden');
         });
 
-        // Override Toggle
         const btnOverride = document.getElementById('btn-override-toggle');
         const panelOverride = document.getElementById('override-options');
         btnOverride.addEventListener('click', () => {
@@ -436,7 +492,6 @@ class TriageApp {
 
         this.setState({ history: { ...this.state.history, complaint: val } });
         
-        // Render Calculator Logic
         const calcBox = document.getElementById('calculator-container');
         const calcData = this.data.calculators ? this.data.calculators[val] : null;
         
@@ -558,24 +613,45 @@ class TriageApp {
         const container = document.getElementById('visual-ews-container');
         container.innerHTML = '';
         
-        if (this.state.patient.pregnant || (this.state.patient.age !== null && this.state.patient.age < 16)) return;
-
-        const score = this.state.triage.newsScore;
-        const el = document.createElement('div');
-        el.className = `priority-badge ${score >= 5 ? 'priority-Red' : (score >= 1 ? 'priority-Yellow' : 'priority-Green')}`;
-        if(score >= 5) el.classList.add('pulse-alert');
-        el.style.padding = '10px';
-        el.style.fontSize = '1.1rem';
-        el.textContent = `NEWS2 Score: ${score}`;
-        container.appendChild(el);
+        if (this.state.patient.pregnant || (this.state.patient.age !== null && this.state.patient.age < 16)) {
+            // Special handling for MEOWS/PEWS rendering
+            if(this.state.patient.pregnant) {
+                const score = this.state.triage.newsScore;
+                const el = document.createElement('div');
+                el.className = `priority-badge ${score >= 3 ? 'priority-Red' : (score > 0 ? 'priority-Yellow' : 'priority-Green')}`;
+                if(score >= 3) el.classList.add('pulse-alert');
+                el.style.padding = '10px';
+                el.style.fontSize = '1.1rem';
+                el.textContent = `MEOWS Score: ${score}`;
+                container.appendChild(el);
+            } else if (this.state.patient.age < 16) {
+                const score = this.state.triage.newsScore;
+                const el = document.createElement('div');
+                el.className = `priority-badge ${score >= 5 ? 'priority-Red' : (score >= 1 ? 'priority-Yellow' : 'priority-Green')}`;
+                if(score >= 5) el.classList.add('pulse-alert');
+                el.style.padding = '10px';
+                el.style.fontSize = '1.1rem';
+                el.textContent = `PEWS Score: ${score} (${this.state.triage.pewsGroup})`;
+                container.appendChild(el);
+            }
+        } else {
+            const score = this.state.triage.newsScore;
+            const el = document.createElement('div');
+            el.className = `priority-badge ${score >= 5 ? 'priority-Red' : (score >= 1 ? 'priority-Yellow' : 'priority-Green')}`;
+            if(score >= 5) el.classList.add('pulse-alert');
+            el.style.padding = '10px';
+            el.style.fontSize = '1.1rem';
+            el.textContent = `NEWS2 Score: ${score}`;
+            container.appendChild(el);
+        }
 
         const breakdownDiv = document.createElement('div');
         breakdownDiv.className = 'news-breakdown';
         this.state.triage.newsBreakdown.forEach(text => {
             const chip = document.createElement('span');
             chip.className = 'news-tag';
-            if (text.includes('+3')) chip.classList.add('high');
-            else if (text.includes('+')) chip.classList.add('positive');
+            if (text.includes('Red') || text.includes('+3')) chip.classList.add('high');
+            else if (text.includes('Yellow') || text.includes('+')) chip.classList.add('positive');
             chip.textContent = text;
             breakdownDiv.appendChild(chip);
         });
@@ -603,20 +679,7 @@ class TriageApp {
             ? `<strong>Weight ${weight}kg</strong> (${safeWeight}kg used for calcs)<br>Paracetamol: ${para}mg | Ibuprofen: ${ibu}mg`
             : `<span style="color:var(--red); font-weight:bold;">⚠️ Enter Weight for drug doses</span>`;
 
-        let group = 'teen';
-        if (p.age < 1) group = 'infant'; else if (p.age < 5) group = 'toddler'; else if (p.age < 12) group = 'child';
-        
-        const limits = this.data.paedsSafety.pewsRanges[group];
-        const obs = this.state.obs;
-        let flags = [];
-        
-        if (obs.rr && obs.rr > limits.maxRR) flags.push(`RR High (> ${limits.maxRR})`);
-        if (obs.hr && obs.hr > limits.maxHR) flags.push(`HR High (> ${limits.maxHR})`);
-        if (obs.sats && obs.sats < 94) flags.push(`SpO2 Low (< 94%)`);
-        
-        pewsContent.innerHTML = flags.length > 0 
-            ? `<div class="warning-box" style="margin:0;"><strong>PHYSIOLOGY ALERT (${group.toUpperCase()}):</strong><br>${flags.join('<br>')}</div>` 
-            : `<div style="color:var(--green); text-align:center; padding:10px;">Vitals OK for ${group}</div>`;
+        pewsContent.innerHTML = '';
     }
 
     renderPlan() {
@@ -645,10 +708,12 @@ class TriageApp {
         txt += `ID: ${p.id || 'Unknown'} | ${p.age}y ${p.sex} | Mobility: ${p.mobility}\n`;
         txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
         txt += `Pain: ${h.pain}/10\n`;
-        txt += `Obs: RR${this.state.obs.rr || '-'} Sat${this.state.obs.sats || '-'}${this.state.obs.o2} BP${this.state.obs.sbp || '-'} HR${this.state.obs.hr || '-'} T${this.state.obs.temp || '-'} ${this.state.obs.avpu}\n`;
         
-        if (p.pregnant) txt += `NEWS2: N/A (Pregnant)\n`;
+        if (p.pregnant) txt += `MEOWS: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
         else if (p.age >= 16) txt += `NEWS2: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
+        else txt += `PEWS: ${t.newsScore} (${t.pewsGroup}) [${t.newsBreakdown.join(', ')}]\n`;
+        
+        txt += `Obs: RR${this.state.obs.rr || '-'} Sat${this.state.obs.sats || '-'}${this.state.obs.o2} BP${this.state.obs.sbp || '-'}/${this.state.obs.dbp || '-'} HR${this.state.obs.hr || '-'} T${this.state.obs.temp || '-'} ${this.state.obs.avpu}\n`;
         
         txt += `\nOUTCOME: ${t.finalPriority.toUpperCase()}\n`;
         txt += `Stream: ${t.stream}\n`;
@@ -707,7 +772,11 @@ class TriageApp {
         if(h.riskFlags.length > 0) b += `Alert: ${h.riskFlags.join(', ')}. `;
         if(h.anticoagulated) b += `On Anticoagulants. `;
         
-        let a = `NEWS2 ${t.newsScore}. `;
+        let a = '';
+        if(p.pregnant) a = `MEOWS ${t.newsScore}. `;
+        else if(p.age < 16) a = `PEWS ${t.newsScore}. `;
+        else a = `NEWS2 ${t.newsScore}. `;
+        
         if(t.newsScore > 0) a += `(${t.newsBreakdown.join(', ')}). `;
         if(h.pain > 0) a += `Pain ${h.pain}/10. `;
         
@@ -841,8 +910,10 @@ class TriageApp {
         setVal('obs-rr', obs.rr); 
         setVal('obs-sats', obs.sats); 
         setVal('obs-sbp', obs.sbp);
+        setVal('obs-dbp', obs.dbp);
         setVal('obs-hr', obs.hr); 
         setVal('obs-temp', obs.temp); 
+        setVal('obs-crt', obs.crt);
         setCheck('obs-scale2', obs.scale2);
         
         document.querySelectorAll('#seg-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === obs.avpu));
