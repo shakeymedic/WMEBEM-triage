@@ -1,4 +1,4 @@
-/* styles.css v14.0 */
+/* styles.css v15.0 */
 :root {
     --primary: #005EB8; /* NHS Blue */
     --primary-hover: #003087;
@@ -42,7 +42,7 @@ h1 { margin: 0; font-size: 1.4rem; color: var(--text-main); }
 .version-tag { font-size: 0.8rem; color: var(--secondary); font-weight: bold; }
 .header-controls { display: flex; align-items: center; gap: 15px; }
 
-/* --- MODERN TOGGLE SWITCH --- */
+/* Toggle Switch */
 .theme-switch-wrapper { display: flex; align-items: center; }
 .theme-switch { position: relative; display: inline-block; width: 50px; height: 26px; margin: 0; }
 .theme-switch input { opacity: 0; width: 0; height: 0; }
@@ -82,33 +82,40 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 .segmented-control button:hover { background: rgba(0,0,0,0.05); }
 .segmented-control button.active { background: var(--primary); color: white; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
 
-/* Observations */
-.obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
-.obs-item { background: rgba(0,0,0,0.03); padding: 8px; border-radius: 6px; }
-.span-2-mobile { grid-column: span 2; }
-.full-width-checkbox { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(255, 184, 28, 0.1); border-radius: 6px; border: 1px solid var(--yellow); }
-.full-width-checkbox input { width: auto; margin: 0; }
+/* NEWS2 Display Grid */
+.news-display-grid { display: grid; grid-template-columns: auto 1fr; gap: 15px; align-items: center; }
+.news-breakdown { display: flex; flex-wrap: wrap; gap: 5px; }
+.news-tag { background: rgba(0,0,0,0.05); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--border); color: var(--secondary); font-weight: 600; }
+.news-tag.positive { background: rgba(255, 184, 28, 0.2); border-color: var(--yellow); color: #8a6d3b; }
+.news-tag.high { background: rgba(213, 40, 27, 0.1); border-color: var(--red); color: var(--red); }
 
-/* --- IMPROVED BUTTONS --- */
+/* Meds Status Bar */
+.meds-status-bar { font-size: 0.8rem; margin-top: 5px; min-height: 20px; font-weight: bold; transition: all 0.3s; }
+.meds-safe { color: var(--green); }
+.meds-risk { color: var(--red); animation: pulse 2s infinite; }
+
+/* Screening Grid */
+.screening-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+.screening-item { background: rgba(0,0,0,0.02); padding: 10px; border-radius: 6px; border: 1px solid var(--border); }
+.screening-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 8px; color: var(--primary); display: block; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 4px; }
+
+/* Override Button */
+.btn-override-toggle { width: 100%; padding: 10px; background: #f8f9fa; border: 1px solid var(--border); color: var(--secondary); text-align: left; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+.btn-override-toggle:hover { background: #e9ecef; }
+.btn-override-toggle.active { background: var(--orange); color: white; border-color: var(--orange); font-weight: bold; }
+.override-panel { background: rgba(237, 135, 45, 0.1); padding: 15px; border: 1px solid var(--orange); border-top: none; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; animation: slideDown 0.2s ease-out; }
+
+/* Buttons & Chips */
 button { cursor: pointer; border: none; border-radius: 6px; font-weight: 600; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
 button:active { transform: scale(0.98); }
-
 .btn-primary { background: var(--primary); color: white; padding: 10px 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .btn-primary:hover { background: var(--primary-hover); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
-
 .btn-secondary { background: var(--secondary); color: white; padding: 8px 16px; }
-.btn-secondary:hover { opacity: 0.9; }
-
 .btn-warning { background: var(--orange); color: white; padding: 8px 16px; }
-.btn-warning:hover { background: #d67d00; }
-
 .btn-tiny { padding: 4px 8px; font-size: 0.75rem; background: rgba(0,0,0,0.1); color: var(--text-main); margin-left: 5px; border-radius: 4px; }
-.btn-tiny:hover { background: rgba(0,0,0,0.2); }
-
 .btn-chip { background: transparent; color: var(--primary); border: 1px solid var(--border); padding: 8px 14px; font-size: 0.85rem; margin-right: 5px; margin-bottom: 5px; border-radius: 20px; transition: all 0.2s; }
 .btn-chip:hover { border-color: var(--primary); background: rgba(0, 94, 184, 0.05); transform: translateY(-1px); }
 .btn-chip:active { background: var(--primary); color: white; }
-
 .mic-btn { background: transparent; border: 1px solid var(--border); color: var(--text-main); padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-left: 8px; font-size: 1.1rem; }
 .mic-btn.listening { background: var(--red); color: white; animation: pulse 1s infinite; border-color: var(--red); }
 
@@ -143,7 +150,6 @@ button:active { transform: scale(0.98); }
 .cannula-green { background: rgba(0, 127, 59, 0.1); border-color: var(--green); color: var(--green); }
 .cannula-amber { background: rgba(237, 135, 45, 0.1); border-color: var(--orange); color: var(--orange); }
 .cannula-red { background: rgba(213, 40, 27, 0.1); border-color: var(--red); color: var(--red); }
-
 .test-category { margin-bottom: 15px; border-top: 1px solid var(--border); padding-top: 10px; }
 .test-category h4 { margin: 0 0 10px 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; }
 .protocol-check { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; cursor: pointer; transition: background 0.2s; }
@@ -155,27 +161,19 @@ button:active { transform: scale(0.98); }
 .hidden { display: none !important; }
 .warning-box { background: rgba(213, 40, 27, 0.1); border: 1px solid var(--red); color: var(--red); padding: 15px; border-radius: 6px; font-weight: bold; margin-bottom: 15px; }
 .alert-section { background: rgba(237, 135, 45, 0.1); padding: 15px; border-radius: 6px; border: 1px solid var(--orange); margin-top: 10px; }
-
+@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.9; transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
 .pulse-alert { animation: pulse 1.5s infinite; border: 2px solid var(--red) !important; }
-
-/* Toast Notifications */
 #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .toast { background: var(--secondary); color: white; padding: 12px 24px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: slideIn 0.3s ease-out; font-size: 0.9rem; pointer-events: auto; }
 @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-/* Sidebar */
 #history-sidebar { position: fixed; right: -320px; top: 0; width: 320px; height: 100%; background: var(--bg-card); box-shadow: -5px 0 15px rgba(0,0,0,0.1); transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 2000; padding: 20px; overflow-y: auto; border-left: 1px solid var(--border); box-sizing: border-box; }
 #history-sidebar.open { right: 0; }
 .history-item { padding: 15px; border: 1px solid var(--border); margin-bottom: 10px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; background: var(--bg-body); transition: all 0.2s; }
 .history-item:hover { border-color: var(--primary); background: rgba(0,94,184,0.05); transform: translateX(-2px); }
-
-/* Modal */
 #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 4000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
 #modal-box { background: var(--bg-card); padding: 30px; border-radius: 12px; max-width: 450px; width: 90%; text-align: center; border-top: 6px solid var(--red); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 #modal-title { color: var(--red); margin-top: 0; font-size: 1.4rem; font-weight: 800; }
-
-/* Print Styles */
 @media print {
     .header-controls, .theme-switch-wrapper, .pain-section, .note-controls, #history-sidebar, footer { display: none !important; }
     body { background: white; color: black; padding: 0; }
