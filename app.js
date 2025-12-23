@@ -5,7 +5,7 @@ class TriageApp {
         this.data = clinicalData;
         
         // Initial State
-        this.state = {
+        this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, hr: null, avpu: 'A', temp: null, scale2: false },
             history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '' },
@@ -23,6 +23,9 @@ class TriageApp {
             actionsTaken: [] 
         };
 
+        this.state = JSON.parse(JSON.stringify(this.initialState));
+        this.saveTimeout = null;
+
         this.cacheDOM();
         this.bindEvents();
         this.populateDatalist();
@@ -30,37 +33,51 @@ class TriageApp {
         
         this.initSpeech();
         this.loadHistory();
+        
+        // Theme init
+        if(localStorage.getItem('theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.getElementById('checkbox-theme').checked = true;
+        }
     }
 
     // --- CORE ARCHITECTURE ---
 
     setState(updates) {
-        this.state = { ...this.state, ...updates };
-        if (updates.patient || updates.obs || updates.history) {
+        // Deep merge for nested objects (simple version)
+        for (const key in updates) {
+            if (typeof updates[key] === 'object' && updates[key] !== null && !Array.isArray(updates[key])) {
+                this.state[key] = { ...this.state[key], ...updates[key] };
+            } else {
+                this.state[key] = updates[key];
+            }
+        }
+        
+        if (updates.patient || updates.obs || updates.history || updates.triage) {
              this.runClinicalLogic();
         }
         this.render();
+        this.debouncedSave();
     }
 
     runClinicalLogic() {
+        // Age Calc
         if (this.state.patient.dob) {
             const diff = Date.now() - new Date(this.state.patient.dob).getTime();
             this.state.patient.age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
         }
 
-        const isPregnant = this.state.patient.pregnant;
+        const p = this.state.patient;
         
-        if (isPregnant) {
-             this.state.triage.newsScore = 0; 
-        } else if (this.state.patient.age >= 16) {
-            this.calcNEWS2();
-        } else {
+        // NEWS2 Logic: Disabled for Pregnancy or Age < 16
+        if (p.pregnant || (p.age !== null && p.age < 16)) {
             this.state.triage.newsScore = 0; 
+        } else {
+            this.calcNEWS2();
         }
 
         this.calcTriagePriority();
         this.calcStreamAndTimer();
-        this.saveSession();
     }
 
     // --- CLINICAL CALCULATORS ---
@@ -71,49 +88,58 @@ class TriageApp {
         let score = 0;
 
         const getScore = (val, buckets) => {
-            if (val === null) return 0;
+            if (val === null || val === '') return 0;
+            // Find the first bucket where val <= max
             const match = buckets.find(b => val <= b.max);
-            return match ? match.score : 3;
+            return match ? match.score : 3; // Default to 3 if above all maxes
         };
 
-        if(obs.rr !== null) score += getScore(obs.rr, rules.rr);
-        if(obs.sats !== null) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1);
-        if(obs.sbp !== null) score += getScore(obs.sbp, rules.sbp);
-        if(obs.hr !== null) score += getScore(obs.hr, rules.hr);
-        if(obs.temp !== null) score += getScore(obs.temp, rules.temp);
+        if(obs.rr) score += getScore(obs.rr, rules.rr);
+        // Scale 2 check
+        if(obs.sats) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1);
+        if(obs.sbp) score += getScore(obs.sbp, rules.sbp);
+        if(obs.hr) score += getScore(obs.hr, rules.hr);
+        if(obs.temp) score += getScore(obs.temp, rules.temp);
         
+        // AVPU: A=0, V,P,U = 3
         if (obs.avpu !== 'A') score += 3;
+        
+        // Oxygen: Air=0, O2=2
         if (obs.o2 === 'O2') score += 2;
 
         this.state.triage.newsScore = score;
     }
 
     calcTriagePriority() {
+        // Start with MTS Discriminator priority or Blue
         let p = this.state.triage.discriminator ? this.state.triage.basePriority : 'Blue';
         let reasons = this.state.triage.discriminator ? [`MTS: ${this.state.triage.discriminator}`] : [];
 
+        // Pain Logic: Severe Pain (7+) upgrades Green/Yellow to Orange usually
+        // Unless specific protocol allows management. We apply a general safety rule.
         if (this.state.history.pain >= 7) {
             const isShocked = (this.state.obs.hr > 110) || (this.state.obs.sbp && this.state.obs.sbp < 90);
-            if (isShocked) {
-                if (['Yellow', 'Green', 'Blue'].includes(p)) {
-                    p = 'Orange';
-                    reasons.push('Severe Pain + Shock Signs');
-                }
-            } else {
-                reasons.push('Plan: Priority Analgesia Required');
+            if (['Yellow', 'Green', 'Blue'].includes(p)) {
+                p = 'Orange';
+                reasons.push(isShocked ? 'Severe Pain + Shock Signs' : 'Severe Pain (Priority Analgesia)');
             }
         }
 
+        // NEWS2 Triggers (Adults Non-Pregnant)
         if (this.state.patient.age >= 16 && !this.state.patient.pregnant) {
             if (this.state.triage.newsScore >= 7) {
                 p = 'Red';
-                reasons.push('NEWS2 ≥ 7');
+                reasons.push(`NEWS2 Score ${this.state.triage.newsScore} (≥7)`);
             } else if (this.state.triage.newsScore >= 5 && p !== 'Red') {
                 p = 'Orange';
-                reasons.push('NEWS2 ≥ 5 (Sepsis Screen?)');
+                reasons.push(`NEWS2 Score ${this.state.triage.newsScore} (≥5 Sepsis?)`);
+            } else if (this.state.triage.newsScore >= 3 && p === 'Green') {
+                p = 'Yellow'; // Bump Green to Yellow if NEWS 3-4
+                reasons.push(`NEWS2 Score ${this.state.triage.newsScore}`);
             }
         }
 
+        // Override Logic
         if (this.state.triage.override) {
             p = this.state.triage.override.level;
             reasons.push(`OVERRIDE: ${this.state.triage.override.reason}`);
@@ -127,34 +153,44 @@ class TriageApp {
         const p = this.state.triage.finalPriority;
         const mobility = this.state.patient.mobility;
         
+        // Manchester Triage Standard Times
         const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
         this.state.triage.timer = timers[p] || '--';
 
+        // Stream Logic (Generic ED Model)
         let stream = 'Majors';
         if (p === 'Red' || p === 'Orange') {
             stream = 'RESUS / MAJORS';
         } else if (p === 'Green' || p === 'Blue') {
             if (mobility === 'Walking') stream = 'See & Treat / Minors';
             else stream = 'Majors (Mobility)';
-        } else {
-            stream = 'Majors';
+        }
+        
+        // Paeds Stream
+        if (this.state.patient.age !== null && this.state.patient.age < 16) {
+             stream = `Paeds (${stream})`;
         }
 
         this.state.triage.stream = stream;
     }
 
-    // --- PHASE 2 & 3: FEATURES ---
+    // --- UI/UX FEATURES ---
     
     initSpeech() {
-        if (!('webkitSpeechRecognition' in window)) return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
+
         document.querySelectorAll('.mic-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const targetId = e.target.dataset.target;
+                e.preventDefault();
+                const targetId = e.currentTarget.dataset.target; // Use currentTarget for button
                 const targetEl = document.getElementById(targetId);
-                const recognition = new webkitSpeechRecognition();
+                
+                const recognition = new SpeechRecognition();
                 recognition.continuous = false;
                 recognition.lang = 'en-GB';
-                e.target.classList.add('listening');
+                
+                e.currentTarget.classList.add('listening');
                 
                 recognition.onresult = (event) => {
                     const text = event.results[0][0].transcript;
@@ -163,19 +199,32 @@ class TriageApp {
                     } else {
                         targetEl.value = text;
                     }
-                    targetEl.dispatchEvent(new Event('input'));
-                    e.target.classList.remove('listening');
-                    if(targetId === 'input-complaint') this.handleComplaint(targetEl.value);
+                    targetEl.dispatchEvent(new Event('input')); // Trigger logic
+                    this.showToast('Dictation captured');
                 };
-                recognition.onerror = () => e.target.classList.remove('listening');
-                recognition.onend = () => e.target.classList.remove('listening');
+                
+                recognition.onerror = (err) => {
+                    console.error(err);
+                    e.currentTarget.classList.remove('listening');
+                    this.showToast('Dictation failed', 'error');
+                };
+                
+                recognition.onend = () => e.currentTarget.classList.remove('listening');
+                
                 recognition.start();
             });
         });
     }
 
+    debouncedSave() {
+        clearTimeout(this.saveTimeout);
+        this.saveTimeout = setTimeout(() => this.saveSession(), 1000);
+    }
+
     saveSession() {
+        // Only save if we have an ID or a Complaint
         if(!this.state.patient.id && !this.state.history.complaint) return;
+        
         const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
         const current = {
             id: this.state.patient.id || 'Unknown',
@@ -184,11 +233,25 @@ class TriageApp {
             time: new Date().toLocaleString(),
             data: this.state
         };
+        
+        // Remove existing entry for same ID to update it
         const existingIndex = sessions.findIndex(s => s.id === current.id && s.id !== 'Unknown');
-        if(existingIndex >= 0) sessions[existingIndex] = current;
-        else sessions.unshift(current);
-        if(sessions.length > 10) sessions.pop();
+        if(existingIndex >= 0) sessions.splice(existingIndex, 1);
+        
+        sessions.unshift(current); // Add to top
+        if(sessions.length > 15) sessions.pop(); // Keep last 15
+        
         localStorage.setItem('triage_history', JSON.stringify(sessions));
+    }
+
+    showToast(msg, type='info') {
+        const container = document.getElementById('toast-container');
+        const el = document.createElement('div');
+        el.className = 'toast';
+        el.textContent = msg;
+        if(type === 'error') el.style.background = 'var(--red)';
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 3000);
     }
 
     loadHistory() {
@@ -196,23 +259,35 @@ class TriageApp {
             document.getElementById('history-sidebar').classList.add('open');
             this.renderHistoryList();
         });
+        document.getElementById('btn-close-history').addEventListener('click', () => {
+            document.getElementById('history-sidebar').classList.remove('open');
+        });
     }
 
     renderHistoryList() {
         const list = document.getElementById('history-list');
         const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
         list.innerHTML = '';
-        if(sessions.length === 0) list.innerHTML = '<p>No recent patients.</p>';
+        if(sessions.length === 0) list.innerHTML = '<p class="text-muted">No recent patients locally stored.</p>';
+        
         sessions.forEach(s => {
             const div = document.createElement('div');
             div.className = 'history-item';
-            div.style.borderLeft = `4px solid var(--${s.priority})`;
-            div.innerHTML = `<div style="font-weight:bold">${s.id}</div><div>${s.complaint || 'No complaint'}</div><div class="history-meta"><span>${s.priority}</span><span>${s.time}</span></div>`;
+            div.style.borderLeft = `5px solid var(--${s.priority})`;
+            div.innerHTML = `
+                <div style="font-weight:bold; font-size:1.1rem;">${s.id}</div>
+                <div>${s.complaint || 'No complaint'}</div>
+                <div class="text-muted" style="font-size:0.8rem; margin-top:5px; display:flex; justify-content:space-between;">
+                    <span>${s.priority.toUpperCase()}</span>
+                    <span>${s.time}</span>
+                </div>
+            `;
             div.onclick = () => {
-                if(confirm("Load this patient? Unsaved data will be lost.")) {
+                if(confirm("Load this patient? Unsaved data on current screen will be lost.")) {
                     this.state = s.data;
                     this.restoreUI();
                     document.getElementById('history-sidebar').classList.remove('open');
+                    this.showToast('Patient loaded');
                 }
             };
             list.appendChild(div);
@@ -220,39 +295,55 @@ class TriageApp {
     }
 
     restoreUI() {
-        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
+        // Helper to safely set values
+        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val !== null ? val : ''; };
         const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
-        const p = this.state.patient, o = this.state.obs, h = this.state.history;
         
-        setVal('patient-id', p.id); setVal('patient-dob', p.dob);
-        setVal('patient-weight', p.weight); setVal('patient-sex', p.sex);
-        setVal('patient-mobility', p.mobility); setCheck('check-pregnant', p.pregnant);
+        const { patient, obs, history, triage } = this.state;
         
-        setVal('obs-rr', o.rr); setVal('obs-sats', o.sats); setVal('obs-sbp', o.sbp);
-        setVal('obs-hr', o.hr); setVal('obs-temp', o.temp); setCheck('obs-scale2', o.scale2);
+        setVal('patient-id', patient.id); 
+        setVal('patient-dob', patient.dob);
+        setVal('patient-weight', patient.weight); 
+        setVal('patient-sex', patient.sex);
+        setVal('patient-mobility', patient.mobility); 
+        setCheck('check-pregnant', patient.pregnant);
         
-        document.querySelectorAll('#seg-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === o.avpu));
-        document.querySelectorAll('#seg-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === o.o2));
+        setVal('obs-rr', obs.rr); 
+        setVal('obs-sats', obs.sats); 
+        setVal('obs-sbp', obs.sbp);
+        setVal('obs-hr', obs.hr); 
+        setVal('obs-temp', obs.temp); 
+        setCheck('obs-scale2', obs.scale2);
         
-        setVal('input-complaint', h.complaint); setVal('allergies', h.allergies); setVal('pmh', h.pmh); setVal('meds', h.meds);
+        // Restore Segmented Controls
+        document.querySelectorAll('#seg-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === obs.avpu));
+        document.querySelectorAll('#seg-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === obs.o2));
         
-        document.querySelectorAll('.pain-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === h.pain));
-        document.getElementById('pain-val').textContent = h.pain;
+        setVal('input-complaint', history.complaint); 
+        setVal('allergies', history.allergies); 
+        setVal('pmh', history.pmh); 
+        setVal('meds', history.meds);
+        
+        // Restore Pain
+        document.querySelectorAll('.pain-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === history.pain));
+        document.getElementById('pain-val').textContent = history.pain;
 
-        setCheck('check-override', !!this.state.triage.override);
-        if(this.state.triage.override) {
-            document.getElementById('override-options').classList.remove('hidden');
-            setVal('sel-override', this.state.triage.override.level);
-            setVal('txt-override', this.state.triage.override.reason);
+        // Restore Override
+        setCheck('check-override', !!triage.override);
+        const overrideDiv = document.getElementById('override-options');
+        if(triage.override) {
+            overrideDiv.classList.remove('hidden');
+            setVal('sel-override', triage.override.level);
+            setVal('txt-override', triage.override.reason);
         } else {
-            document.getElementById('override-options').classList.add('hidden');
+            overrideDiv.classList.add('hidden');
         }
         
-        this.handleComplaint(h.complaint);
+        this.handleComplaint(history.complaint); // Re-trigger protocol view
         this.render();
     }
 
-    // --- RENDERING ---
+    // --- RENDERING & UI UPDATES ---
 
     render() {
         this.renderDemographics();
@@ -265,8 +356,10 @@ class TriageApp {
     renderDemographics() {
         const p = this.state.patient;
         document.getElementById('calculated-age-display').textContent = p.age !== null ? `Age: ${p.age}` : 'Age: --';
+        
         const isFemaleRepro = p.sex === 'Female' && p.age >= 12 && p.age <= 55;
         document.getElementById('female-health-section').classList.toggle('hidden', !isFemaleRepro);
+        
         const isPaeds = p.age !== null && p.age < 16;
         document.getElementById('obs-form').style.opacity = isPaeds ? '0.5' : '1';
     }
@@ -274,20 +367,22 @@ class TriageApp {
     renderNEWS2() {
         const container = document.getElementById('visual-ews-container');
         container.innerHTML = '';
+        
         if (this.state.patient.pregnant) {
-            container.innerHTML = '<div class="warning-box" style="text-align:center;">PREGNANT PATIENT: NEWS2 Disabled.<br>Use Obstetric Early Warning Score (MEWS).</div>';
+            container.innerHTML = '<div class="warning-box" style="text-align:center;">🤰 PREGNANT PATIENT: NEWS2 Disabled.<br>Use Obstetric Early Warning Score.</div>';
             return;
         }
-        if (this.state.patient.age < 16) {
-            container.innerHTML = '<div style="text-align:center; opacity:0.6;">Adult NEWS2 disabled. See Paeds Safety below.</div>';
+        if (this.state.patient.age !== null && this.state.patient.age < 16) {
+            container.innerHTML = '<div style="text-align:center; opacity:0.6; font-style:italic;">Adult NEWS2 disabled. Use PEWS.</div>';
             return;
         }
+
         const score = this.state.triage.newsScore;
         const el = document.createElement('div');
-        el.className = `priority-badge ${score >= 5 ? 'priority-Red' : 'priority-Green'}`;
+        el.className = `priority-badge ${score >= 5 ? 'priority-Red' : (score >= 1 ? 'priority-Yellow' : 'priority-Green')}`;
         if(score >= 5) el.classList.add('pulse-alert');
-        el.style.fontSize = '1.2rem';
         el.style.padding = '10px';
+        el.style.fontSize = '1.1rem';
         el.textContent = `NEWS2 Score: ${score}`;
         container.appendChild(el);
     }
@@ -310,95 +405,119 @@ class TriageApp {
         const ibu = Math.min(safeWeight * 10, 400).toFixed(0);
         
         content.innerHTML = weight > 0 
-            ? `<strong>Weight ${weight}kg</strong><br>Paracetamol: ${para}mg | Ibuprofen: ${ibu}mg`
-            : `<span style="color:var(--red)">Enter Weight for drug doses</span>`;
+            ? `<strong>Weight ${weight}kg</strong> (${safeWeight}kg used for calcs)<br>Paracetamol: ${para}mg | Ibuprofen: ${ibu}mg`
+            : `<span style="color:var(--red); font-weight:bold;">⚠️ Enter Weight for drug doses</span>`;
 
         let group = 'teen';
         if (p.age < 1) group = 'infant'; else if (p.age < 5) group = 'toddler'; else if (p.age < 12) group = 'child';
+        
         const limits = this.data.paedsSafety.pewsRanges[group];
         const obs = this.state.obs;
         let flags = [];
+        
         if (obs.rr && obs.rr > limits.maxRR) flags.push(`RR High (> ${limits.maxRR})`);
         if (obs.hr && obs.hr > limits.maxHR) flags.push(`HR High (> ${limits.maxHR})`);
         if (obs.sats && obs.sats < 94) flags.push(`SpO2 Low (< 94%)`);
-        pewsContent.innerHTML = flags.length > 0 ? `<div class="warning-box"><strong>ABNORMAL PHYSIOLOGY (${group.toUpperCase()}):</strong><br>${flags.join('<br>')}</div>` : `<div style="color:var(--green); text-align:center;">Vitals within normal range for ${group}</div>`;
+        
+        pewsContent.innerHTML = flags.length > 0 
+            ? `<div class="warning-box" style="margin:0;"><strong>PHYSIOLOGY ALERT (${group.toUpperCase()}):</strong><br>${flags.join('<br>')}</div>` 
+            : `<div style="color:var(--green); text-align:center; padding:10px;">Vitals OK for ${group}</div>`;
     }
 
     renderPlan() {
         const t = this.state.triage;
         const badge = document.getElementById('priority-display');
-        badge.className = `priority-badge priority-${t.finalPriority}`;
+        
+        // Remove old classes
+        badge.className = 'priority-badge';
+        badge.classList.add(`priority-${t.finalPriority}`);
         if(t.finalPriority === 'Red') badge.classList.add('pulse-alert');
+        
         badge.textContent = t.finalPriority.toUpperCase();
         document.getElementById('stream-display').textContent = `Stream: ${t.stream}`;
-        document.getElementById('timer-display').textContent = `Retriage Due: ${t.timer}`;
+        document.getElementById('timer-display').textContent = `Target: ${t.timer}`;
+        
         document.getElementById('priority-reasons').innerHTML = t.reasons.map(r => `<div>• ${r}</div>`).join('');
-        const showSepsis = (t.newsScore >= 5 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
-        document.getElementById('sepsis-actions').classList.toggle('hidden', !showSepsis);
+        
+        // Sepsis 6 Logic
+        const sepsisRisk = (t.newsScore >= 5 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
+        document.getElementById('sepsis-actions').classList.toggle('hidden', !sepsisRisk);
     }
 
     renderNote() {
         const p = this.state.patient;
         const t = this.state.triage;
-        let txt = `TRIAGE NOTE - ${new Date().toLocaleString()}\n`;
-        txt += `ID: ${document.getElementById('patient-id').value || 'Unknown'} | ${p.age}y ${p.sex} | Mobility: ${p.mobility}\n`;
-        txt += `Complaint: ${this.state.history.complaint} (${t.discriminator || 'None'})\n`;
+        const h = this.state.history;
+        
+        let txt = `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
+        txt += `ID: ${p.id || 'Unknown'} | ${p.age}y ${p.sex} | Mobility: ${p.mobility}\n`;
+        txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
+        txt += `Pain: ${h.pain}/10\n`;
         txt += `Obs: RR${this.state.obs.rr || '-'} Sat${this.state.obs.sats || '-'}${this.state.obs.o2} BP${this.state.obs.sbp || '-'} HR${this.state.obs.hr || '-'} T${this.state.obs.temp || '-'} ${this.state.obs.avpu}\n`;
         
-        if (p.pregnant) txt += `NEWS2 N/A (Pregnant)\n`;
+        if (p.pregnant) txt += `NEWS2: N/A (Pregnant)\n`;
         else if (p.age >= 16) txt += `NEWS2: ${t.newsScore}\n`;
         
         txt += `\nOUTCOME: ${t.finalPriority.toUpperCase()}\n`;
         txt += `Stream: ${t.stream}\n`;
         if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
         
-        const alg = document.getElementById('allergies').value;
-        if(alg) txt += `\nAllergies: ${alg}`;
+        if(h.allergies) txt += `\nAllergies: ${h.allergies}`;
+        if(h.pmh) txt += `\nPMH: ${h.pmh}`;
+        if(h.meds) txt += `\nMeds: ${h.meds}`;
         
-        // NEW: Render Cannula & Test Decisions
-        const proto = this.data.protocols[this.state.history.complaint];
+        // Protocol details
+        const proto = this.data.protocols[h.complaint];
         if (proto && proto.cannula) {
-             txt += `\nCannula Plan: ${proto.cannula.status} (${proto.cannula.reason})`;
+             txt += `\n\nProtocol: ${h.complaint}`;
+             txt += `\nCannula: ${proto.cannula.status} (${proto.cannula.reason})`;
         }
 
         if (this.state.actionsTaken.length > 0) {
-            txt += `\n\nProtocol Actions:\n- ${this.state.actionsTaken.join('\n- ')}\n`;
+            txt += `\nActions:\n- ${this.state.actionsTaken.join('\n- ')}\n`;
         }
         
-        if (p.pregnant) txt += `\n*** PREGNANCY ALERT ***\nNEWS2 Skipped. Clinical assessment required.\n`;
         document.getElementById('epr-note').value = txt;
     }
 
-    // --- PROTOCOL RENDERING (UPDATED) ---
+    // --- PROTOCOL & COMPLAINT HANDLING ---
 
     handleComplaint(val) {
-        if (val.toLowerCase() === 'headache' && !this.state.ui.redFlagChecked) {
-             if (confirm("RED FLAG CHECK: Is there any history of trauma or fall?")) {
-                 val = "Head Injury";
-                 this.dom.complaintInput.value = val;
+        // Red Flag Checks (Mandatory)
+        const lowerVal = val.toLowerCase();
+        
+        if (lowerVal === 'headache' && !this.state.ui.redFlagChecked) {
+             const check = confirm("⚠️ RED FLAG CHECK:\nIs there any history of trauma, fall, or sudden onset?");
+             if (check) {
+                 val = "Head Injury"; // Force switch
+                 this.showToast('Switched to Head Injury Protocol', 'error');
              }
              this.state.ui.redFlagChecked = true;
         }
 
         this.setState({ history: { ...this.state.history, complaint: val } });
         
+        // Render Flowcharts (MTS)
         if (!this.data.mtsFlowcharts[val]) return;
 
         const container = this.dom.discriminatorBox;
         container.innerHTML = '';
         
-        const sorted = [...this.data.mtsFlowcharts[val]].sort((a,b) => {
-             const order = { "Red": 1, "Orange": 2, "Yellow": 3, "Green": 4, "Blue": 5 };
-             return order[a.priority] - order[b.priority];
-        });
+        // Sort flowcharts by priority (Red -> Blue)
+        const order = { "Red": 1, "Orange": 2, "Yellow": 3, "Green": 4, "Blue": 5 };
+        const sorted = [...this.data.mtsFlowcharts[val]].sort((a,b) => order[a.priority] - order[b.priority]);
 
         sorted.forEach(item => {
             const div = document.createElement('div');
             div.className = `discriminator priority-${item.priority}`;
-            div.textContent = item.text;
+            div.innerHTML = `<span>${item.text}</span> <span style="font-weight:bold; opacity:0.6;">${item.priority}</span>`;
+            
             div.onclick = () => {
+                // UI Selection
                 Array.from(container.children).forEach(c => c.classList.remove('selected'));
                 div.classList.add('selected');
+                
+                // Logic Update
                 this.setState({ triage: { ...this.state.triage, discriminator: item.text, basePriority: item.priority } });
             };
             container.appendChild(div);
@@ -411,15 +530,15 @@ class TriageApp {
         const proto = this.data.protocols[complaint];
         const container = document.getElementById('protocol-actions');
         container.innerHTML = '';
-        this.state.actionsTaken = [];
+        this.state.actionsTaken = []; // Reset actions
 
         if (proto && proto.tests) {
-            // 1. CANNULA BADGE
+            // 1. Cannula Badge
             if (proto.cannula) {
                 const cDiv = document.createElement('div');
                 cDiv.className = `cannula-badge cannula-${proto.cannula.color}`;
                 cDiv.innerHTML = `
-                    <div style="font-size:1.5rem; margin-right:10px;">💉</div>
+                    <div style="font-size:2rem; margin-right:15px;">💉</div>
                     <div>
                         <strong>Cannula: ${proto.cannula.status}</strong><br>
                         <small>${proto.cannula.reason} (${proto.cannula.size})</small>
@@ -428,7 +547,7 @@ class TriageApp {
                 container.appendChild(cDiv);
             }
 
-            // 2. HELPER FOR CHECKBOXES
+            // 2. Actions helper
             const createCheck = (text) => {
                 const div = document.createElement('div');
                 div.className = 'protocol-check';
@@ -442,10 +561,10 @@ class TriageApp {
                 return div;
             };
 
-            // 3. CATEGORIES
+            // 3. Render Categories
             const cats = [
                 { key: 'bedside', icon: '🫀', label: 'Bedside' },
-                { key: 'lab', icon: '🩸', label: 'Labs' },
+                { key: 'lab', icon: '🩸', label: 'Bloods' },
                 { key: 'imaging', icon: '📷', label: 'Imaging' }
             ];
 
@@ -459,15 +578,12 @@ class TriageApp {
                 }
             });
 
-        } else if (proto && proto.do) {
-             // Fallback for old protocol structure
-             const ul = document.createElement('ul');
-             proto.do.forEach(item => { const li = document.createElement('li'); li.innerHTML = `<strong>${item}</strong>`; ul.appendChild(li); });
-             container.appendChild(ul);
         } else {
-            container.textContent = "No specific protocol loaded.";
+            container.innerHTML = `<p class="placeholder-text">No specific protocol for "${complaint}"</p>`;
         }
     }
+
+    // --- SETUP & BINDINGS ---
 
     cacheDOM() {
         this.dom = {
@@ -477,66 +593,117 @@ class TriageApp {
     }
 
     bindEvents() {
-        const bind = (id, key, path = 'obs', transform = (v) => v) => {
+        const bind = (id, key, path, transform = (v) => v) => {
             const el = document.getElementById(id);
             if (!el) return;
             el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
                 const val = el.type === 'checkbox' ? e.target.checked : transform(e.target.value);
-                if (path === 'obs') this.setState({ obs: { ...this.state.obs, [key]: val } });
-                if (path === 'patient') this.setState({ patient: { ...this.state.patient, [key]: val } });
+                
+                // Construct update object
+                const update = {};
+                if (path === 'obs') update.obs = { [key]: val };
+                else if (path === 'patient') update.patient = { [key]: val };
+                else if (path === 'history') update.history = { [key]: val };
+                
+                this.setState(update);
             });
         };
 
-        bind('obs-rr', 'rr', 'obs', parseFloat); bind('obs-sats', 'sats', 'obs', parseFloat);
-        bind('obs-sbp', 'sbp', 'obs', parseFloat); bind('obs-hr', 'hr', 'obs', parseFloat);
-        bind('obs-temp', 'temp', 'obs', parseFloat); bind('obs-scale2', 'scale2', 'obs');
-        bind('patient-dob', 'dob', 'patient'); bind('patient-weight', 'weight', 'patient', parseFloat);
-        bind('patient-sex', 'sex', 'patient'); bind('patient-mobility', 'mobility', 'patient');
+        // Bind Obs
+        bind('obs-rr', 'rr', 'obs', parseFloat); 
+        bind('obs-sats', 'sats', 'obs', parseFloat);
+        bind('obs-sbp', 'sbp', 'obs', parseFloat); 
+        bind('obs-hr', 'hr', 'obs', parseFloat);
+        bind('obs-temp', 'temp', 'obs', parseFloat); 
+        bind('obs-scale2', 'scale2', 'obs');
+        
+        // Bind Patient
+        bind('patient-dob', 'dob', 'patient'); 
+        bind('patient-weight', 'weight', 'patient', parseFloat);
+        bind('patient-sex', 'sex', 'patient'); 
+        bind('patient-mobility', 'mobility', 'patient');
         bind('check-pregnant', 'pregnant', 'patient');
 
+        // Segmented Controls
         document.querySelectorAll('.segmented-control button').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const parent = e.target.parentElement;
                 parent.querySelectorAll('button').forEach(b => b.classList.remove('active'));
                 e.target.classList.add('active');
+                
                 const val = e.target.dataset.value;
-                if (parent.id === 'seg-avpu') this.setState({ obs: { ...this.state.obs, avpu: val } });
-                if (parent.id === 'seg-o2') this.setState({ obs: { ...this.state.obs, o2: val } });
+                if (parent.id === 'seg-avpu') this.setState({ obs: { avpu: val } });
+                if (parent.id === 'seg-o2') this.setState({ obs: { o2: val } });
             });
         });
 
+        // Complaint
         this.dom.complaintInput.addEventListener('input', (e) => this.handleComplaint(e.target.value));
 
+        // Quick Actions
         document.querySelector('.dashboard').addEventListener('click', (e) => {
-            const action = e.target.dataset.action;
-            if (action === 'setComplaint') {
+            if (e.target.dataset.action === 'setComplaint') {
                 this.dom.complaintInput.value = e.target.dataset.val;
                 this.handleComplaint(e.target.dataset.val);
             }
-            if (action === 'quickText') {
+            if (e.target.dataset.action === 'quickText') {
+                e.preventDefault();
                 const target = document.getElementById(e.target.dataset.target);
                 target.value = e.target.dataset.val;
-                target.dispatchEvent(new Event('input'));
+                target.dispatchEvent(new Event('input')); // Trigger save/state
             }
         });
 
+        // Override
         document.getElementById('check-override').addEventListener('change', (e) => {
              const div = document.getElementById('override-options');
              div.classList.toggle('hidden', !e.target.checked);
-             if (!e.target.checked) this.setState({ triage: { ...this.state.triage, override: null } });
+             if (!e.target.checked) this.setState({ triage: { override: null } });
         });
         
         const updateOverride = () => {
             if (!document.getElementById('check-override').checked) return;
-            this.setState({ triage: { ...this.state.triage, override: { level: document.getElementById('sel-override').value, reason: document.getElementById('txt-override').value } } });
+            const level = document.getElementById('sel-override').value;
+            const reason = document.getElementById('txt-override').value;
+            this.setState({ triage: { override: { level, reason } } });
         };
         document.getElementById('sel-override').addEventListener('change', updateOverride);
         document.getElementById('txt-override').addEventListener('input', updateOverride);
         
+        // History Text Areas
         ['allergies', 'pmh', 'meds'].forEach(id => {
-            document.getElementById(id).addEventListener('input', (e) => {
-                this.setState({ history: { ...this.state.history, [id]: e.target.value } });
-            });
+            bind(id, id, 'history');
+        });
+
+        // Theme Switch
+        document.getElementById('checkbox-theme').addEventListener('change', (e) => {
+            if(e.target.checked) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'light');
+            }
+        });
+
+        // Reset
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if(confirm("Start new patient? Unsaved data will be lost.")) {
+                window.location.reload();
+            }
+        });
+
+        // Copy
+        document.getElementById('btn-copy').addEventListener('click', () => {
+            const note = document.getElementById('epr-note');
+            note.select();
+            document.execCommand('copy');
+            this.showToast('Note copied to clipboard');
+        });
+
+        // Modal Close
+        document.getElementById('modal-close').addEventListener('click', () => {
+            document.getElementById('modal-overlay').classList.add('hidden');
         });
     }
 
@@ -547,11 +714,12 @@ class TriageApp {
             const b = document.createElement('button');
             b.className = 'pain-btn';
             b.textContent = i;
+            b.type = "button";
             b.onclick = () => {
                 document.querySelectorAll('.pain-btn').forEach(x => x.classList.remove('active'));
                 b.classList.add('active');
                 document.getElementById('pain-val').textContent = i;
-                this.setState({ history: { ...this.state.history, pain: i } });
+                this.setState({ history: { pain: i } });
             };
             c.appendChild(b);
         }
