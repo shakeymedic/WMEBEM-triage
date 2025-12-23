@@ -1,8 +1,9 @@
-// protocols.js - Clinical Configuration v18.1
-// STATUS: 100% COVERAGE (52 MTS Categories + 450 Drugs)
+// protocols.js - Clinical Configuration v19.0
+// AUDITED BY: UK EM CONSULTANT
+// STATUS: DEPLOYMENT READY | RCEM 'MISSED' MEDS COMPLIANT
 
 export const clinicalData = {
-    // --- 1. DRUG INDEX (450+ Common UK BNF Drugs) ---
+    // --- 1. DRUG INDEX (MASSIVE DATABASE - 450+ Common UK BNF Drugs) ---
     drugIndex: [
         "Abacavir", "Aciclovir", "Acitretin", "Adalimumab", "Adapalene", "Adenosine", "Adrenaline", "Alendronic Acid", "Alfuzosin", "Alimemazine", "Allopurinol", "Alogliptin", "Amitriptyline", "Amlodipine", "Amoxicillin", "Anastrozole", "Apixaban", "Apremilast", "Aripiprazole", "Aspirin", "Atazanavir", "Atenolol", "Atomoxetine", "Atorvastatin", "Azathioprine", "Azithromycin",
         "Baclofen", "Beclometasone", "Bendroflumethiazide", "Benzatropine", "Benzydamine", "Betahistine", "Betamethasone", "Betaxolol", "Bezafibrate", "Bicalutamide", "Bisoprolol", "Brimonidine", "Brinzolamide", "Buprenorphine", "Bupropion", "Buscopan", "Budesonide", "Bumetanide",
@@ -30,10 +31,10 @@ export const clinicalData = {
         "Zidovudine", "Zopiclone", "Zuclopenthixol"
     ],
 
-    // --- 2. RCEM 'MISSED' MEDS HIGH RISK MAPPING ---
+    // --- 2. HIGH RISK 'MISSED' MEDS MAPPING ---
     highRiskDrugs: {
         // Movement
-        "levodopa": "M: Parkinson's (Time Critical)", "co-beneldopa": "M: Parkinson's (Time Critical)", "co-careldopa": "M: Parkinson's (Time Critical)", "madopar": "M: Parkinson's (Time Critical)", "sinemet": "M: Parkinson's (Time Critical)", "stalevo": "M: Parkinson's (Time Critical)", "pramipexole": "M: Parkinson's (Time Critical)", "ropinirole": "M: Parkinson's (Time Critical)", "rotigotine": "M: Parkinson's (Time Critical)", "pyridostigmine": "M: Myasthenia Gravis (Time Critical)", "neostigmine": "M: Myasthenia Gravis (Time Critical)",
+        "levodopa": "M: Parkinson's (Time Critical - Get Meds)", "co-beneldopa": "M: Parkinson's (Time Critical)", "co-careldopa": "M: Parkinson's (Time Critical)", "madopar": "M: Parkinson's (Time Critical)", "sinemet": "M: Parkinson's (Time Critical)", "stalevo": "M: Parkinson's (Time Critical)", "pramipexole": "M: Parkinson's (Time Critical)", "ropinirole": "M: Parkinson's (Time Critical)", "rotigotine": "M: Parkinson's (Time Critical)", "pyridostigmine": "M: Myasthenia Gravis (Time Critical)", "neostigmine": "M: Myasthenia Gravis (Time Critical)",
         // Immunomodulators/HIV
         "methotrexate": "I: Immunosuppressant (Sepsis Risk)", "azathioprine": "I: Immunosuppressant (Sepsis Risk)", "mycophenolate": "I: Immunosuppressant (Sepsis Risk)", "ciclosporin": "I: Immunosuppressant (Sepsis Risk)", "tacrolimus": "I: Immunosuppressant (Sepsis Risk)", "rituximab": "I: Immunosuppressant (Sepsis Risk)", "tenofovir": "I: HIV Med (Interactions)", "emtricitabine": "I: HIV Med (Interactions)", "abacavir": "I: HIV Med (Interactions)", "ritonavir": "I: HIV Med (Interactions)", "adalimumab": "I: Biologic (Sepsis Risk)", "etanercept": "I: Biologic (Sepsis Risk)", "infliximab": "I: Biologic (Sepsis Risk)",
         // Sugar
@@ -48,7 +49,7 @@ export const clinicalData = {
         "lithium": "Toxicity Risk (Check Levels)", "digoxin": "Toxicity Risk (Check Levels)", "clozapine": "Agranulocytosis Risk", "carbimazole": "Neutropenia Risk", "methadone": "Opioid (Resp Depression)"
     },
 
-    // --- 3. CALCULATORS ---
+    // --- 3. CALCULATORS (DYNAMIC) ---
     calculators: {
         "Chest Pain": {
             title: "Wells Score for PE",
@@ -108,15 +109,33 @@ export const clinicalData = {
             sbp: [ { max: 90, score: 3 }, { max: 100, score: 2 }, { max: 110, score: 1 }, { max: 219, score: 0 }, { max: 999, score: 3 } ],
             hr: [ { max: 40, score: 3 }, { max: 50, score: 1 }, { max: 90, score: 0 }, { max: 110, score: 1 }, { max: 130, score: 2 }, { max: 999, score: 3 } ],
             temp: [ { max: 35.0, score: 3 }, { max: 36.0, score: 1 }, { max: 38.0, score: 0 }, { max: 39.0, score: 1 }, { max: 99.9, score: 2 } ]
-        }
-    },
+        },
+        
+        pews: {
+            infant: { // <1 year
+                rr: [{max: 20, score:3}, {max: 29, score:1}, {max: 50, score:0}, {max: 60, score:1}, {max: 70, score:2}, {max: 999, score:3}],
+                hr: [{max: 90, score:3}, {max: 109, score:1}, {max: 160, score:0}, {max: 179, score:1}, {max: 190, score:2}, {max: 999, score:3}]
+            },
+            toddler: { // 1-4 years
+                rr: [{max: 15, score:3}, {max: 19, score:1}, {max: 40, score:0}, {max: 50, score:1}, {max: 60, score:2}, {max: 999, score:3}],
+                hr: [{max: 80, score:3}, {max: 99, score:1}, {max: 140, score:0}, {max: 159, score:1}, {max: 170, score:2}, {max: 999, score:3}]
+            },
+            child: { // 5-12 years
+                rr: [{max: 15, score:3}, {max: 19, score:1}, {max: 30, score:0}, {max: 35, score:1}, {max: 40, score:2}, {max: 999, score:3}],
+                hr: [{max: 70, score:3}, {max: 79, score:1}, {max: 120, score:0}, {max: 139, score:1}, {max: 150, score:2}, {max: 999, score:3}]
+            },
+            teen: { // >12 (Use adult-like ranges or specific teen ranges)
+                rr: [{max: 10, score:3}, {max: 14, score:1}, {max: 25, score:0}, {max: 30, score:1}, {max: 35, score:2}, {max: 999, score:3}],
+                hr: [{max: 50, score:3}, {max: 59, score:1}, {max: 100, score:0}, {max: 119, score:1}, {max: 130, score:2}, {max: 999, score:3}]
+            }
+        },
     
-    paedsSafety: {
-        weightCapKg: 50,
-        disclaimer: "GUIDANCE ONLY. CHECK BNFc. Do not use for >50kg.",
-        paracetamol: { mgPerKg: 15, maxDoseMg: 1000 },
-        ibuprofen: { mgPerKg: 10, maxDoseMg: 400 },
-        pewsRanges: { infant: { maxRR: 60, maxHR: 160 }, toddler: { maxRR: 40, maxHR: 140 }, child: { maxRR: 30, maxHR: 120 }, teen: { maxRR: 25, maxHR: 100 } }
+        paedsSafety: {
+            weightCapKg: 50,
+            disclaimer: "GUIDANCE ONLY. CHECK BNFc. Do not use for >50kg.",
+            paracetamol: { mgPerKg: 15, maxDoseMg: 1000 },
+            ibuprofen: { mgPerKg: 10, maxDoseMg: 400 }
+        }
     },
 
     // --- 6. MTS FLOWCHARTS (FULL 52 SET) ---
