@@ -1,4 +1,4 @@
-/* styles.css v12.2 */
+/* styles.css v14.0 */
 :root {
     --primary: #005EB8; /* NHS Blue */
     --primary-hover: #003087;
@@ -16,7 +16,6 @@
     --blue: #005EB8;
     
     --shadow: 0 4px 12px rgba(0,0,0,0.08);
-    --shadow-hover: 0 6px 16px rgba(0,0,0,0.12);
     --radius: 8px;
 }
 
