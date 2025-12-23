@@ -8,7 +8,7 @@ class TriageApp {
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, hr: null, avpu: 'A', temp: null, scale2: false },
-            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', anticoagulated: false },
+            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], planNarrative: '' },
             triage: { 
                 discriminator: null, 
                 basePriority: 'Blue', 
@@ -24,34 +24,26 @@ class TriageApp {
             actionsTaken: [] 
         };
 
-        // Deep copy for reset
         this.state = JSON.parse(JSON.stringify(this.initialState));
         this.saveTimeout = null;
-
-        // Dom Elements Cache
         this.dom = {}; 
 
-        // Init Sequence
         this.cacheDOM();
-        this.renderScreening(); // Build the screening UI first
-        this.bindEvents();      // Then bind events to everything
+        this.renderScreening(); 
+        this.bindEvents();
         this.populateDatalist();
         this.renderPainButtons();
         
         this.initSpeech();
         this.loadHistory();
         
-        // Theme Check
         if(localStorage.getItem('theme') === 'dark') {
             document.documentElement.setAttribute('data-theme', 'dark');
             document.getElementById('checkbox-theme').checked = true;
         }
     }
 
-    // --- CORE ARCHITECTURE ---
-
     setState(updates) {
-        // Deep merge for nested objects
         for (const key in updates) {
             if (typeof updates[key] === 'object' && updates[key] !== null && !Array.isArray(updates[key])) {
                 this.state[key] = { ...this.state[key], ...updates[key] };
@@ -60,28 +52,22 @@ class TriageApp {
             }
         }
         
-        // Trigger Clinical Logic on relevant updates
-        if (updates.patient || updates.obs || updates.history || updates.triage) {
-             this.runClinicalLogic();
-        }
-        
+        this.runClinicalLogic();
         this.render();
         this.debouncedSave();
     }
 
     runClinicalLogic() {
-        // 1. Calculate Age
         if (this.state.patient.dob) {
             const diff = Date.now() - new Date(this.state.patient.dob).getTime();
             this.state.patient.age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
         }
 
-        // 2. Intelligent Meds Check
-        this.checkAnticoagulants();
+        // Meds Risk Check
+        this.checkMedsRisks();
 
         const p = this.state.patient;
         
-        // 3. NEWS2 Score (Adults only)
         if (p.pregnant || (p.age !== null && p.age < 16)) {
             this.state.triage.newsScore = 0; 
             this.state.triage.newsBreakdown = [];
@@ -89,42 +75,43 @@ class TriageApp {
             this.calcNEWS2();
         }
 
-        // 4. Determine Priority & Stream
         this.calcTriagePriority();
         this.calcStreamAndTimer();
     }
 
-    checkAnticoagulants() {
+    checkMedsRisks() {
         const meds = (this.state.history.meds || '').toLowerCase();
-        // High risk blood thinners
-        const keywords = ['warfarin', 'apixaban', 'rivaroxaban', 'edoxaban', 'dabigatran', 'clopidogrel', 'aspirin', 'ticagrelor', 'dalteparin', 'enoxaparin', 'heparin', 'clexane', 'fragmin'];
-        const safeWords = ['nil', 'none', 'nkda', 'no meds', 'nothing'];
-
-        const el = document.getElementById('meds-alert');
-        if (!el) return;
+        let risks = [];
         
-        if (keywords.some(k => meds.includes(k))) {
-            this.state.history.anticoagulated = true;
-            el.innerHTML = '⚠️ ANTICOAGULANT DETECTED - Head Injury / Bleed Protocols Updated';
+        // Scan against High Risk Maps
+        Object.entries(this.data.highRiskDrugs).forEach(([key, warning]) => {
+            if (meds.includes(key)) risks.push(warning);
+        });
+
+        // Safe words logic
+        const safeWords = ['nil', 'none', 'nkda', 'no meds', 'nothing'];
+        const el = document.getElementById('meds-alert');
+        
+        if (risks.length > 0) {
+            this.state.history.riskFlags = risks;
+            el.innerHTML = `⚠️ SAFETY ALERTS: ${[...new Set(risks)].join(', ')}`;
             el.className = 'meds-status-bar meds-risk';
         } else if (safeWords.some(k => meds.includes(k)) || meds.length > 5) {
-            this.state.history.anticoagulated = false;
-            el.innerHTML = '✅ No Anticoagulants Detected';
+            this.state.history.riskFlags = [];
+            el.innerHTML = '✅ No High Risks Detected';
             el.className = 'meds-status-bar meds-safe';
         } else {
-             this.state.history.anticoagulated = false;
+             this.state.history.riskFlags = [];
              el.innerHTML = '';
              el.className = 'meds-status-bar';
         }
     }
 
-    // --- CLINICAL CALCULATORS ---
-
     calcNEWS2() {
         const obs = this.state.obs;
         const rules = this.data.scoring.news2;
         let score = 0;
-        let breakdown = []; // Stores the "why"
+        let breakdown = [];
 
         const getScore = (val, buckets, label) => {
             if (val === null || val === '') return 0;
@@ -139,27 +126,17 @@ class TriageApp {
         if(obs.sbp) score += getScore(obs.sbp, rules.sbp, 'BP');
         if(obs.hr) score += getScore(obs.hr, rules.hr, 'HR');
         if(obs.temp) score += getScore(obs.temp, rules.temp, 'Temp');
-        
-        if (obs.avpu !== 'A') { 
-            score += 3; 
-            breakdown.push(`AVPU: ${obs.avpu} (+3)`); 
-        }
-        
-        if (obs.o2 === 'O2') { 
-            score += 2; 
-            breakdown.push(`O2: On (+2)`); 
-        }
+        if (obs.avpu !== 'A') { score += 3; breakdown.push(`AVPU: ${obs.avpu} (+3)`); }
+        if (obs.o2 === 'O2') { score += 2; breakdown.push(`O2: On (+2)`); }
 
         this.state.triage.newsScore = score;
         this.state.triage.newsBreakdown = breakdown;
     }
 
     calcTriagePriority() {
-        // 1. Start with Discriminator Priority
         let p = this.state.triage.discriminator ? this.state.triage.basePriority : 'Blue';
         let reasons = this.state.triage.discriminator ? [`MTS: ${this.state.triage.discriminator}`] : [];
 
-        // 2. Severe Pain Logic
         if (this.state.history.pain >= 7) {
             const isShocked = (this.state.obs.hr > 110) || (this.state.obs.sbp && this.state.obs.sbp < 90);
             if (['Yellow', 'Green', 'Blue'].includes(p)) {
@@ -168,7 +145,6 @@ class TriageApp {
             }
         }
 
-        // 3. NEWS2 Triggers (Adults Non-Pregnant)
         if (this.state.patient.age >= 16 && !this.state.patient.pregnant) {
             if (this.state.triage.newsScore >= 7) {
                 p = 'Red';
@@ -182,7 +158,6 @@ class TriageApp {
             }
         }
 
-        // 4. Clinical Override
         if (this.state.triage.override) {
             p = this.state.triage.override.level;
             reasons.push(`OVERRIDE: ${this.state.triage.override.reason}`);
@@ -194,37 +169,30 @@ class TriageApp {
 
     calcStreamAndTimer() {
         const p = this.state.triage.finalPriority;
-        const mobility = this.state.patient.mobility;
-        
         const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
         this.state.triage.timer = timers[p] || '--';
 
         let stream = 'Majors';
-        if (p === 'Red' || p === 'Orange') {
-            stream = 'RESUS / MAJORS';
-        } else if (p === 'Green' || p === 'Blue') {
-            if (mobility === 'Walking') stream = 'See & Treat / Minors';
+        if (p === 'Red' || p === 'Orange') stream = 'RESUS / MAJORS';
+        else if (p === 'Green' || p === 'Blue') {
+            if (this.state.patient.mobility === 'Walking') stream = 'See & Treat / Minors';
             else stream = 'Majors (Mobility)';
         }
         
-        if (this.state.patient.age !== null && this.state.patient.age < 16) {
-             stream = `Paeds (${stream})`;
-        }
-
+        if (this.state.patient.age !== null && this.state.patient.age < 16) stream = `Paeds (${stream})`;
         this.state.triage.stream = stream;
     }
-
-    // --- SETUP & BINDINGS ---
 
     cacheDOM() {
         this.dom = {
             complaintInput: document.getElementById('input-complaint'),
-            discriminatorBox: document.getElementById('discriminator-container')
+            discriminatorBox: document.getElementById('discriminator-container'),
+            medsInput: document.getElementById('meds'),
+            suggestionsBox: document.getElementById('meds-suggestions')
         };
     }
 
     bindEvents() {
-        // Helper for binding standard inputs
         const bind = (id, key, path, transform = (v) => v) => {
             const el = document.getElementById(id);
             if (!el) return;
@@ -238,34 +206,37 @@ class TriageApp {
             });
         };
 
-        // 1. Observations
         bind('obs-rr', 'rr', 'obs', parseFloat); 
         bind('obs-sats', 'sats', 'obs', parseFloat);
         bind('obs-sbp', 'sbp', 'obs', parseFloat); 
         bind('obs-hr', 'hr', 'obs', parseFloat);
         bind('obs-temp', 'temp', 'obs', parseFloat); 
         bind('obs-scale2', 'scale2', 'obs');
-        
-        // 2. Patient Demographics
         bind('patient-dob', 'dob', 'patient'); 
         bind('patient-id', 'id', 'patient');
         bind('patient-weight', 'weight', 'patient', parseFloat);
         bind('patient-sex', 'sex', 'patient'); 
         bind('patient-mobility', 'mobility', 'patient');
         bind('check-pregnant', 'pregnant', 'patient');
-
-        // 3. History Text Areas
-        ['allergies', 'pmh', 'meds'].forEach(id => {
-            bind(id, id, 'history');
+        bind('allergies', 'allergies', 'history');
+        bind('pmh', 'pmh', 'history');
+        
+        // Plan Narrative Binding
+        document.getElementById('plan-narrative').addEventListener('input', (e) => {
+            this.setState({ history: { planNarrative: e.target.value } });
         });
 
-        // 4. Segmented Controls (AVPU, O2)
+        // Meds Autocomplete Logic
+        this.dom.medsInput.addEventListener('keyup', (e) => this.handleMedsAutocomplete(e));
+        this.dom.medsInput.addEventListener('blur', () => setTimeout(() => this.dom.suggestionsBox.classList.add('hidden'), 200));
+        
+        // Meds State Update (Input event for state, Keyup for suggestions)
+        this.dom.medsInput.addEventListener('input', (e) => this.setState({ history: { meds: e.target.value } }));
+
         document.querySelectorAll('.segmented-control button').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const parent = e.target.parentElement;
-                // Only handle the static ones here, generated ones are handled elsewhere
-                if (!parent.id) return; 
-
+                if (!parent.id || parent.id.startsWith('toggle-')) return; 
                 parent.querySelectorAll('button').forEach(b => b.classList.remove('active'));
                 e.target.classList.add('active');
                 
@@ -275,10 +246,8 @@ class TriageApp {
             });
         });
 
-        // 5. Complaint Handling
         this.dom.complaintInput.addEventListener('input', (e) => this.handleComplaint(e.target.value));
 
-        // 6. Quick Actions (Chips & QuickText)
         document.querySelector('.dashboard').addEventListener('click', (e) => {
             if (e.target.dataset.action === 'setComplaint') {
                 this.dom.complaintInput.value = e.target.dataset.val;
@@ -288,40 +257,28 @@ class TriageApp {
                 e.preventDefault();
                 const target = document.getElementById(e.target.dataset.target);
                 target.value = e.target.dataset.val;
-                target.dispatchEvent(new Event('input')); // Trigger update
+                target.dispatchEvent(new Event('input')); 
             }
         });
 
-        // 7. Override Logic (Button & Panel)
+        // Override Toggle
         const btnOverride = document.getElementById('btn-override-toggle');
         const panelOverride = document.getElementById('override-options');
-        const checkOverride = document.getElementById('check-override');
-
         btnOverride.addEventListener('click', () => {
             const isHidden = panelOverride.classList.contains('hidden');
             panelOverride.classList.toggle('hidden');
             btnOverride.classList.toggle('active', isHidden);
-            
-            // Sync with phantom checkbox for state logic consistency
-            checkOverride.checked = isHidden; 
-            
-            if (!isHidden) {
-                // Closing: Clear override
-                this.setState({ triage: { override: null } });
-            }
+            if (!isHidden) this.setState({ triage: { override: null } });
         });
 
         const updateOverride = () => {
             const level = document.getElementById('sel-override').value;
             const reason = document.getElementById('txt-override').value;
-            if (reason) {
-                this.setState({ triage: { override: { level, reason } } });
-            }
+            if (reason) this.setState({ triage: { override: { level, reason } } });
         };
         document.getElementById('sel-override').addEventListener('change', updateOverride);
         document.getElementById('txt-override').addEventListener('input', updateOverride);
 
-        // 8. Global Controls
         document.getElementById('checkbox-theme').addEventListener('change', (e) => {
             if(e.target.checked) {
                 document.documentElement.setAttribute('data-theme', 'dark');
@@ -333,9 +290,7 @@ class TriageApp {
         });
 
         document.getElementById('btn-reset').addEventListener('click', () => {
-            if(confirm("Start new patient? Unsaved data will be lost.")) {
-                window.location.reload();
-            }
+            if(confirm("Start new patient? Unsaved data will be lost.")) window.location.reload();
         });
 
         document.getElementById('btn-copy').addEventListener('click', () => {
@@ -350,10 +305,40 @@ class TriageApp {
         });
     }
 
-    // --- DYNAMIC RENDERING ---
+    handleMedsAutocomplete(e) {
+        const val = e.target.value;
+        const cursor = e.target.selectionStart;
+        const textBefore = val.slice(0, cursor);
+        const lastWord = textBefore.split(/[\s,\n]+/).pop();
+
+        if (lastWord.length < 3) {
+            this.dom.suggestionsBox.classList.add('hidden');
+            return;
+        }
+
+        const matches = this.data.drugIndex.filter(d => d.toLowerCase().startsWith(lastWord.toLowerCase())).slice(0, 5);
+        
+        if (matches.length > 0) {
+            this.dom.suggestionsBox.innerHTML = matches.map(m => `<div class="suggestion-item">${m}</div>`).join('');
+            this.dom.suggestionsBox.classList.remove('hidden');
+            
+            // Re-bind suggestion clicks
+            this.dom.suggestionsBox.querySelectorAll('.suggestion-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const wordToReplace = lastWord;
+                    const newValue = val.slice(0, cursor - wordToReplace.length) + item.textContent + val.slice(cursor);
+                    this.dom.medsInput.value = newValue + ', ';
+                    this.dom.suggestionsBox.classList.add('hidden');
+                    this.dom.medsInput.focus();
+                    this.setState({ history: { meds: newValue } });
+                });
+            });
+        } else {
+            this.dom.suggestionsBox.classList.add('hidden');
+        }
+    }
 
     renderScreening() {
-        // Generates the screening grid from protocols.js
         const container = document.getElementById('screening-container');
         container.innerHTML = '';
 
@@ -363,35 +348,36 @@ class TriageApp {
             div.id = `screen-${key}`;
             
             let html = `<span class="screening-title">${data.label}</span>`;
-            
             if (data.options) {
-                // Dropdown logic
-                html += `<select id="screen-input-${key}" class="w-full">
-                            <option value="">Select...</option>`;
+                html += `<select id="screen-input-${key}" class="w-full"><option value="">Select...</option>`;
                 data.options.forEach(opt => html += `<option value="${opt.val}">${opt.text}</option>`);
                 html += `</select>`;
             } else if (data.yesNo) {
-                // Toggle logic
-                html += `<div class="segmented-control screening-toggle" id="toggle-${key}">
+                html += `<div class="segmented-control" id="toggle-${key}">
                     <button type="button" data-val="No" class="active">No</button>
                     <button type="button" data-val="Yes">Yes</button>
                 </div>`;
             }
             div.innerHTML = html;
             container.appendChild(div);
-
-            // Bind generated elements to note/state logic if needed
-            // For now, these are primarily visual prompts, but we can hook them into the note later
+            
+            // Internal logic for toggle switch active states
+            const toggle = div.querySelector('.segmented-control');
+            if(toggle) {
+                toggle.querySelectorAll('button').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                        e.target.classList.add('active');
+                    });
+                });
+            }
         });
     }
 
     renderScreeningDynamic() {
         const age = this.state.patient.age;
-        // Logic: Only show Frailty if Age > 65
         const frailtyDiv = document.getElementById('screen-frailty');
-        if(frailtyDiv) {
-            frailtyDiv.style.display = (age !== null && age >= 65) ? 'block' : 'none';
-        }
+        if(frailtyDiv) frailtyDiv.style.display = (age !== null && age >= 65) ? 'block' : 'none';
     }
 
     renderPainButtons() {
@@ -412,8 +398,6 @@ class TriageApp {
         }
     }
 
-    // --- PROTOCOL & DISCRIMINATOR LOGIC ---
-
     populateDatalist() {
         const dl = document.getElementById('flowcharts');
         Object.keys(this.data.mtsFlowcharts).sort().forEach(key => {
@@ -424,7 +408,6 @@ class TriageApp {
     }
 
     handleComplaint(val) {
-        // Red Flag Checks
         const lowerVal = val.toLowerCase();
         if (lowerVal === 'headache' && !this.state.ui.redFlagChecked) {
              const check = confirm("⚠️ RED FLAG CHECK:\nIs there any history of trauma, fall, or sudden onset?");
@@ -450,7 +433,6 @@ class TriageApp {
             const div = document.createElement('div');
             div.className = `discriminator priority-${item.priority}`;
             div.innerHTML = `<span>${item.text}</span> <span style="font-weight:bold; opacity:0.6;">${item.priority}</span>`;
-            
             div.onclick = () => {
                 Array.from(container.children).forEach(c => c.classList.remove('selected'));
                 div.classList.add('selected');
@@ -469,7 +451,6 @@ class TriageApp {
         this.state.actionsTaken = []; 
 
         if (proto && proto.tests) {
-            // Cannula Badge
             if (proto.cannula) {
                 const cDiv = document.createElement('div');
                 cDiv.className = `cannula-badge cannula-${proto.cannula.color}`;
@@ -511,13 +492,10 @@ class TriageApp {
                     container.appendChild(section);
                 }
             });
-
         } else {
             container.innerHTML = `<p class="placeholder-text">No specific protocol for "${complaint}"</p>`;
         }
     }
-
-    // --- UI OUTPUTS ---
 
     render() {
         this.renderDemographics();
@@ -531,10 +509,8 @@ class TriageApp {
     renderDemographics() {
         const p = this.state.patient;
         document.getElementById('calculated-age-display').textContent = p.age !== null ? `Age: ${p.age}` : 'Age: --';
-        
         const isFemaleRepro = p.sex === 'Female' && p.age >= 12 && p.age <= 55;
         document.getElementById('female-health-section').classList.toggle('hidden', !isFemaleRepro);
-        
         const isPaeds = p.age !== null && p.age < 16;
         document.getElementById('obs-form').style.opacity = isPaeds ? '0.5' : '1';
     }
@@ -543,14 +519,7 @@ class TriageApp {
         const container = document.getElementById('visual-ews-container');
         container.innerHTML = '';
         
-        if (this.state.patient.pregnant) {
-            container.innerHTML = '<div class="warning-box" style="text-align:center;">🤰 PREGNANT PATIENT: NEWS2 Disabled.<br>Use Obstetric Early Warning Score.</div>';
-            return;
-        }
-        if (this.state.patient.age !== null && this.state.patient.age < 16) {
-            container.innerHTML = '<div style="text-align:center; opacity:0.6; font-style:italic;">Adult NEWS2 disabled. Use PEWS.</div>';
-            return;
-        }
+        if (this.state.patient.pregnant || (this.state.patient.age !== null && this.state.patient.age < 16)) return;
 
         const score = this.state.triage.newsScore;
         const el = document.createElement('div');
@@ -561,7 +530,6 @@ class TriageApp {
         el.textContent = `NEWS2 Score: ${score}`;
         container.appendChild(el);
 
-        // Breakdown Chips
         const breakdownDiv = document.createElement('div');
         breakdownDiv.className = 'news-breakdown';
         this.state.triage.newsBreakdown.forEach(text => {
@@ -623,7 +591,6 @@ class TriageApp {
         badge.textContent = t.finalPriority.toUpperCase();
         document.getElementById('stream-display').textContent = `Stream: ${t.stream}`;
         document.getElementById('timer-display').textContent = `Target: ${t.timer}`;
-        
         document.getElementById('priority-reasons').innerHTML = t.reasons.map(r => `<div>• ${r}</div>`).join('');
         
         const sepsisRisk = (t.newsScore >= 5 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
@@ -648,7 +615,9 @@ class TriageApp {
         txt += `Stream: ${t.stream}\n`;
         if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
         
-        if(h.anticoagulated) txt += `\n⚠️ ANTICOAGULANT RISK IDENTIFIED`;
+        if(h.riskFlags && h.riskFlags.length > 0) {
+            txt += `\n⚠️ CLINICAL ALERTS:\n- ${[...new Set(h.riskFlags)].join('\n- ')}`;
+        }
         
         if(h.allergies) txt += `\nAllergies: ${h.allergies}`;
         if(h.pmh) txt += `\nPMH: ${h.pmh}`;
@@ -664,10 +633,31 @@ class TriageApp {
             txt += `\nActions:\n- ${this.state.actionsTaken.join('\n- ')}\n`;
         }
         
+        // Append Screening Data
+        const getScreenVal = (id) => {
+            const el = document.getElementById(id);
+            if(el) return el.value;
+            // Check toggles
+            const toggle = document.querySelector(`#toggle-${id.replace('screen-input-', '')} .active`);
+            if(toggle) return toggle.textContent;
+            return null;
+        }
+        
+        // Loop screening to find positives
+        Object.keys(this.data.screening).forEach(key => {
+            // Simplified check for now
+            const val = getScreenVal(`screen-input-${key}`) || getScreenVal(key);
+            if(val && val !== 'No' && val !== 'Select...') {
+                txt += `\n${this.data.screening[key].label}: ${val}`;
+            }
+        });
+
+        if (h.planNarrative) {
+            txt += `\n\nPLAN / NARRATIVE:\n${h.planNarrative}`;
+        }
+        
         document.getElementById('epr-note').value = txt;
     }
-
-    // --- PERSISTENCE & UTILS ---
 
     debouncedSave() {
         clearTimeout(this.saveTimeout);
@@ -676,7 +666,6 @@ class TriageApp {
 
     saveSession() {
         if(!this.state.patient.id && !this.state.history.complaint) return;
-        
         const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
         const current = {
             id: this.state.patient.id || 'Unknown',
@@ -685,13 +674,10 @@ class TriageApp {
             time: new Date().toLocaleString(),
             data: this.state
         };
-        
         const existingIndex = sessions.findIndex(s => s.id === current.id && s.id !== 'Unknown');
         if(existingIndex >= 0) sessions.splice(existingIndex, 1);
-        
         sessions.unshift(current); 
         if(sessions.length > 15) sessions.pop(); 
-        
         localStorage.setItem('triage_history', JSON.stringify(sessions));
     }
 
@@ -708,38 +694,28 @@ class TriageApp {
     initSpeech() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) return;
-
         document.querySelectorAll('.mic-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 const targetId = e.currentTarget.dataset.target; 
                 const targetEl = document.getElementById(targetId);
-                
                 const recognition = new SpeechRecognition();
                 recognition.continuous = false;
                 recognition.lang = 'en-GB';
-                
                 e.currentTarget.classList.add('listening');
-                
                 recognition.onresult = (event) => {
                     const text = event.results[0][0].transcript;
-                    if(targetEl.tagName === 'TEXTAREA' && targetEl.value) {
-                        targetEl.value += `. ${text}`;
-                    } else {
-                        targetEl.value = text;
-                    }
+                    if(targetEl.tagName === 'TEXTAREA' && targetEl.value) targetEl.value += `. ${text}`;
+                    else targetEl.value = text;
                     targetEl.dispatchEvent(new Event('input')); 
                     this.showToast('Dictation captured');
                 };
-                
                 recognition.onerror = (err) => {
                     console.error(err);
                     e.currentTarget.classList.remove('listening');
                     this.showToast('Dictation failed', 'error');
                 };
-                
                 recognition.onend = () => e.currentTarget.classList.remove('listening');
-                
                 recognition.start();
             });
         });
@@ -760,7 +736,6 @@ class TriageApp {
         const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
         list.innerHTML = '';
         if(sessions.length === 0) list.innerHTML = '<p class="text-muted">No recent patients locally stored.</p>';
-        
         sessions.forEach(s => {
             const div = document.createElement('div');
             div.className = 'history-item';
@@ -812,11 +787,11 @@ class TriageApp {
         setVal('allergies', history.allergies); 
         setVal('pmh', history.pmh); 
         setVal('meds', history.meds);
+        setVal('plan-narrative', history.planNarrative);
         
         document.querySelectorAll('.pain-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === history.pain));
         document.getElementById('pain-val').textContent = history.pain;
 
-        // Restore Override Panel State
         const btnOverride = document.getElementById('btn-override-toggle');
         const panelOverride = document.getElementById('override-options');
         if(triage.override) {
