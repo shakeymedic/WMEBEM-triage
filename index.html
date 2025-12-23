@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMEBEM Triage v18.0</title>
+    <title>WMEBEM Triage v19.0</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -62,7 +62,7 @@
                 <div class="logo-text">WMEBEM</div>
                 <div>
                     <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v18.0 | Platinum Edition</span>
+                    <span class="version-tag">v19.0 | MEOWS & PEWS Gold</span>
                 </div>
             </div>
             <div class="header-controls">
@@ -131,7 +131,7 @@
             </section>
 
             <section class="card span-2" id="card-obs">
-                <h2 id="obs-title">2. Physiology (NEWS2)</h2>
+                <h2 id="obs-title">2. Physiology (NEWS2 / MEOWS / PEWS)</h2>
                 
                 <div id="obs-form" class="obs-grid">
                     <div class="obs-item">
@@ -144,7 +144,7 @@
                     </div>
                     
                     <div class="obs-item span-2-mobile">
-                        <label>Oxygen Delivery</label>
+                        <label>Oxygen</label>
                         <div class="segmented-control" id="seg-o2">
                             <button data-value="Air" class="active" type="button">Air</button>
                             <button data-value="O2" type="button">O₂</button>
@@ -156,12 +156,17 @@
                         <input type="number" id="obs-sbp" data-js="obs-sbp" placeholder="mmHg">
                     </div>
                     <div class="obs-item">
+                        <label for="obs-dbp">Diastolic BP</label>
+                        <input type="number" id="obs-dbp" data-js="obs-dbp" placeholder="mmHg">
+                    </div>
+
+                    <div class="obs-item">
                         <label for="obs-hr">Heart Rate</label>
                         <input type="number" id="obs-hr" data-js="obs-hr" placeholder="BPM">
                     </div>
                     
                     <div class="obs-item span-2-mobile">
-                        <label>AVPU / GCS</label>
+                        <label>AVPU</label>
                         <div class="segmented-control" id="seg-avpu">
                             <button data-value="A" class="active" type="button">A</button>
                             <button data-value="V" type="button">V</button>
@@ -174,6 +179,11 @@
                         <label for="obs-temp">Temp (°C)</label>
                         <input type="number" id="obs-temp" data-js="obs-temp" step="0.1" placeholder="°C">
                     </div>
+                    <div class="obs-item">
+                        <label for="obs-crt">CRT (sec)</label>
+                        <input type="number" id="obs-crt" data-js="obs-crt" placeholder="Secs">
+                    </div>
+
                     <div class="obs-item full-width-checkbox">
                         <input type="checkbox" id="obs-scale2" data-js="obs-scale2">
                         <label for="obs-scale2">Scale 2 (CO₂ Retainer)</label>
@@ -246,10 +256,8 @@
                 <div class="plan-grid">
                     <div class="priority-box">
                         <div id="priority-display" class="priority-badge priority-Blue">WAITING</div>
-                        
                         <div class="stream-badge" id="stream-display">Stream: Pending</div>
                         <div class="timer-badge" id="timer-display">Retriage: --</div>
-
                         <div id="priority-reasons"></div>
                         
                         <div class="override-section">
@@ -269,8 +277,7 @@
                     
                     <div class="protocol-box">
                         <h3>Clinical Protocol</h3>
-                        <div id="calculator-container" class="hidden calc-box">
-                            </div>
+                        <div id="calculator-container" class="hidden calc-box"></div>
                         <div id="protocol-actions">
                              <p class="placeholder-text">Select a complaint to view protocol.</p>
                         </div>
@@ -320,7 +327,7 @@
         </aside>
         
         <footer>
-            <p>v18.0 | Educational Use Only | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
+            <p>v19.0 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
         </footer>
     </div>
     
