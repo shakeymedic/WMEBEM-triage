@@ -7,7 +7,7 @@ class TriageApp {
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
-            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], planNarrative: '' },
+            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '' },
             triage: { 
                 discriminator: null, 
                 basePriority: 'Blue', 
@@ -20,7 +20,7 @@ class TriageApp {
                 stream: 'Pending',
                 timer: '--'
             },
-            ui: { sepsisAlertShown: false, redFlagChecked: false },
+            ui: { sepsisAlertShown: false, redFlagChecked: false, quickMode: false },
             actionsTaken: [] 
         };
 
@@ -30,6 +30,7 @@ class TriageApp {
 
         this.cacheDOM();
         this.renderScreening(); 
+        this.renderHighRiskMeds();
         this.bindEvents();
         this.populateDatalist();
         this.renderPainButtons();
@@ -41,6 +42,45 @@ class TriageApp {
             document.documentElement.setAttribute('data-theme', 'dark');
             document.getElementById('checkbox-theme').checked = true;
         }
+        if(localStorage.getItem('quickMode') === 'on') {
+            this.state.ui.quickMode = true;
+            document.body.classList.add('quick-mode');
+            const qBtn = document.getElementById('btn-quick-mode');
+            if(qBtn) qBtn.classList.add('active');
+        }
+    }
+
+    // --- Fuzzy string matching helpers (tolerates typos, so PMHx/meds entry doesn't rely on perfect spelling) ---
+    static levenshtein(a, b) {
+        if (a === b) return 0;
+        const al = a.length, bl = b.length;
+        if (al === 0) return bl;
+        if (bl === 0) return al;
+        let prev = new Array(bl + 1);
+        for (let j = 0; j <= bl; j++) prev[j] = j;
+        for (let i = 1; i <= al; i++) {
+            const curr = [i];
+            for (let j = 1; j <= bl; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+            }
+            prev = curr;
+        }
+        return prev[bl];
+    }
+
+    // Returns true if `word` is a plausible fuzzy match for `target` (case-insensitive).
+    // Tolerance scales gently with word length so short words still require a close match.
+    static fuzzyMatch(word, target) {
+        if (!word || !target) return false;
+        word = word.toLowerCase();
+        target = target.toLowerCase();
+        if (word.length < 3) return word === target;
+        if (target.startsWith(word) || target.includes(word)) return true;
+        const maxLen = Math.max(word.length, target.length);
+        if (Math.abs(word.length - target.length) > 3) return false;
+        const tolerance = word.length <= 5 ? 1 : (word.length <= 9 ? 2 : 3);
+        return TriageApp.levenshtein(word, target.slice(0, maxLen)) <= tolerance || TriageApp.levenshtein(word, target) <= tolerance;
     }
 
     setState(updates) {
@@ -81,26 +121,63 @@ class TriageApp {
     }
 
     checkMedsRisks() {
-        const meds = (this.state.history.meds || '').toLowerCase();
+        const medsRaw = (this.state.history.meds || '').toLowerCase();
+        const words = medsRaw.split(/[^a-z]+/).filter(w => w.length >= 3);
         let risks = [];
+
         Object.entries(this.data.highRiskDrugs).forEach(([key, warning]) => {
-            if (meds.includes(key)) risks.push(warning);
+            if (key.includes(' ')) {
+                // Multi-word keys (e.g. "sodium valproate"): exact substring is reliable enough here.
+                if (medsRaw.includes(key)) risks.push(warning);
+            } else if (words.some(w => TriageApp.fuzzyMatch(w, key))) {
+                // Single-word keys: tolerate typos (e.g. "wafarin" -> "warfarin").
+                risks.push(warning);
+            }
         });
+
+        // Merge in the tick-box categories, which are spelling-independent by design.
+        const manual = this.state.history.manualRiskFlags || {};
+        (this.data.highRiskCategories || []).forEach(cat => {
+            if (manual[cat.id]) risks.push(cat.warning);
+        });
+
+        risks = [...new Set(risks)];
+        this.state.history.riskFlags = risks;
+
         const safeWords = ['nil', 'none', 'nkda', 'no meds', 'nothing'];
         const el = document.getElementById('meds-alert');
         if (risks.length > 0) {
-            this.state.history.riskFlags = risks;
-            el.innerHTML = `⚠️ SAFETY ALERTS: ${[...new Set(risks)].join(', ')}`;
+            el.innerHTML = `⚠️ SAFETY ALERTS: ${risks.join(', ')}`;
             el.className = 'meds-status-bar meds-risk';
-        } else if (safeWords.some(k => meds.includes(k)) || meds.length > 5) {
-            this.state.history.riskFlags = [];
+        } else if (safeWords.some(k => medsRaw.includes(k)) || medsRaw.length > 5) {
             el.innerHTML = '✅ No High Risks Detected';
             el.className = 'meds-status-bar meds-safe';
         } else {
-             this.state.history.riskFlags = [];
              el.innerHTML = '';
              el.className = 'meds-status-bar';
         }
+    }
+
+    renderHighRiskMeds() {
+        const container = document.getElementById('high-risk-meds-grid');
+        if (!container) return;
+        container.innerHTML = '';
+        (this.data.highRiskCategories || []).forEach(cat => {
+            const label = document.createElement('label');
+            label.className = 'hr-med-chip';
+            label.title = cat.hint || '';
+            label.innerHTML = `<input type="checkbox" data-cat-id="${cat.id}"> <span>${cat.label}</span>`;
+            container.appendChild(label);
+        });
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const id = e.target.dataset.catId;
+                const manual = { ...(this.state.history.manualRiskFlags || {}) };
+                manual[id] = e.target.checked;
+                e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
+                this.setState({ history: { manualRiskFlags: manual } });
+            });
+        });
     }
 
     calcNEWS2() {
@@ -207,7 +284,7 @@ class TriageApp {
         } else {
             if (score >= 7) { p = 'Red'; reasons.push(`NEWS2 ${score} (≥7)`); }
             else if (score >= 5 && p !== 'Red') { p = 'Orange'; reasons.push(`NEWS2 ${score} (≥5 Sepsis?)`); }
-            else if (score >= 3 && p === 'Green') { p = 'Yellow'; reasons.push(`NEWS2 ${score}`); }
+            else if (score >= 3 && (p === 'Green' || p === 'Blue')) { p = 'Yellow'; reasons.push(`NEWS2 ${score}`); }
         }
 
         if (this.state.triage.override) {
@@ -350,6 +427,17 @@ class TriageApp {
         document.getElementById('sel-override').addEventListener('change', updateOverride);
         document.getElementById('txt-override').addEventListener('input', updateOverride);
 
+        const btnQuickMode = document.getElementById('btn-quick-mode');
+        if (btnQuickMode) {
+            btnQuickMode.addEventListener('click', () => {
+                const on = !document.body.classList.contains('quick-mode');
+                document.body.classList.toggle('quick-mode', on);
+                btnQuickMode.classList.toggle('active', on);
+                this.state.ui.quickMode = on;
+                localStorage.setItem('quickMode', on ? 'on' : 'off');
+            });
+        }
+
         document.getElementById('checkbox-theme').addEventListener('change', (e) => {
             if(e.target.checked) {
                 document.documentElement.setAttribute('data-theme', 'dark');
@@ -387,7 +475,13 @@ class TriageApp {
             return;
         }
 
-        const matches = this.data.drugIndex.filter(d => d.toLowerCase().startsWith(lastWord.toLowerCase())).slice(0, 5);
+        const lower = lastWord.toLowerCase();
+        let matches = this.data.drugIndex.filter(d => d.toLowerCase().startsWith(lower));
+        if (matches.length === 0) {
+            // No exact prefix match - fall back to fuzzy matching so typos still surface a suggestion.
+            matches = this.data.drugIndex.filter(d => TriageApp.fuzzyMatch(lower, d.toLowerCase()));
+        }
+        matches = matches.slice(0, 5);
         
         if (matches.length > 0) {
             this.dom.suggestionsBox.innerHTML = matches.map(m => `<div class="suggestion-item">${m}</div>`).join('');
@@ -705,7 +799,8 @@ class TriageApp {
         const h = this.state.history;
         
         let txt = `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
-        txt += `ID: ${p.id || 'Unknown'} | ${p.age}y ${p.sex} | Mobility: ${p.mobility}\n`;
+        const ageStr = (p.age !== null && p.age !== undefined) ? `${p.age}y` : 'Age unknown';
+        txt += `ID: ${p.id || 'Unknown'} | ${ageStr} ${p.sex || ''} | Mobility: ${p.mobility}\n`;
         txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
         txt += `Pain: ${h.pain}/10\n`;
         
@@ -766,7 +861,10 @@ class TriageApp {
         const t = this.state.triage;
         const h = this.state.history;
         
-        const s = `I have ${p.id || 'a patient'}, ${p.age}y ${p.sex}, presenting with ${h.complaint}. Priority ${t.finalPriority}.`;
+        const ageText = (p.age !== null && p.age !== undefined) ? `${p.age}y ` : '';
+        const sexText = p.sex || 'sex not recorded';
+        const complaintText = h.complaint || 'an undefined complaint';
+        const s = `I have ${p.id || 'a patient'}, ${ageText}${sexText}, presenting with ${complaintText}. Priority ${t.finalPriority}.`;
         
         let b = `${h.pmh || 'Nil PMH'}. `;
         if(h.riskFlags.length > 0) b += `Alert: ${h.riskFlags.join(', ')}. `;
@@ -924,6 +1022,13 @@ class TriageApp {
         setVal('pmh', history.pmh); 
         setVal('meds', history.meds);
         setVal('plan-narrative', history.planNarrative);
+
+        const manual = history.manualRiskFlags || {};
+        document.querySelectorAll('#high-risk-meds-grid input[type="checkbox"]').forEach(cb => {
+            const checked = !!manual[cb.dataset.catId];
+            cb.checked = checked;
+            cb.closest('.hr-med-chip').classList.toggle('checked', checked);
+        });
         
         document.querySelectorAll('.pain-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === history.pain));
         document.getElementById('pain-val').textContent = history.pain;

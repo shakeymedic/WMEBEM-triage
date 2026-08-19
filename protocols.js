@@ -28,7 +28,14 @@ export const clinicalData = {
         "Valaciclovir", "Valganciclovir", "Valproic Acid", "Valsartan", "Vancomycin", "Vardenafil", "Varenicline", "Venlafaxine", "Verapamil", "Vigabatrin", "Vildagliptin", "Vitamin B12", "Vitamin D", "Voriconazole",
         "Warfarin",
         "Xylometazoline",
-        "Zidovudine", "Zopiclone", "Zuclopenthixol"
+        "Zidovudine", "Zopiclone", "Zuclopenthixol",
+        // --- Common UK brand names (patients/carers often say these, not the generic) ---
+        "Eliquis", "Xarelto", "Pradaxa", "Lixiana", "Fragmin", "Innohep",
+        "Lantus", "Levemir", "Humalog", "Novorapid", "Novomix", "Tresiba", "Toujeo", "Abasaglar", "Actrapid", "Humulin", "Insulatard", "Fiasp", "Ozempic", "Trulicity", "Victoza", "Byetta",
+        "Humira", "Enbrel", "Remicade", "Simponi", "Cimzia", "Cosentyx", "Stelara", "Orencia", "Xeljanz",
+        "Keppra", "Epilim", "Tegretol", "Lamictal", "Vimpat", "Fycompa", "Zebinix", "Briviact",
+        "Deltacortril", "Sinemet", "Madopar", "Stalevo", "Neupro", "Requip", "Mirapexin",
+        "Priadel", "Camcolit", "Zonisamide", "Suboxone", "Subutex", "BuTrans", "MST Continus", "Oxycontin", "Zomorph", "Palladone"
     ],
 
     // --- 2. HIGH RISK 'MISSED' MEDS MAPPING ---
@@ -44,10 +51,28 @@ export const clinicalData = {
         // Epilepsy
         "sodium valproate": "E: Anticonvulsant (Seizure Risk)", "valproic acid": "E: Anticonvulsant (Seizure Risk)", "epilim": "E: Anticonvulsant (Seizure Risk)", "levetiracetam": "E: Anticonvulsant (Seizure Risk)", "keppra": "E: Anticonvulsant (Seizure Risk)", "lamotrigine": "E: Anticonvulsant (Seizure Risk)", "carbamazepine": "E: Anticonvulsant (Seizure Risk)", "phenytoin": "E: Anticonvulsant (Seizure Risk)", "topiramate": "E: Anticonvulsant (Seizure Risk)", "clobazam": "E: Anticonvulsant (Seizure Risk)", "lacosamide": "E: Anticonvulsant (Seizure Risk)",
         // DOACs/Warfarin
-        "warfarin": "D: Anticoagulant (Check INR)", "apixaban": "D: DOAC (Bleeding Risk)", "rivaroxaban": "D: DOAC (Bleeding Risk)", "edoxaban": "D: DOAC (Bleeding Risk)", "dabigatran": "D: DOAC (Bleeding Risk)", "enoxaparin": "D: LMWH (Bleeding Risk)", "dalteparin": "D: LMWH (Bleeding Risk)", "clexane": "D: LMWH (Bleeding Risk)", "fragmin": "D: LMWH (Bleeding Risk)",
+        "warfarin": "D: Anticoagulant (Check INR)", "apixaban": "D: DOAC (Bleeding Risk)", "eliquis": "D: DOAC (Bleeding Risk)", "rivaroxaban": "D: DOAC (Bleeding Risk)", "xarelto": "D: DOAC (Bleeding Risk)", "edoxaban": "D: DOAC (Bleeding Risk)", "lixiana": "D: DOAC (Bleeding Risk)", "dabigatran": "D: DOAC (Bleeding Risk)", "pradaxa": "D: DOAC (Bleeding Risk)", "enoxaparin": "D: LMWH (Bleeding Risk)", "dalteparin": "D: LMWH (Bleeding Risk)", "clexane": "D: LMWH (Bleeding Risk)", "fragmin": "D: LMWH (Bleeding Risk)", "innohep": "D: LMWH (Bleeding Risk)", "tinzaparin": "D: LMWH (Bleeding Risk)",
+        // Antiplatelets
+        "aspirin": "D: Antiplatelet (Bleeding Risk)", "clopidogrel": "D: Antiplatelet (Bleeding Risk)", "ticagrelor": "D: Antiplatelet (Bleeding Risk)", "prasugrel": "D: Antiplatelet (Bleeding Risk)", "dipyridamole": "D: Antiplatelet (Bleeding Risk)",
+        // Opioids
+        "methadone": "Opioid (Resp Depression Risk)", "suboxone": "Opioid Substitution (Resp Depression Risk)", "subutex": "Opioid Substitution (Resp Depression Risk)", "buprenorphine": "Opioid Substitution (Resp Depression Risk)", "morphine": "Opioid (Resp Depression Risk)", "oxycodone": "Opioid (Resp Depression Risk)", "oxycontin": "Opioid (Resp Depression Risk)", "zomorph": "Opioid (Resp Depression Risk)", "fentanyl": "Opioid (Resp Depression Risk)",
         // Toxicity
-        "lithium": "Toxicity Risk (Check Levels)", "digoxin": "Toxicity Risk (Check Levels)", "clozapine": "Agranulocytosis Risk", "carbimazole": "Neutropenia Risk", "methadone": "Opioid (Resp Depression)"
+        "lithium": "Toxicity Risk (Check Levels)", "priadel": "Toxicity Risk (Check Levels)", "camcolit": "Toxicity Risk (Check Levels)", "digoxin": "Toxicity Risk (Check Levels)", "clozapine": "Agranulocytosis Risk", "carbimazole": "Neutropenia Risk"
     },
+
+    // --- 2b. HIGH RISK MEDICATION TICK-BOX CATEGORIES (spelling/brand-name independent) ---
+    // These render as checkboxes so risk capture doesn't depend on free-text spelling accuracy.
+    highRiskCategories: [
+        { id: "anticoag", label: "Anticoagulant / DOAC", hint: "Warfarin, DOAC, LMWH", warning: "D: Anticoagulant/DOAC (Bleeding Risk - Check INR if Warfarin)" },
+        { id: "antiplatelet", label: "Antiplatelet", hint: "Aspirin, Clopidogrel, Ticagrelor", warning: "D: Antiplatelet (Bleeding Risk)" },
+        { id: "insulin", label: "Insulin", hint: "Any type/brand", warning: "S: Insulin (Hypo/DKA Risk)" },
+        { id: "steroid", label: "Long-term Steroids", hint: "Prednisolone equivalent, >4 weeks", warning: "S: Steroid Dependent (Adrenal Crisis Risk - consider hydrocortisone)" },
+        { id: "immunosuppressant", label: "Immunosuppressant / Biologic", hint: "Methotrexate, biologics, transplant meds", warning: "I: Immunosuppressant/Biologic (Sepsis Risk - low threshold for cultures)" },
+        { id: "parkinsons", label: "Parkinson's Medication", hint: "Levodopa, co-beneldopa, co-careldopa", warning: "M: Parkinson's (TIME CRITICAL - do not omit/delay doses)" },
+        { id: "antiepileptic", label: "Anti-epileptic", hint: "Any AED", warning: "E: Anticonvulsant (Seizure Risk if delayed/missed)" },
+        { id: "opioid", label: "Opioid / Substitution Rx", hint: "Methadone, buprenorphine, strong opioids", warning: "Opioid (Resp Depression Risk)" },
+        { id: "lithium_clozapine", label: "Lithium / Clozapine", hint: "Toxicity/agranulocytosis risk", warning: "Toxicity Risk (Check Lithium Level / FBC if Clozapine)" }
+    ],
 
     // --- 3. CALCULATORS (DYNAMIC) ---
     calculators: {
@@ -159,6 +184,7 @@ export const clinicalData = {
         "Diarrhoea and Vomiting": [{"text":"Shock","priority":"Red"},{"text":"Severe Dehydration","priority":"Orange"},{"text":"Blood in stool","priority":"Yellow"},{"text":"Mild Dehydration","priority":"Green"}],
         "Ear Problems": [{"text":"Severe Pain","priority":"Orange"},{"text":"Discharge","priority":"Yellow"},{"text":"Mild Pain","priority":"Green"},{"text":"Blocked Ear","priority":"Blue"}],
         "Eye Problems": [{"text":"Penetrating Injury","priority":"Red"},{"text":"Chemical Injury","priority":"Red"},{"text":"Sudden Loss of Vision","priority":"Orange"},{"text":"Severe Pain","priority":"Orange"},{"text":"Red Eye","priority":"Green"}],
+        "Fits and Seizures": [{"text":"Airway compromise","priority":"Red"},{"text":"Actively seizing now (status epilepticus)","priority":"Red"},{"text":"Seizure just terminated, GCS still reduced","priority":"Orange"},{"text":"First ever seizure","priority":"Orange"},{"text":"Repeated seizures (cluster)","priority":"Orange"},{"text":"Injury sustained during seizure","priority":"Yellow"},{"text":"Post-ictal, known epilepsy, improving","priority":"Yellow"},{"text":"Fully recovered, known epilepsy, at baseline","priority":"Green"},{"text":"Information/advice only","priority":"Blue"}],
         "Facial Problems": [{"text":"Airway Risk","priority":"Red"},{"text":"Severe Pain","priority":"Orange"},{"text":"Swelling","priority":"Yellow"},{"text":"Minor Injury","priority":"Green"}],
         "Falls": [{"text":"Major trauma","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Head injury with anticoagulants","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"}],
         "Foreign Body": [{"text":"Airway Obstruction","priority":"Red"},{"text":"Inhaled","priority":"Orange"},{"text":"Swallowed (High Risk)","priority":"Yellow"},{"text":"Minor","priority":"Green"}],
@@ -213,6 +239,7 @@ export const clinicalData = {
         "Diarrhoea and Vomiting": { cannula: { status: "Consider", color: "amber", size: "20G", reason: "Rehydration" }, tests: { bedside: ["VBG (Lactate/K)"], lab: ["U&E"], imaging: [] } },
         "Ear Problems": { cannula: { status: "Avoid", color: "red", size: "N/A", reason: "Topical Tx" }, tests: { bedside: ["Otoscopy"], lab: [], imaging: [] } },
         "Eye Problems": { cannula: { status: "Avoid", color: "red", size: "N/A", reason: "Topical Tx" }, tests: { bedside: ["Visual Acuity", "Fluorescein"], lab: [], imaging: ["CT Orbits"] } },
+        "Fits and Seizures": { cannula: { status: "Essential", color: "green", size: "18G", reason: "IV Anticonvulsant/Glucose" }, tests: { bedside: ["Glucose", "ECG", "AED Levels (if known epilepsy)"], lab: ["FBC", "U&E", "Ca", "Mg", "Alcohol"], imaging: ["CT Head (First Fit/Focal/Trauma)"] } },
         "Facial Problems": { cannula: { status: "Avoid", color: "red", size: "N/A", reason: "Minor Injury" }, tests: { bedside: ["Neuro Obs"], lab: [], imaging: ["Facial X-Ray/CT"] } },
         "Falls": { cannula: { status: "Avoid", color: "red", size: "N/A", reason: "Unless Fracture" }, tests: { bedside: ["L/S BP", "ECG"], lab: ["FBC", "U&E", "CK", "Bone Profile"], imaging: ["X-Ray (Injury)"] } },
         "Foreign Body": { cannula: { status: "Avoid", color: "red", size: "N/A", reason: "Removal" }, tests: { bedside: [], lab: [], imaging: ["X-Ray (Location)"] } },

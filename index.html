@@ -66,6 +66,7 @@
                 </div>
             </div>
             <div class="header-controls">
+                <button id="btn-quick-mode" class="btn-secondary" title="Hide non-essential screening for a faster triage">⚡ Quick Mode</button>
                 <button id="btn-history" class="btn-secondary" title="View Recent Patients">🕒 History</button>
                 <div class="theme-switch-wrapper" title="Toggle Dark Mode">
                     <label class="theme-switch" for="checkbox-theme">
@@ -229,6 +230,8 @@
                             <textarea id="meds" data-js="meds" rows="3" placeholder="e.g. Warfarin, Sinemet, Insulin..."></textarea>
                             <div id="meds-suggestions" class="suggestions-box hidden"></div>
                             <div id="meds-alert" class="meds-status-bar"></div>
+                            <label class="mt-10 label-small-title">High-risk classes (tick if applicable - not spelling dependent)</label>
+                            <div id="high-risk-meds-grid" class="high-risk-meds-grid"></div>
                         </div>
                     </div>
 
@@ -269,6 +272,7 @@
                                     <option value="Orange">Orange (15m)</option>
                                     <option value="Yellow">Yellow (60m)</option>
                                     <option value="Green">Green (120m)</option>
+                                    <option value="Blue">Blue (240m)</option>
                                 </select>
                                 <input type="text" id="txt-override" data-js="txt-override" placeholder="Reason (Mandatory for Audit)">
                             </div>
