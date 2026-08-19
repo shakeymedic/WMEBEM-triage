@@ -38,6 +38,17 @@
         </div>
     </div>
 
+    <div id="modal-confirm" class="hidden" aria-hidden="true">
+        <div id="modal-box-confirm" role="dialog" aria-modal="true">
+            <h3 id="modal-confirm-title">Please Confirm</h3>
+            <p id="modal-confirm-message">Are you sure?</p>
+            <div id="modal-confirm-actions">
+                <button id="modal-confirm-cancel" class="btn-secondary">Cancel</button>
+                <button id="modal-confirm-ok" class="btn-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <div id="modal-bodymap" class="hidden" aria-hidden="true">
         <div id="modal-box-bodymap">
             <h3>Select Body Area</h3>
@@ -137,11 +148,11 @@
                 <div id="obs-form" class="obs-grid">
                     <div class="obs-item">
                         <label for="obs-rr">Resp Rate</label>
-                        <input type="number" id="obs-rr" data-js="obs-rr" placeholder="RR">
+                        <input type="number" id="obs-rr" data-js="obs-rr" placeholder="RR" min="0" max="100">
                     </div>
                     <div class="obs-item">
                         <label for="obs-sats">SpO₂ (%)</label>
-                        <input type="number" id="obs-sats" data-js="obs-sats" placeholder="%">
+                        <input type="number" id="obs-sats" data-js="obs-sats" placeholder="%" min="0" max="100">
                     </div>
                     
                     <div class="obs-item span-2-mobile">
@@ -154,16 +165,16 @@
 
                     <div class="obs-item">
                         <label for="obs-sbp">Systolic BP</label>
-                        <input type="number" id="obs-sbp" data-js="obs-sbp" placeholder="mmHg">
+                        <input type="number" id="obs-sbp" data-js="obs-sbp" placeholder="mmHg" min="0" max="300">
                     </div>
                     <div class="obs-item">
                         <label for="obs-dbp">Diastolic BP</label>
-                        <input type="number" id="obs-dbp" data-js="obs-dbp" placeholder="mmHg">
+                        <input type="number" id="obs-dbp" data-js="obs-dbp" placeholder="mmHg" min="0" max="200">
                     </div>
 
                     <div class="obs-item">
                         <label for="obs-hr">Heart Rate</label>
-                        <input type="number" id="obs-hr" data-js="obs-hr" placeholder="BPM">
+                        <input type="number" id="obs-hr" data-js="obs-hr" placeholder="BPM" min="0" max="300">
                     </div>
                     
                     <div class="obs-item span-2-mobile">
@@ -178,11 +189,11 @@
 
                     <div class="obs-item">
                         <label for="obs-temp">Temp (°C)</label>
-                        <input type="number" id="obs-temp" data-js="obs-temp" step="0.1" placeholder="°C">
+                        <input type="number" id="obs-temp" data-js="obs-temp" step="0.1" placeholder="°C" min="20" max="45">
                     </div>
                     <div class="obs-item">
                         <label for="obs-crt">CRT (sec)</label>
-                        <input type="number" id="obs-crt" data-js="obs-crt" placeholder="Secs">
+                        <input type="number" id="obs-crt" data-js="obs-crt" placeholder="Secs" min="0" max="15">
                     </div>
 
                     <div class="obs-item full-width-checkbox">
@@ -192,6 +203,7 @@
                 </div>
 
                 <div id="visual-ews-container" class="mt-15 news-display-grid"></div>
+                <div id="sepsis-screen-container" class="mt-15 sepsis-widget"></div>
             </section>
             
             <section class="card span-2">

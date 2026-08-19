@@ -109,6 +109,21 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 #btn-quick-mode.active { background: var(--red); color: white; }
 body.quick-mode #card-screening { display: none; }
 body.quick-mode .calc-box { display: none !important; }
+
+/* Vital sign bounds checking: flag (don't block) implausible/unusual values */
+.field-warning { border-color: var(--yellow) !important; background: rgba(255, 184, 28, 0.08) !important; }
+.field-danger { border-color: var(--red) !important; background: rgba(213, 40, 27, 0.08) !important; }
+
+/* Generic confirm modal (replaces native window.confirm for consistent styling) */
+#modal-confirm { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 4000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
+#modal-box-confirm { background: var(--bg-card); padding: 30px; border-radius: 12px; max-width: 420px; width: 90%; text-align: center; border-top: 6px solid var(--orange); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+#modal-confirm-title { margin-top: 0; color: var(--orange); font-size: 1.2rem; font-weight: 800; }
+#modal-confirm-message { white-space: pre-line; }
+#modal-confirm-actions { display: flex; gap: 10px; justify-content: center; margin-top: 15px; }
+
+/* Protocol test rationale ('why') text */
+.protocol-check-text { display: flex; flex-direction: column; }
+.protocol-why { color: var(--secondary); opacity: 0.85; font-weight: normal; font-size: 0.75rem; margin-top: 1px; }
 .btn-override-toggle { width: 100%; padding: 10px; background: #f8f9fa; border: 1px solid var(--border); color: var(--secondary); text-align: left; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
 .btn-override-toggle:hover { background: #e9ecef; }
 .btn-override-toggle.active { background: var(--orange); color: white; border-color: var(--orange); font-weight: bold; }
@@ -202,6 +217,6 @@ button:active { transform: scale(0.98); }
     .pain-btn { padding: 10px 0; font-size: 0.85rem; }
     .pain-btn-group { gap: 3px; }
     .quick-actions-bar { display: flex; flex-wrap: wrap; }
-    #modal-box-sbar, #modal-box, #modal-box-bodymap { width: 92vw; padding: 20px; max-width: 92vw; box-sizing: border-box; }
+    #modal-box-sbar, #modal-box, #modal-box-bodymap, #modal-box-confirm { width: 92vw; padding: 20px; max-width: 92vw; box-sizing: border-box; }
     .body-map-grid { grid-template-columns: repeat(2, 1fr); }
 }

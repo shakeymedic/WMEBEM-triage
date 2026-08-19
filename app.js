@@ -17,6 +17,7 @@ class TriageApp {
                 newsScore: 0,
                 newsBreakdown: [],
                 pewsGroup: null,
+                sepsis: { applicable: false, red: [], amber: [] },
                 stream: 'Pending',
                 timer: '--'
             },
@@ -48,6 +49,69 @@ class TriageApp {
             const qBtn = document.getElementById('btn-quick-mode');
             if(qBtn) qBtn.classList.add('active');
         }
+    }
+
+    // Physiologically plausible ranges for vital signs, used to flag (not block) unusual entries.
+    // min/max = "double-check this" band; hardMin/hardMax = physiologically impossible.
+    static get obsBounds() {
+        return {
+            rr:   { min: 4,  max: 60,  hardMin: 0,  hardMax: 100, unit: '/min' },
+            sats: { min: 50, max: 100, hardMin: 0,  hardMax: 100, unit: '%' },
+            sbp:  { min: 40, max: 260, hardMin: 0,  hardMax: 300, unit: 'mmHg' },
+            dbp:  { min: 20, max: 160, hardMin: 0,  hardMax: 200, unit: 'mmHg' },
+            hr:   { min: 25, max: 220, hardMin: 0,  hardMax: 300, unit: 'bpm' },
+            temp: { min: 30, max: 42,  hardMin: 20, hardMax: 45,  unit: '°C' },
+            crt:  { min: 0,  max: 8,   hardMin: 0,  hardMax: 15,  unit: 's' }
+        };
+    }
+
+    // Flags implausible/unusual vital sign entries with a coloured border + tooltip, without blocking entry -
+    // genuinely extreme values (e.g. HR 220 in SVT) do happen, so we warn rather than refuse the input.
+    validateObsField(id, value) {
+        const key = id.replace('obs-', '');
+        const bounds = TriageApp.obsBounds[key];
+        const el = document.getElementById(id);
+        if (!el || !bounds) return;
+        if (value === null || value === '' || isNaN(value)) {
+            el.classList.remove('field-warning', 'field-danger');
+            el.title = '';
+            return;
+        }
+        if (value < bounds.hardMin || value > bounds.hardMax) {
+            el.classList.add('field-danger');
+            el.classList.remove('field-warning');
+            el.title = `Physiologically implausible value - please check (valid range ${bounds.hardMin}-${bounds.hardMax}${bounds.unit})`;
+        } else if (value < bounds.min || value > bounds.max) {
+            el.classList.add('field-warning');
+            el.classList.remove('field-danger');
+            el.title = `Unusual value - please double-check (typical range ${bounds.min}-${bounds.max}${bounds.unit})`;
+        } else {
+            el.classList.remove('field-warning', 'field-danger');
+            el.title = '';
+        }
+    }
+
+    // Promise-based replacement for window.confirm() so dialogs match the app's own styling
+    // and aren't liable to be suppressed/blocked by the browser like native confirm() can be.
+    showConfirm(message, title = 'Please Confirm') {
+        return new Promise((resolve) => {
+            document.getElementById('modal-confirm-title').textContent = title;
+            document.getElementById('modal-confirm-message').textContent = message;
+            const overlay = document.getElementById('modal-confirm');
+            overlay.classList.remove('hidden');
+            const okBtn = document.getElementById('modal-confirm-ok');
+            const cancelBtn = document.getElementById('modal-confirm-cancel');
+            const cleanup = (result) => {
+                overlay.classList.add('hidden');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                resolve(result);
+            };
+            const onOk = () => cleanup(true);
+            const onCancel = () => cleanup(false);
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+        });
     }
 
     // --- Fuzzy string matching helpers (tolerates typos, so PMHx/meds entry doesn't rely on perfect spelling) ---
@@ -103,6 +167,7 @@ class TriageApp {
         }
 
         this.checkMedsRisks();
+        this.calcSepsisScreen();
 
         const p = this.state.patient;
         this.state.triage.newsScore = 0;
@@ -156,6 +221,52 @@ class TriageApp {
              el.innerHTML = '';
              el.className = 'meds-status-bar';
         }
+    }
+
+    // Auto-calculated Red/Amber Flag Sepsis screen (NICE NG253 / UK Sepsis Trust thresholds), adults 16+ only.
+    // Deliberately does NOT require a lactate, since one is rarely available at the triage desk -
+    // it relies on obs already captured plus two quick manual checkboxes for things vitals can't show.
+    calcSepsisScreen() {
+        const p = this.state.patient;
+        const isPaeds = p.age !== null && p.age < 16;
+        const isPreg = p.pregnant;
+
+        if (isPaeds || isPreg || p.age === null) {
+            this.state.triage.sepsis = { applicable: false, red: [], amber: [] };
+            return;
+        }
+
+        const obs = this.state.obs;
+        const red = [], amber = [];
+        const has = (v) => v !== null && v !== undefined && v !== '';
+
+        if (obs.avpu && obs.avpu !== 'A') red.push(`New/altered mental state (AVPU ${obs.avpu})`);
+
+        if (has(obs.sbp)) {
+            if (obs.sbp <= 90) red.push(`Systolic BP \u2264 90 (${obs.sbp})`);
+            else if (obs.sbp <= 100) amber.push(`Systolic BP 91-100 (${obs.sbp})`);
+        }
+        if (has(obs.hr)) {
+            if (obs.hr > 130) red.push(`Heart rate > 130 (${obs.hr})`);
+            else if (obs.hr >= 91) amber.push(`Heart rate 91-130 (${obs.hr})`);
+        }
+        if (has(obs.rr)) {
+            if (obs.rr >= 25) red.push(`Resp rate \u2265 25 (${obs.rr})`);
+            else if (obs.rr >= 21) amber.push(`Resp rate 21-24 (${obs.rr})`);
+        }
+        if (has(obs.sats)) {
+            if (obs.sats < 92 && obs.o2 === 'O2') red.push(`New O\u2082 need, SpO\u2082 still < 92% (${obs.sats}%)`);
+            else if (obs.sats < 92) amber.push(`SpO\u2082 < 92% on air (${obs.sats}%)`);
+        }
+        if (has(obs.temp) && obs.temp < 36.0) amber.push(`Temp < 36.0\u00b0C (${obs.temp})`);
+
+        const manual = this.state.history.manualRiskFlags || {};
+        if (manual.sepsis_rash) red.push('Non-blanching rash / mottled, ashen or cyanotic skin');
+        if (manual.sepsis_urine) amber.push('Reduced urine output (>12h)');
+        if (manual.sepsis_wound) amber.push('Signs of wound/device/skin infection');
+        if (manual.immunosuppressant) amber.push('Immunosuppressed (on immunosuppressant/biologic)');
+
+        this.state.triage.sepsis = { applicable: true, red, amber };
     }
 
     renderHighRiskMeds() {
@@ -287,6 +398,17 @@ class TriageApp {
             else if (score >= 3 && (p === 'Green' || p === 'Blue')) { p = 'Yellow'; reasons.push(`NEWS2 ${score}`); }
         }
 
+        const sepsis = this.state.triage.sepsis;
+        if (sepsis && sepsis.applicable) {
+            if (sepsis.red.length > 0) {
+                if (['Yellow', 'Green', 'Blue'].includes(p)) { p = 'Orange'; }
+                reasons.push(`RED FLAG SEPSIS: ${sepsis.red.join('; ')}`);
+            } else if (sepsis.amber.length > 0 && (p === 'Green' || p === 'Blue')) {
+                p = 'Yellow';
+                reasons.push(`Amber Flag Sepsis: ${sepsis.amber.join('; ')}`);
+            }
+        }
+
         if (this.state.triage.override) {
             p = this.state.triage.override.level;
             reasons.push(`OVERRIDE: ${this.state.triage.override.reason}`);
@@ -328,6 +450,7 @@ class TriageApp {
             if (!el) return;
             el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
                 const val = el.type === 'checkbox' ? e.target.checked : transform(e.target.value);
+                if (path === 'obs' && el.type !== 'checkbox') this.validateObsField(id, val);
                 const update = {};
                 if (path === 'obs') update.obs = { [key]: val };
                 else if (path === 'patient') update.patient = { [key]: val };
@@ -448,15 +571,25 @@ class TriageApp {
             }
         });
 
-        document.getElementById('btn-reset').addEventListener('click', () => {
-            if(confirm("Start new patient? Unsaved data will be lost.")) window.location.reload();
+        document.getElementById('btn-reset').addEventListener('click', async () => {
+            const ok = await this.showConfirm('Start new patient? Unsaved data will be lost.', 'New Patient');
+            if (ok) window.location.reload();
         });
 
-        document.getElementById('btn-copy').addEventListener('click', () => {
+        document.getElementById('btn-copy').addEventListener('click', async () => {
             const note = document.getElementById('epr-note');
-            note.select();
-            document.execCommand('copy');
-            this.showToast('Note copied to clipboard');
+            try {
+                await navigator.clipboard.writeText(note.value);
+                this.showToast('Note copied to clipboard');
+            } catch (err) {
+                try {
+                    note.select();
+                    document.execCommand('copy');
+                    this.showToast('Note copied to clipboard');
+                } catch (err2) {
+                    this.showToast('Copy failed - please copy manually', 'error');
+                }
+            }
         });
 
         document.getElementById('modal-close').addEventListener('click', () => {
@@ -572,10 +705,10 @@ class TriageApp {
         });
     }
 
-    handleComplaint(val) {
+    async handleComplaint(val) {
         const lowerVal = val.toLowerCase();
         if (lowerVal === 'headache' && !this.state.ui.redFlagChecked) {
-             const check = confirm("⚠️ RED FLAG CHECK:\nIs there any history of trauma, fall, or sudden onset?");
+             const check = await this.showConfirm('Is there any history of trauma, fall, or sudden onset?', '⚠️ Red Flag Check');
              if (check) {
                  val = "Head Injury"; 
                  this.dom.complaintInput.value = val;
@@ -652,14 +785,17 @@ class TriageApp {
                 container.appendChild(cDiv);
             }
 
-            const createCheck = (text) => {
+            const createCheck = (test) => {
+                // Test entries are { name, why } objects; keep backward compatibility with plain strings.
+                const name = typeof test === 'string' ? test : test.name;
+                const why = typeof test === 'string' ? '' : (test.why || '');
                 const div = document.createElement('div');
                 div.className = 'protocol-check';
-                div.innerHTML = `<input type="checkbox"> <span>${text}</span>`;
+                div.innerHTML = `<input type="checkbox"> <div class="protocol-check-text"><span>${name}</span>${why ? `<small class="protocol-why">${why}</small>` : ''}</div>`;
                 div.querySelector('input').addEventListener('change', (e) => {
                     div.classList.toggle('checked', e.target.checked);
-                    if(e.target.checked) this.state.actionsTaken.push(text);
-                    else this.state.actionsTaken = this.state.actionsTaken.filter(t => t !== text);
+                    if(e.target.checked) this.state.actionsTaken.push(name);
+                    else this.state.actionsTaken = this.state.actionsTaken.filter(t => t !== name);
                     this.renderNote();
                 });
                 return div;
@@ -688,10 +824,62 @@ class TriageApp {
     render() {
         this.renderDemographics();
         this.renderNEWS2();
+        this.renderSepsisScreen();
         this.renderPaedsSafety();
         this.renderPlan();
         this.renderScreeningDynamic(); 
         this.renderNote();
+    }
+
+    renderSepsisScreen() {
+        const container = document.getElementById('sepsis-screen-container');
+        if (!container) return;
+        const s = this.state.triage.sepsis || { applicable: false, red: [], amber: [] };
+        const manual = this.state.history.manualRiskFlags || {};
+
+        if (!s.applicable) {
+            container.innerHTML = `<span class="label-small-title">Sepsis Screen (NICE NG253 Red/Amber Flags)</span><p class="text-muted" style="font-size:0.78rem; margin:4px 0 0;">Adult red/amber flag thresholds don't apply to paediatric or pregnant patients - use the PEWS/MEOWS trigger above plus clinical judgement.</p>`;
+            return;
+        }
+
+        let statusClass = 'priority-Green', statusText = 'NO SEPSIS FLAGS on current obs';
+        if (s.red.length > 0) { statusClass = 'priority-Red'; statusText = 'RED FLAG SEPSIS - Sepsis Six within 1hr'; }
+        else if (s.amber.length > 0) { statusClass = 'priority-Orange'; statusText = 'AMBER FLAGS - senior review within 1hr'; }
+
+        const chipsHtml = [
+            ...s.red.map(r => `<span class="news-tag high">${r}</span>`),
+            ...s.amber.map(a => `<span class="news-tag positive">${a}</span>`)
+        ].join('');
+
+        container.innerHTML = `
+            <span class="label-small-title">Sepsis Screen (NICE NG253 Red/Amber Flags)</span>
+            <div class="priority-badge ${statusClass}" style="padding:8px; font-size:0.95rem; margin:6px 0;">${statusText}</div>
+            <div class="news-breakdown">${chipsHtml || '<span class="text-muted" style="font-size:0.8rem;">No auto-detected flags from current observations.</span>'}</div>
+            <div class="high-risk-meds-grid mt-10" id="sepsis-manual-grid"></div>
+            <small class="text-muted" style="display:block; margin-top:4px;">Lactate not required here as it's rarely available at triage - add via bloods if/when taken.</small>
+        `;
+
+        const manualDefs = [
+            { id: 'sepsis_rash', label: 'Non-blanching rash / mottled-ashen-cyanotic' },
+            { id: 'sepsis_urine', label: 'Reduced urine output (>12h)' },
+            { id: 'sepsis_wound', label: 'Signs of wound/device/skin infection' }
+        ];
+        const grid = document.getElementById('sepsis-manual-grid');
+        manualDefs.forEach(def => {
+            const label = document.createElement('label');
+            label.className = 'hr-med-chip' + (manual[def.id] ? ' checked' : '');
+            label.innerHTML = `<input type="checkbox" data-cat-id="${def.id}" ${manual[def.id] ? 'checked' : ''}> <span>${def.label}</span>`;
+            grid.appendChild(label);
+        });
+        grid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const id = e.target.dataset.catId;
+                const m = { ...(this.state.history.manualRiskFlags || {}) };
+                m[id] = e.target.checked;
+                e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
+                this.setState({ history: { manualRiskFlags: m } });
+            });
+        });
     }
 
     renderDemographics() {
@@ -789,7 +977,8 @@ class TriageApp {
         document.getElementById('timer-display').textContent = `Target: ${t.timer}`;
         document.getElementById('priority-reasons').innerHTML = t.reasons.map(r => `<div>• ${r}</div>`).join('');
         
-        const sepsisRisk = (t.newsScore >= 5 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
+        const sepsisFlags = t.sepsis || { red: [], amber: [] };
+        const sepsisRisk = (t.newsScore >= 5 || sepsisFlags.red.length > 0 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
         document.getElementById('sepsis-actions').classList.toggle('hidden', !sepsisRisk);
     }
 
@@ -980,8 +1169,9 @@ class TriageApp {
                     <span>${s.time}</span>
                 </div>
             `;
-            div.onclick = () => {
-                if(confirm("Load this patient? Unsaved data on current screen will be lost.")) {
+            div.onclick = async () => {
+                const ok = await this.showConfirm('Load this patient? Unsaved data on current screen will be lost.', 'Load Patient');
+                if (ok) {
                     this.state = s.data;
                     this.restoreUI();
                     document.getElementById('history-sidebar').classList.remove('open');
