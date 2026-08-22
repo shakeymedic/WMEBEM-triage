@@ -236,6 +236,7 @@
                         <div class="form-group">
                             <label>PMH <button class="btn-tiny" data-action="quickText" data-target="pmh" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="pmh">🎤</button></label>
                             <textarea id="pmh" data-js="pmh" rows="2"></textarea>
+                            <div id="pmh-prompts" class="hidden pmh-prompt-banner"></div>
                         </div>
                         <div class="form-group position-relative">
                             <label>Meds <small class="text-muted">(RCEM 'MISSED' Scan)</small> <button class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button> <button class="mic-btn" data-target="meds">🎤</button></label>
@@ -259,6 +260,12 @@
                     <label>Pain Score: <span id="pain-val">0</span>/10</label>
                     <div class="pain-btn-group" id="pain-btn-container"></div>
                 </div>
+
+                <div class="treatment-section mt-15">
+                    <label>Treatment / Meds Already Given <small class="text-muted">(pre-triage - not regular PMH meds)</small> <button class="mic-btn" data-target="treatment-notes">🎤</button></label>
+                    <div id="treatment-ticks-grid" class="high-risk-meds-grid"></div>
+                    <textarea id="treatment-notes" class="w-full mt-10" rows="2" placeholder="e.g. Paracetamol 1g PO given 14:20, own GTN x2 used prior to arrival..."></textarea>
+                </div>
             </section>
 
             <section class="card span-2" id="card-screening">
@@ -274,7 +281,7 @@
                         <div class="stream-badge" id="stream-display">Stream: Pending</div>
                         <div class="timer-badge" id="timer-display">Retriage: --</div>
                         <div id="priority-reasons"></div>
-                        
+
                         <div class="override-section">
                             <button id="btn-override-toggle" class="btn-override-toggle">🔓 Clinical Override</button>
                             <div id="override-options" class="hidden override-panel">
@@ -290,9 +297,10 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="protocol-box">
-                        <h3>Clinical Protocol</h3>
+                        <h3>Suggested Plan</h3>
+                        <div id="universal-checks-container" class="hidden universal-checks"></div>
                         <div id="calculator-container" class="hidden calc-box"></div>
                         <div id="protocol-actions">
                              <p class="placeholder-text">Select a complaint to view protocol.</p>
@@ -325,7 +333,7 @@
                     <button id="btn-sbar" class="btn-secondary" style="margin-left: 10px;">📢 Generate SBAR Handover</button>
                 </div>
             </section>
-            
+
             <div id="paeds-panel" class="card full-width" style="display:none; border-color:var(--orange);">
                 <h3>Paediatric Safety</h3>
                 <div class="split-view">

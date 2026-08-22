@@ -1,5 +1,16 @@
 import { clinicalData } from './protocols.js';
 
+// Auto-detection threshold for the "Abnormal vital signs" MTS discriminator (adults, NEWS2 only -
+// not used for PEWS/MEOWS, which have their own trigger logic). Per Royal College of Physicians NEWS2
+// guidance: a total score >= this constant, OR any single parameter scoring the maximum of 3 points on
+// its own (checked independently in isAbnormalObsAutoTrue - a RED score at RCP's low-medium risk trigger,
+// which stays live even if this constant is raised). This is an RCP definition, NOT a NICE one - NEWS2
+// itself is a Royal College of Physicians tool. Change this single constant to retune sensitivity (e.g. 5).
+const NEWS2_ABNORMAL_OBS_THRESHOLD = 3;
+
+// The exact MTS discriminator text this auto-detection drives - must match the flowchart data in protocols.js.
+const AUTO_DISCRIMINATOR_TEXT = "Abnormal vital signs";
+
 class TriageApp {
     constructor() {
         this.data = clinicalData;
@@ -7,13 +18,14 @@ class TriageApp {
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
-            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '' },
-            triage: { 
-                discriminator: null, 
-                basePriority: 'Blue', 
-                finalPriority: 'Blue', 
-                reasons: [], 
-                override: null, 
+            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentTicks: {}, treatmentNotes: '', pmhPromptSuggestions: [] },
+            triage: {
+                discriminator: null,
+                discriminatorLocked: false,
+                basePriority: 'Blue',
+                finalPriority: 'Blue',
+                reasons: [],
+                override: null,
                 newsScore: 0,
                 newsBreakdown: [],
                 pewsGroup: null,
@@ -21,8 +33,8 @@ class TriageApp {
                 stream: 'Pending',
                 timer: '--'
             },
-            ui: { sepsisAlertShown: false, redFlagChecked: false, quickMode: false },
-            actionsTaken: [] 
+            ui: { sepsisAlertShown: false, redFlagChecked: false, quickMode: false, pmhPromptsDismissed: false },
+            plan: []
         };
 
         this.state = JSON.parse(JSON.stringify(this.initialState));
@@ -30,8 +42,9 @@ class TriageApp {
         this.dom = {}; 
 
         this.cacheDOM();
-        this.renderScreening(); 
+        this.renderScreening();
         this.renderHighRiskMeds();
+        this.renderTreatmentTicks();
         this.bindEvents();
         this.populateDatalist();
         this.renderPainButtons();
@@ -114,6 +127,13 @@ class TriageApp {
         });
     }
 
+    // Markup for a small ℹ️ button that reveals a reference/citation bubble on click.
+    // Click handling is delegated once in bindEvents() so this can be dropped in anywhere via innerHTML.
+    infoPopoverHTML(text) {
+        if (!text) return '';
+        return `<span class="info-pop"><button type="button" class="info-btn" aria-label="Reference info">ℹ️</button><span class="info-bubble">${text}</span></span>`;
+    }
+
     // --- Fuzzy string matching helpers (tolerates typos, so PMHx/meds entry doesn't rely on perfect spelling) ---
     static levenshtein(a, b) {
         if (a === b) return 0;
@@ -167,6 +187,7 @@ class TriageApp {
         }
 
         this.checkMedsRisks();
+        this.checkPmhPrompts();
         this.calcSepsisScreen();
 
         const p = this.state.patient;
@@ -181,8 +202,41 @@ class TriageApp {
             this.calcNEWS2();
         }
 
+        this.updateAutoDiscriminator();
         this.calcTriagePriority();
         this.calcStreamAndTimer();
+    }
+
+    // Adults only (NEWS2 threshold - see isAbnormalObsAutoTrue). Auto-selects/clears the "Abnormal vital
+    // signs" MTS discriminator for the current complaint's flowchart, unless the nurse has manually picked
+    // a discriminator (triage.discriminatorLocked) - a deliberate choice always wins over auto-detection.
+    updateAutoDiscriminator() {
+        const t = this.state.triage;
+        if (t.discriminatorLocked) return;
+
+        const flowchart = this.data.mtsFlowcharts[this.state.history.complaint];
+        const hasAutoOption = flowchart && flowchart.some(f => f.text === AUTO_DISCRIMINATOR_TEXT);
+        if (!hasAutoOption) return;
+
+        if (this.isAbnormalObsAutoTrue()) {
+            t.discriminator = AUTO_DISCRIMINATOR_TEXT;
+            t.basePriority = 'Yellow';
+        } else if (t.discriminator === AUTO_DISCRIMINATOR_TEXT) {
+            t.discriminator = null;
+            t.basePriority = 'Blue';
+        }
+    }
+
+    // RCP NEWS2 guidance (not NICE - NEWS2 is a Royal College of Physicians tool): total score at/above
+    // NEWS2_ABNORMAL_OBS_THRESHOLD, OR any single parameter scoring the maximum of 3 points on its own
+    // (a RED score - RCP's low-medium clinical risk trigger, independent of the total).
+    isAbnormalObsAutoTrue() {
+        const p = this.state.patient;
+        const isPaeds = p.age !== null && p.age < 16;
+        if (isPaeds || p.pregnant || p.age === null) return false;
+        const t = this.state.triage;
+        if (t.newsScore >= NEWS2_ABNORMAL_OBS_THRESHOLD) return true;
+        return t.newsBreakdown.some(b => b.endsWith('(+3)'));
     }
 
     checkMedsRisks() {
@@ -221,6 +275,28 @@ class TriageApp {
              el.innerHTML = '';
              el.className = 'meds-status-bar';
         }
+    }
+
+    // Fuzzy-matches free-text PMH against a small keyword dictionary (protocols.js pmhPrompts) to surface
+    // dismissible reminders (e.g. "diabetes" -> check capillary glucose). These are prompts, not safety
+    // alerts, so they never join riskFlags and never appear in the generated note.
+    checkPmhPrompts() {
+        const pmhRaw = (this.state.history.pmh || '').toLowerCase();
+        const words = pmhRaw.split(/[^a-z]+/).filter(w => w.length >= 3);
+        const prompts = [];
+
+        Object.entries(this.data.pmhPrompts || {}).forEach(([key, text]) => {
+            if (key.includes(' ')) {
+                if (pmhRaw.includes(key)) prompts.push(text);
+            } else if (words.some(w => TriageApp.fuzzyMatch(w, key))) {
+                prompts.push(text);
+            }
+        });
+
+        const unique = [...new Set(prompts)];
+        const prevSignature = (this.state.history.pmhPromptSuggestions || []).join('|');
+        if (unique.join('|') !== prevSignature) this.state.ui.pmhPromptsDismissed = false;
+        this.state.history.pmhPromptSuggestions = unique;
     }
 
     // Auto-calculated Red/Amber Flag Sepsis screen (NICE NG253 / UK Sepsis Trust thresholds), adults 16+ only.
@@ -287,6 +363,29 @@ class TriageApp {
                 manual[id] = e.target.checked;
                 e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
                 this.setState({ history: { manualRiskFlags: manual } });
+            });
+        });
+    }
+
+    // Quick-tick options for "Treatment / Meds Already Given" - separate from the PMH regular-meds field
+    // and from the forward-looking Plan; this is the note's genuine past-tense "already done" record.
+    renderTreatmentTicks() {
+        const container = document.getElementById('treatment-ticks-grid');
+        if (!container) return;
+        container.innerHTML = '';
+        (this.data.treatmentGivenOptions || []).forEach(opt => {
+            const label = document.createElement('label');
+            label.className = 'hr-med-chip';
+            label.innerHTML = `<input type="checkbox" data-cat-id="${opt.id}"> <span>${opt.label}</span>`;
+            container.appendChild(label);
+        });
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const id = e.target.dataset.catId;
+                const ticks = { ...(this.state.history.treatmentTicks || {}) };
+                ticks[id] = e.target.checked;
+                e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
+                this.setState({ history: { treatmentTicks: ticks } });
             });
         });
     }
@@ -480,6 +579,10 @@ class TriageApp {
             this.setState({ history: { planNarrative: e.target.value } });
         });
 
+        document.getElementById('treatment-notes').addEventListener('input', (e) => {
+            this.setState({ history: { treatmentNotes: e.target.value } });
+        });
+
         this.dom.medsInput.addEventListener('keyup', (e) => this.handleMedsAutocomplete(e));
         this.dom.medsInput.addEventListener('blur', () => setTimeout(() => this.dom.suggestionsBox.classList.add('hidden'), 200));
         this.dom.medsInput.addEventListener('input', (e) => this.setState({ history: { meds: e.target.value } }));
@@ -595,6 +698,19 @@ class TriageApp {
         document.getElementById('modal-close').addEventListener('click', () => {
             document.getElementById('modal-overlay').classList.add('hidden');
         });
+
+        // ℹ️ reference popovers: delegated so it works for any .info-pop rendered later via innerHTML.
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.info-btn');
+            const clickedPop = btn ? btn.closest('.info-pop') : null;
+            document.querySelectorAll('.info-pop.open').forEach(p => {
+                if (p !== clickedPop) p.classList.remove('open');
+            });
+            if (clickedPop) {
+                e.stopPropagation();
+                clickedPop.classList.toggle('open');
+            }
+        });
     }
 
     handleMedsAutocomplete(e) {
@@ -641,7 +757,7 @@ class TriageApp {
             const div = document.createElement('div');
             div.className = 'screening-item';
             div.id = `screen-${key}`;
-            let html = `<span class="screening-title">${data.label}</span>`;
+            let html = `<span class="screening-title">${data.label}</span>${data.info ? this.infoPopoverHTML(data.info) : ''}`;
             if (data.options) {
                 html += `<select id="screen-input-${key}" class="w-full"><option value="">Select...</option>`;
                 data.options.forEach(opt => html += `<option value="${opt.val}">${opt.text}</option>`);
@@ -717,59 +833,120 @@ class TriageApp {
              this.state.ui.redFlagChecked = true;
         }
 
-        this.setState({ history: { ...this.state.history, complaint: val } });
-        
+        // Switching to a genuinely different (matched) complaint restarts discriminator selection,
+        // so auto-detection re-engages for the new flowchart rather than carrying over a stale choice.
+        const complaintChanged = val !== this.state.history.complaint;
+        const resetDiscriminator = complaintChanged && !!this.data.mtsFlowcharts[val];
+        this.setState({
+            history: { ...this.state.history, complaint: val },
+            triage: resetDiscriminator ? { discriminator: null, basePriority: 'Blue', discriminatorLocked: false } : {}
+        });
+
         const calcBox = document.getElementById('calculator-container');
         const calcData = this.data.calculators ? this.data.calculators[val] : null;
         
         if (calcData) {
             calcBox.classList.remove('hidden');
-            let html = `<span class="calc-title">🧮 ${calcData.title}</span>`;
+            let criteriaHtml = '';
             calcData.criteria.forEach((c, idx) => {
-                html += `<div class="calc-item"><label>${c.text}</label>
+                criteriaHtml += `<div class="calc-item"><label>${c.text}</label>
                          <input type="checkbox" data-score="${c.points}" class="calc-trigger"></div>`;
             });
-            html += `<div class="calc-score-display">Score: <span id="calc-score-val">0</span></div>`;
-            calcBox.innerHTML = html;
-            
+            calcBox.innerHTML = `
+                <div class="calc-header">
+                    <span class="calc-title">🧮 ${calcData.title}</span>
+                    ${calcData.reference ? this.infoPopoverHTML(calcData.reference) : ''}
+                </div>
+                <div class="calc-summary">
+                    <span class="calc-score-display">Score: <span id="calc-score-val">0</span></span>
+                    <button type="button" class="btn-tiny calc-toggle" id="calc-toggle-criteria">Show criteria ▾</button>
+                </div>
+                <div id="calc-interpretation" class="calc-interpretation"></div>
+                <div id="calc-criteria" class="calc-criteria hidden">${criteriaHtml}</div>
+            `;
+
+            const scoreEl = document.getElementById('calc-score-val');
+            const interpEl = document.getElementById('calc-interpretation');
             const triggers = calcBox.querySelectorAll('.calc-trigger');
-            triggers.forEach(t => t.addEventListener('change', () => {
+            const updateScore = () => {
                 let s = 0;
                 triggers.forEach(x => { if(x.checked) s += parseFloat(x.dataset.score); });
-                document.getElementById('calc-score-val').textContent = s;
-            }));
+                scoreEl.textContent = s;
+                if (calcData.interpret) {
+                    const band = calcData.interpret.find(b => s <= b.max);
+                    interpEl.textContent = band ? band.text : '';
+                }
+            };
+            triggers.forEach(t => t.addEventListener('change', updateScore));
+            updateScore();
+
+            const toggleBtn = document.getElementById('calc-toggle-criteria');
+            const criteriaBox = document.getElementById('calc-criteria');
+            toggleBtn.addEventListener('click', () => {
+                const nowHidden = criteriaBox.classList.toggle('hidden');
+                toggleBtn.textContent = nowHidden ? 'Show criteria ▾' : 'Hide criteria ▴';
+            });
         } else {
             calcBox.classList.add('hidden');
         }
 
         if (!this.data.mtsFlowcharts[val]) return;
 
+        this.renderDiscriminatorList();
+        this.renderProtocol(val, complaintChanged);
+    }
+
+    // Rebuilds the discriminator card list for the current complaint. Purely a render of current state -
+    // all the auto-detect/lock decision logic lives in updateAutoDiscriminator(), run earlier in
+    // runClinicalLogic() so the priority calc and this list never disagree with each other.
+    renderDiscriminatorList() {
+        const complaint = this.state.history.complaint;
+        const flowchart = this.data.mtsFlowcharts[complaint];
+        if (!complaint || !flowchart) return;
+
         const container = this.dom.discriminatorBox;
+        const t = this.state.triage;
         container.innerHTML = '';
-        
+
         const order = { "Red": 1, "Orange": 2, "Yellow": 3, "Green": 4, "Blue": 5 };
-        const sorted = [...this.data.mtsFlowcharts[val]].sort((a,b) => order[a.priority] - order[b.priority]);
+        const sorted = [...flowchart].sort((a,b) => order[a.priority] - order[b.priority]);
+        const hasAutoOption = flowchart.some(f => f.text === AUTO_DISCRIMINATOR_TEXT);
+        const autoActive = !t.discriminatorLocked && t.discriminator === AUTO_DISCRIMINATOR_TEXT;
 
         sorted.forEach(item => {
             const div = document.createElement('div');
             div.className = `discriminator priority-${item.priority}`;
-            div.innerHTML = `<span>${item.text}</span> <span style="font-weight:bold; opacity:0.6;">${item.priority}</span>`;
+            const showAutoTag = autoActive && item.text === AUTO_DISCRIMINATOR_TEXT;
+            div.innerHTML = `<span>${item.text}${showAutoTag ? ' <span class="auto-tag">Auto-detected from obs</span>' : ''}</span> <span style="font-weight:bold; opacity:0.6;">${item.priority}</span>`;
+            if (item.text === t.discriminator) div.classList.add('selected');
             div.onclick = () => {
-                Array.from(container.children).forEach(c => c.classList.remove('selected'));
-                div.classList.add('selected');
-                this.setState({ triage: { ...this.state.triage, discriminator: item.text, basePriority: item.priority } });
+                this.setState({ triage: { discriminator: item.text, basePriority: item.priority, discriminatorLocked: true } });
             };
             container.appendChild(div);
         });
-        
-        this.renderProtocol(val);
+
+        if (t.discriminatorLocked && hasAutoOption) {
+            const resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.className = 'btn-tiny reset-auto-link';
+            resetBtn.textContent = '↺ Reset to auto-detected discriminator';
+            resetBtn.onclick = () => {
+                this.setState({ triage: { discriminator: null, basePriority: 'Blue', discriminatorLocked: false } });
+            };
+            container.appendChild(resetBtn);
+        }
     }
 
-    renderProtocol(complaint) {
+    renderProtocol(complaint, complaintChanged = true) {
         const proto = this.data.protocols[complaint];
         const container = document.getElementById('protocol-actions');
         container.innerHTML = '';
-        this.state.actionsTaken = []; 
+        // Only drop complaint-specific plan items on a genuine complaint change (not on a session
+        // restore or an incidental re-render of the same complaint) - and never touch 'Universal'
+        // items (e.g. the pregnancy test check), since those are complaint-independent by design.
+        if (complaintChanged) {
+            this.state.plan = this.state.plan.filter(item => item.category === 'Universal');
+        }
 
         if (proto && proto.tests) {
             if (proto.cannula) {
@@ -785,17 +962,20 @@ class TriageApp {
                 container.appendChild(cDiv);
             }
 
-            const createCheck = (test) => {
+            // Plan entries are { category, name } - category groups them back together for the
+            // PLAN: note output and the SBAR R: line (e.g. "Bloods: FBC, U&E").
+            const createCheck = (test, category) => {
                 // Test entries are { name, why } objects; keep backward compatibility with plain strings.
                 const name = typeof test === 'string' ? test : test.name;
                 const why = typeof test === 'string' ? '' : (test.why || '');
+                const alreadyPlanned = this.state.plan.some(x => x.category === category && x.name === name);
                 const div = document.createElement('div');
-                div.className = 'protocol-check';
-                div.innerHTML = `<input type="checkbox"> <div class="protocol-check-text"><span>${name}</span>${why ? `<small class="protocol-why">${why}</small>` : ''}</div>`;
+                div.className = 'protocol-check' + (alreadyPlanned ? ' checked' : '');
+                div.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span>${name}</span>${why ? `<small class="protocol-why">${why}</small>` : ''}</div>`;
                 div.querySelector('input').addEventListener('change', (e) => {
                     div.classList.toggle('checked', e.target.checked);
-                    if(e.target.checked) this.state.actionsTaken.push(name);
-                    else this.state.actionsTaken = this.state.actionsTaken.filter(t => t !== name);
+                    if(e.target.checked) this.state.plan.push({ category, name });
+                    else this.state.plan = this.state.plan.filter(t => !(t.category === category && t.name === name));
                     this.renderNote();
                 });
                 return div;
@@ -803,8 +983,7 @@ class TriageApp {
 
             const cats = [
                 { key: 'bedside', icon: '🫀', label: 'Bedside' },
-                { key: 'lab', icon: '🩸', label: 'Bloods' },
-                { key: 'imaging', icon: '📷', label: 'Imaging' }
+                { key: 'lab', icon: '🩸', label: 'Bloods' }
             ];
 
             cats.forEach(cat => {
@@ -812,7 +991,7 @@ class TriageApp {
                     const section = document.createElement('div');
                     section.className = 'test-category';
                     section.innerHTML = `<h4>${cat.icon} ${cat.label}</h4>`;
-                    proto.tests[cat.key].forEach(test => section.appendChild(createCheck(test)));
+                    proto.tests[cat.key].forEach(test => section.appendChild(createCheck(test, cat.label)));
                     container.appendChild(section);
                 }
             });
@@ -827,8 +1006,28 @@ class TriageApp {
         this.renderSepsisScreen();
         this.renderPaedsSafety();
         this.renderPlan();
-        this.renderScreeningDynamic(); 
+        this.renderScreeningDynamic();
+        this.renderDiscriminatorList();
+        this.renderUniversalChecks();
+        this.renderPmhPrompts();
         this.renderNote();
+    }
+
+    renderPmhPrompts() {
+        const el = document.getElementById('pmh-prompts');
+        if (!el) return;
+        const suggestions = this.state.history.pmhPromptSuggestions || [];
+        if (suggestions.length === 0 || this.state.ui.pmhPromptsDismissed) {
+            el.classList.add('hidden');
+            el.innerHTML = '';
+            return;
+        }
+        el.classList.remove('hidden');
+        el.innerHTML = `<span>💡 ${suggestions.join(' ')}</span> <button type="button" class="btn-tiny pmh-prompt-dismiss">Dismiss</button>`;
+        el.querySelector('.pmh-prompt-dismiss').addEventListener('click', () => {
+            this.state.ui.pmhPromptsDismissed = true;
+            this.renderPmhPrompts();
+        });
     }
 
     renderSepsisScreen() {
@@ -904,7 +1103,7 @@ class TriageApp {
                 if(score >= 3) el.classList.add('pulse-alert');
                 el.style.padding = '10px';
                 el.style.fontSize = '1.1rem';
-                el.textContent = `MEOWS Score: ${score}`;
+                el.innerHTML = `<span>MEOWS Score: ${score}</span> ${this.infoPopoverHTML(this.data.references.meows)}`;
                 container.appendChild(el);
             } else if (this.state.patient.age < 16) {
                 const score = this.state.triage.newsScore;
@@ -913,7 +1112,7 @@ class TriageApp {
                 if(score >= 5) el.classList.add('pulse-alert');
                 el.style.padding = '10px';
                 el.style.fontSize = '1.1rem';
-                el.textContent = `PEWS Score: ${score} (${this.state.triage.pewsGroup})`;
+                el.innerHTML = `<span>PEWS Score: ${score} (${this.state.triage.pewsGroup})</span> ${this.infoPopoverHTML(this.data.references.pews)}`;
                 container.appendChild(el);
             }
         } else {
@@ -923,7 +1122,7 @@ class TriageApp {
             if(score >= 5) el.classList.add('pulse-alert');
             el.style.padding = '10px';
             el.style.fontSize = '1.1rem';
-            el.textContent = `NEWS2 Score: ${score}`;
+            el.innerHTML = `<span>NEWS2 Score: ${score}</span> ${this.infoPopoverHTML(this.data.references.news2)}`;
             container.appendChild(el);
         }
 
@@ -982,45 +1181,92 @@ class TriageApp {
         document.getElementById('sepsis-actions').classList.toggle('hidden', !sepsisRisk);
     }
 
+    // Universal Safety Checks: fire independent of which complaint/flowchart is selected, unlike the
+    // per-protocol Suggested Plan. Currently just the reproductive-age pregnancy test reminder - reuses
+    // the same age/sex logic already driving the pregnancy/LMP fields (renderDemographics).
+    renderUniversalChecks() {
+        const container = document.getElementById('universal-checks-container');
+        if (!container) return;
+
+        const p = this.state.patient;
+        const isFemaleRepro = p.sex === 'Female' && p.age !== null && p.age >= 12 && p.age <= 55;
+        if (!isFemaleRepro) {
+            container.classList.add('hidden');
+            container.innerHTML = '';
+            return;
+        }
+        container.classList.remove('hidden');
+
+        const name = 'Pregnancy Test';
+        const checked = this.state.plan.some(x => x.category === 'Universal' && x.name === name);
+        container.innerHTML = `
+            <h4>🌐 Universal Safety Check</h4>
+            <div class="protocol-check${checked ? ' checked' : ''}">
+                <input type="checkbox" id="universal-preg-test" ${checked ? 'checked' : ''}>
+                <div class="protocol-check-text"><span>${name}</span><small class="protocol-why">Reproductive-age female (12-55) - exclude pregnancy regardless of presenting complaint</small></div>
+            </div>
+        `;
+        document.getElementById('universal-preg-test').addEventListener('change', (e) => {
+            e.target.closest('.protocol-check').classList.toggle('checked', e.target.checked);
+            const already = this.state.plan.some(x => x.category === 'Universal' && x.name === name);
+            if (e.target.checked && !already) this.state.plan.push({ category: 'Universal', name });
+            else if (!e.target.checked) this.state.plan = this.state.plan.filter(x => !(x.category === 'Universal' && x.name === name));
+            this.renderNote();
+        });
+    }
+
     renderNote() {
         const p = this.state.patient;
         const t = this.state.triage;
         const h = this.state.history;
-        
+
         let txt = `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
         const ageStr = (p.age !== null && p.age !== undefined) ? `${p.age}y` : 'Age unknown';
         txt += `ID: ${p.id || 'Unknown'} | ${ageStr} ${p.sex || ''} | Mobility: ${p.mobility}\n`;
         txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
         txt += `Pain: ${h.pain}/10\n`;
-        
+
         if (p.pregnant) txt += `MEOWS: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
         else if (p.age >= 16) txt += `NEWS2: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
         else txt += `PEWS: ${t.newsScore} (${t.pewsGroup}) [${t.newsBreakdown.join(', ')}]\n`;
-        
+
         txt += `Obs: RR${this.state.obs.rr || '-'} Sat${this.state.obs.sats || '-'}${this.state.obs.o2} BP${this.state.obs.sbp || '-'}/${this.state.obs.dbp || '-'} HR${this.state.obs.hr || '-'} T${this.state.obs.temp || '-'} ${this.state.obs.avpu}\n`;
-        
-        txt += `\nOUTCOME: ${t.finalPriority.toUpperCase()}\n`;
-        txt += `Stream: ${t.stream}\n`;
-        if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
-        
+
         if(h.riskFlags && h.riskFlags.length > 0) {
             txt += `\n⚠️ CLINICAL ALERTS:\n- ${[...new Set(h.riskFlags)].join('\n- ')}`;
         }
-        
+
         if(h.allergies) txt += `\nAllergies: ${h.allergies}`;
         if(h.pmh) txt += `\nPMH: ${h.pmh}`;
         if(h.meds) txt += `\nMeds: ${h.meds}`;
-        
+
+        // TREATMENT GIVEN: past-tense record of what's already been done (pre-triage) - the genuine
+        // "actions taken" entry, kept separate from the forward-looking PLAN below.
+        const treatmentLabels = (this.data.treatmentGivenOptions || [])
+            .filter(opt => (h.treatmentTicks || {})[opt.id])
+            .map(opt => opt.label);
+        if (treatmentLabels.length > 0 || h.treatmentNotes) {
+            txt += `\n\nTREATMENT GIVEN (pre-triage):`;
+            if (treatmentLabels.length > 0) txt += `\n- ${treatmentLabels.join('\n- ')}`;
+            if (h.treatmentNotes) txt += `\n${h.treatmentNotes}`;
+        }
+
         const proto = this.data.protocols[h.complaint];
         if (proto && proto.cannula) {
              txt += `\n\nProtocol: ${h.complaint}`;
              txt += `\nCannula: ${proto.cannula.status} (${proto.cannula.reason})`;
         }
 
-        if (this.state.actionsTaken.length > 0) {
-            txt += `\nActions:\n- ${this.state.actionsTaken.join('\n- ')}\n`;
+        // PLAN: forward-looking, grouped by category (e.g. "Bloods: FBC, U&E") - not a record of what's been done.
+        if (this.state.plan.length > 0) {
+            const grouped = {};
+            this.state.plan.forEach(item => {
+                (grouped[item.category] = grouped[item.category] || []).push(item.name);
+            });
+            const lines = Object.entries(grouped).map(([cat, names]) => `${cat}: ${names.join(', ')}`);
+            txt += `\n\nPLAN:\n${lines.join('\n')}`;
         }
-        
+
         const getScreenVal = (id) => {
             const el = document.getElementById(id);
             if(el) return el.value;
@@ -1028,7 +1274,7 @@ class TriageApp {
             if(toggle) return toggle.textContent;
             return null;
         }
-        
+
         let screenTxt = '';
         Object.keys(this.data.screening).forEach(key => {
             const val = getScreenVal(`screen-input-${key}`) || getScreenVal(key);
@@ -1039,9 +1285,15 @@ class TriageApp {
         if(screenTxt) txt += `\n${screenTxt}`;
 
         if (h.planNarrative) {
-            txt += `\n\nPLAN / NARRATIVE:\n${h.planNarrative}`;
+            txt += `\n\nNARRATIVE:\n${h.planNarrative}`;
         }
-        
+
+        // Triage category is the concluding stamp on a real triage note - kept last, deliberately.
+        txt += `\n\nTRIAGE CATEGORY: ${t.finalPriority.toUpperCase()}\n`;
+        txt += `Stream: ${t.stream}\n`;
+        txt += `Target: ${t.timer}\n`;
+        if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
+
         document.getElementById('epr-note').value = txt;
     }
 
@@ -1068,9 +1320,12 @@ class TriageApp {
         if(h.pain > 0) a += `Pain ${h.pain}/10. `;
         
         let r = `Streamed to ${t.stream}. `;
-        const proto = this.data.protocols[h.complaint];
-        if(proto && proto.tests) {
-            r += `Plan: ${proto.tests.bedside.join(', ')} & Bloods. `;
+        if (this.state.plan.length > 0) {
+            r += `Plan: ${this.state.plan.map(x => x.name).join(', ')}. `;
+        } else {
+            const proto = this.data.protocols[h.complaint];
+            const bedside = (proto && proto.tests && proto.tests.bedside) ? proto.tests.bedside.map(x => typeof x === 'string' ? x : x.name) : [];
+            if (bedside.length > 0) r += `Suggested plan: ${bedside.join(', ')}. `;
         }
         if(t.finalPriority === 'Red') r += `Requires immediate review.`;
         
@@ -1209,9 +1464,10 @@ class TriageApp {
         
         setVal('input-complaint', history.complaint); 
         setVal('allergies', history.allergies); 
-        setVal('pmh', history.pmh); 
+        setVal('pmh', history.pmh);
         setVal('meds', history.meds);
         setVal('plan-narrative', history.planNarrative);
+        setVal('treatment-notes', history.treatmentNotes);
 
         const manual = history.manualRiskFlags || {};
         document.querySelectorAll('#high-risk-meds-grid input[type="checkbox"]').forEach(cb => {
@@ -1219,7 +1475,14 @@ class TriageApp {
             cb.checked = checked;
             cb.closest('.hr-med-chip').classList.toggle('checked', checked);
         });
-        
+
+        const treatmentTicks = history.treatmentTicks || {};
+        document.querySelectorAll('#treatment-ticks-grid input[type="checkbox"]').forEach(cb => {
+            const checked = !!treatmentTicks[cb.dataset.catId];
+            cb.checked = checked;
+            cb.closest('.hr-med-chip').classList.toggle('checked', checked);
+        });
+
         document.querySelectorAll('.pain-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === history.pain));
         document.getElementById('pain-val').textContent = history.pain;
 

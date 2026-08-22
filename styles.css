@@ -85,9 +85,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 
 /* --- CALCULATOR BOX --- */
 .calc-box { background: rgba(0,94,184,0.05); border: 1px solid var(--primary); padding: 15px; border-radius: 6px; margin-bottom: 15px; }
-.calc-title { font-weight: bold; color: var(--primary); display: block; margin-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 5px; }
+.calc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 5px; }
+.calc-title { font-weight: bold; color: var(--primary); display: block; }
 .calc-item { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
-.calc-score-display { font-size: 1.1rem; font-weight: bold; margin-top: 10px; text-align: right; color: var(--text-main); }
+.calc-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.calc-score-display { font-size: 1.1rem; font-weight: bold; color: var(--text-main); }
+.calc-interpretation { font-size: 0.85rem; font-weight: 600; color: var(--primary); margin-top: 6px; }
+.calc-criteria { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+
+/* --- ℹ️ REFERENCE POPOVERS --- */
+.info-pop { position: relative; display: inline-block; }
+.info-btn { background: none; border: none; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0 2px; vertical-align: middle; }
+.info-bubble { display: none; position: absolute; top: 100%; left: 0; margin-top: 6px; width: 240px; max-width: 60vw; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 0.78rem; font-weight: 500; line-height: 1.4; text-align: left; text-shadow: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 200; }
+.info-pop.open .info-bubble { display: block; }
 
 /* Suggestions, Meds, Override */
 .suggestions-box { position: absolute; top: 100%; left: 0; width: 100%; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0 0 6px 6px; z-index: 100; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
@@ -96,6 +106,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 .meds-status-bar { font-size: 0.8rem; margin-top: 5px; min-height: 20px; font-weight: bold; transition: all 0.3s; padding: 4px; border-radius: 4px; }
 .meds-safe { color: var(--green); background: rgba(0, 127, 59, 0.1); }
 .meds-risk { color: var(--red); background: rgba(213, 40, 27, 0.1); border: 1px solid var(--red); }
+
+.treatment-section { padding-top: 12px; border-top: 1px dashed var(--border); }
+
+/* PMHx keyword prompts: dismissible reminders, deliberately calmer styling than the meds safety alerts */
+.pmh-prompt-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.78rem; margin-top: 6px; padding: 6px 8px; border-radius: 4px; background: rgba(0,94,184,0.08); border: 1px solid var(--primary); color: var(--text-main); }
 
 /* High-risk medication tick-boxes: spelling/brand-name independent safety net */
 .label-small-title { font-size: 0.75rem; font-weight: 700; color: var(--secondary); text-transform: uppercase; letter-spacing: 0.03em; }
@@ -167,6 +182,13 @@ button:active { transform: scale(0.98); }
 .discriminator.priority-Yellow { border-left-color: var(--yellow); }
 .discriminator.priority-Green { border-left-color: var(--green); }
 .discriminator.priority-Blue { border-left-color: var(--blue); }
+.auto-tag { display: inline-block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--primary); background: rgba(0,94,184,0.12); border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; }
+.reset-auto-link { display: block; width: 100%; margin-top: 4px; background: none; border: 1px dashed var(--border); color: var(--secondary); text-align: center; }
+.reset-auto-link:hover { border-color: var(--primary); color: var(--primary); }
+
+/* Universal Safety Checks: fire regardless of the selected complaint/protocol */
+.universal-checks { background: rgba(255, 184, 28, 0.08); border: 1px solid var(--yellow); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+.universal-checks h4 { margin: 0 0 6px; font-size: 0.85rem; }
 .priority-badge { text-align: center; padding: 20px; font-size: 1.8rem; font-weight: 800; color: white; border-radius: 8px; margin-bottom: 15px; letter-spacing: 1px; text-shadow: 0 1px 2px rgba(0,0,0,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 .priority-badge.priority-Blue { background: var(--blue); }
 .priority-badge.priority-Green { background: var(--green); }
@@ -177,9 +199,10 @@ button:active { transform: scale(0.98); }
 .cannula-green { background: rgba(0, 127, 59, 0.1); border-color: var(--green); color: var(--green); }
 .cannula-amber { background: rgba(237, 135, 45, 0.1); border-color: var(--orange); color: var(--orange); }
 .cannula-red { background: rgba(213, 40, 27, 0.1); border-color: var(--red); color: var(--red); }
-.protocol-check { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; cursor: pointer; transition: background 0.2s; }
+.protocol-check { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; cursor: pointer; transition: background 0.2s; border: 1px solid transparent; }
 .protocol-check:hover { background: rgba(0,0,0,0.04); }
-.protocol-check.checked { text-decoration: line-through; opacity: 0.6; }
+/* Checked = "included in the plan", not "done" - highlight it, don't strike it through. */
+.protocol-check.checked { background: rgba(0,94,184,0.08); border-color: var(--primary); font-weight: 600; }
 .protocol-check input { width: 18px; height: 18px; cursor: pointer; }
 .hidden { display: none !important; }
 .warning-box { background: rgba(213, 40, 27, 0.1); border: 1px solid var(--red); color: var(--red); padding: 15px; border-radius: 6px; font-weight: bold; margin-bottom: 15px; }
