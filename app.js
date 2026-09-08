@@ -17,7 +17,7 @@ class TriageApp {
         
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
-            prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null }, hpc: '', tx: '', social: '' },
+            prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null }, hpc: '', tx: '', txTime: '', social: '' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
             history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentTicks: {}, treatmentNotes: '', pmhPromptSuggestions: [] },
             triage: {
@@ -133,6 +133,33 @@ class TriageApp {
     infoPopoverHTML(text) {
         if (!text) return '';
         return `<span class="info-pop"><button type="button" class="info-btn" aria-label="Reference info">ℹ️</button><span class="info-bubble">${text}</span></span>`;
+    }
+
+    // Small Planned/Requested/Done status control shown under a ticked plan item (bedside, bloods,
+    // or the universal pregnancy test). Only rendered once the item is checked - an unticked item
+    // simply isn't in the plan at all, so it has no status to track.
+    statusControlHTML(status) {
+        const opts = ['Planned', 'Requested', 'Done'];
+        return `<div class="status-control">${opts.map(o => `<button type="button" class="status-btn${status === o ? ' active' : ''}" data-status="${o}">${o}</button>`).join('')}</div>`;
+    }
+
+    // Wires the click handlers for a status control just inserted into `container` (any element that
+    // contains a `.status-control` - e.g. a `.protocol-check` div). Looks up the matching plan entry
+    // by category+name and updates its `status` field in place.
+    bindStatusControl(container, category, name) {
+        const control = container.querySelector('.status-control');
+        if (!control) return;
+        control.querySelectorAll('.status-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = this.state.plan.find(x => x.category === category && x.name === name);
+                if (!item) return;
+                item.status = btn.dataset.status;
+                control.querySelectorAll('.status-btn').forEach(b => b.classList.toggle('active', b === btn));
+                this.renderNote();
+                this.debouncedSave();
+            });
+        });
     }
 
     // --- Fuzzy string matching helpers (tolerates typos, so PMHx/meds entry doesn't rely on perfect spelling) ---
@@ -595,6 +622,7 @@ class TriageApp {
         bind('amb-caseid', 'ambulanceCaseId', 'patient');
         bind('ph-hpc', 'hpc', 'prehospital');
         bind('ph-tx', 'tx', 'prehospital');
+        bind('ph-tx-time', 'txTime', 'prehospital');
         bind('ph-social', 'social', 'prehospital');
         bind('allergies', 'allergies', 'history');
         bind('pmh', 'pmh', 'history');
@@ -995,14 +1023,26 @@ class TriageApp {
                 // Test entries are { name, why } objects; keep backward compatibility with plain strings.
                 const name = typeof test === 'string' ? test : test.name;
                 const why = typeof test === 'string' ? '' : (test.why || '');
-                const alreadyPlanned = this.state.plan.some(x => x.category === category && x.name === name);
+                const existing = this.state.plan.find(x => x.category === category && x.name === name);
+                const alreadyPlanned = !!existing;
+                const status = existing ? (existing.status || 'Planned') : 'Planned';
                 const div = document.createElement('div');
                 div.className = 'protocol-check' + (alreadyPlanned ? ' checked' : '');
-                div.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span>${name}</span>${why ? `<small class="protocol-why">${why}</small>` : ''}</div>`;
+                div.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span>${name}</span>${why ? `<small class="protocol-why">${why}</small>` : ''}</div>${alreadyPlanned ? this.statusControlHTML(status) : ''}`;
+                if (alreadyPlanned) this.bindStatusControl(div, category, name);
                 div.querySelector('input').addEventListener('change', (e) => {
                     div.classList.toggle('checked', e.target.checked);
-                    if(e.target.checked) this.state.plan.push({ category, name });
-                    else this.state.plan = this.state.plan.filter(t => !(t.category === category && t.name === name));
+                    if (e.target.checked) {
+                        this.state.plan.push({ category, name, status: 'Planned' });
+                        if (!div.querySelector('.status-control')) {
+                            div.insertAdjacentHTML('beforeend', this.statusControlHTML('Planned'));
+                            this.bindStatusControl(div, category, name);
+                        }
+                    } else {
+                        this.state.plan = this.state.plan.filter(t => !(t.category === category && t.name === name));
+                        const sc = div.querySelector('.status-control');
+                        if (sc) sc.remove();
+                    }
                     this.renderNote();
                     // Plan checkboxes mutate this.state.plan directly (not via setState) since a full
                     // re-render on every tick would be wasteful - but that means autosave must be
@@ -1044,14 +1084,26 @@ class TriageApp {
                 bloodsSection.innerHTML = `<h4>🩸 Bloods</h4>`;
 
                 const includesText = 'Includes: ' + profileTests.map(t => t.name).join(', ');
-                const alreadyPlanned = this.state.plan.some(x => x.category === 'Bloods' && x.name === profileName);
+                const existingProfile = this.state.plan.find(x => x.category === 'Bloods' && x.name === profileName);
+                const alreadyPlanned = !!existingProfile;
+                const profileStatus = existingProfile ? (existingProfile.status || 'Planned') : 'Planned';
                 const pdiv = document.createElement('div');
                 pdiv.className = 'protocol-check profile-check' + (alreadyPlanned ? ' checked' : '');
-                pdiv.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span><strong>${profileName}</strong></span>${this.infoPopoverHTML(includesText)}</div>`;
+                pdiv.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span><strong>${profileName}</strong></span>${this.infoPopoverHTML(includesText)}</div>${alreadyPlanned ? this.statusControlHTML(profileStatus) : ''}`;
+                if (alreadyPlanned) this.bindStatusControl(pdiv, 'Bloods', profileName);
                 pdiv.querySelector('input').addEventListener('change', (e) => {
                     pdiv.classList.toggle('checked', e.target.checked);
-                    if (e.target.checked) this.state.plan.push({ category: 'Bloods', name: profileName });
-                    else this.state.plan = this.state.plan.filter(t => !(t.category === 'Bloods' && t.name === profileName));
+                    if (e.target.checked) {
+                        this.state.plan.push({ category: 'Bloods', name: profileName, status: 'Planned' });
+                        if (!pdiv.querySelector('.status-control')) {
+                            pdiv.insertAdjacentHTML('beforeend', this.statusControlHTML('Planned'));
+                            this.bindStatusControl(pdiv, 'Bloods', profileName);
+                        }
+                    } else {
+                        this.state.plan = this.state.plan.filter(t => !(t.category === 'Bloods' && t.name === profileName));
+                        const sc = pdiv.querySelector('.status-control');
+                        if (sc) sc.remove();
+                    }
                     this.renderNote();
                     this.debouncedSave();
                 });
@@ -1292,19 +1344,33 @@ class TriageApp {
         container.classList.remove('hidden');
 
         const name = 'Pregnancy Test';
-        const checked = this.state.plan.some(x => x.category === 'Universal' && x.name === name);
+        const existingUniv = this.state.plan.find(x => x.category === 'Universal' && x.name === name);
+        const checked = !!existingUniv;
+        const univStatus = existingUniv ? (existingUniv.status || 'Planned') : 'Planned';
         container.innerHTML = `
             <h4>🌐 Universal Safety Check</h4>
             <div class="protocol-check${checked ? ' checked' : ''}">
                 <input type="checkbox" id="universal-preg-test" ${checked ? 'checked' : ''}>
                 <div class="protocol-check-text"><span>${name}</span><small class="protocol-why">Reproductive-age female (12-55) - exclude pregnancy regardless of presenting complaint</small></div>
+                ${checked ? this.statusControlHTML(univStatus) : ''}
             </div>
         `;
+        const univDiv = container.querySelector('.protocol-check');
+        if (checked) this.bindStatusControl(univDiv, 'Universal', name);
         document.getElementById('universal-preg-test').addEventListener('change', (e) => {
-            e.target.closest('.protocol-check').classList.toggle('checked', e.target.checked);
+            univDiv.classList.toggle('checked', e.target.checked);
             const already = this.state.plan.some(x => x.category === 'Universal' && x.name === name);
-            if (e.target.checked && !already) this.state.plan.push({ category: 'Universal', name });
-            else if (!e.target.checked) this.state.plan = this.state.plan.filter(x => !(x.category === 'Universal' && x.name === name));
+            if (e.target.checked && !already) {
+                this.state.plan.push({ category: 'Universal', name, status: 'Planned' });
+                if (!univDiv.querySelector('.status-control')) {
+                    univDiv.insertAdjacentHTML('beforeend', this.statusControlHTML('Planned'));
+                    this.bindStatusControl(univDiv, 'Universal', name);
+                }
+            } else if (!e.target.checked) {
+                this.state.plan = this.state.plan.filter(x => !(x.category === 'Universal' && x.name === name));
+                const sc = univDiv.querySelector('.status-control');
+                if (sc) sc.remove();
+            }
             this.renderNote();
             this.debouncedSave();
         });
@@ -1331,7 +1397,8 @@ class TriageApp {
             txt += `PMH:\n${h.pmh || 'Nil'}\n\n`;
             if (ph && ph.social) txt += `SOCIAL:\n${ph.social}\n\n`;
             txt += `Allergies:\n${h.allergies || 'NKDA'}\n\n`;
-            txt += `Pre-hospital TX:\n${ph && ph.tx ? ph.tx : 'Nil'}\n`;
+            const txTimeStr = ph && ph.txTime ? ` (given ${ph.txTime})` : '';
+            txt += `Pre-hospital TX${txTimeStr}:\n${ph && ph.tx ? ph.tx : 'Nil'}\n`;
             const pho = (ph && ph.obs) || {};
             const phoParts = [];
             if (pho.rr) phoParts.push(`RR${pho.rr}`);
@@ -1381,11 +1448,13 @@ class TriageApp {
              txt += `\nCannula: ${proto.cannula.status} (${proto.cannula.reason})`;
         }
 
-        // PLAN: forward-looking, grouped by category (e.g. "Bloods: FBC, U&E") - not a record of what's been done.
+        // PLAN: forward-looking, grouped by category (e.g. "Bloods: FBC (Planned), U&E (Requested)") -
+        // the status suffix tracks whether each item is Planned, Requested (sent for) or Done.
         if (this.state.plan.length > 0) {
             const grouped = {};
             this.state.plan.forEach(item => {
-                (grouped[item.category] = grouped[item.category] || []).push(item.name);
+                const label = item.name + (item.status ? ` (${item.status})` : '');
+                (grouped[item.category] = grouped[item.category] || []).push(label);
             });
             const lines = Object.entries(grouped).map(([cat, names]) => `${cat}: ${names.join(', ')}`);
             txt += `\n\nPLAN:\n${lines.join('\n')}`;
@@ -1445,7 +1514,7 @@ class TriageApp {
         
         let r = `Streamed to ${t.stream}. `;
         if (this.state.plan.length > 0) {
-            r += `Plan: ${this.state.plan.map(x => x.name).join(', ')}. `;
+            r += `Plan: ${this.state.plan.map(x => x.name + (x.status ? ` (${x.status})` : '')).join(', ')}. `;
         } else {
             const proto = this.data.protocols[h.complaint];
             const bedside = (proto && proto.tests && proto.tests.bedside) ? proto.tests.bedside.map(x => typeof x === 'string' ? x : x.name) : [];
@@ -1579,6 +1648,7 @@ class TriageApp {
         if (prehospital) {
             setVal('ph-hpc', prehospital.hpc);
             setVal('ph-tx', prehospital.tx);
+            setVal('ph-tx-time', prehospital.txTime);
             setVal('ph-social', prehospital.social);
             const pho = prehospital.obs || {};
             setVal('ph-obs-rr', pho.rr);

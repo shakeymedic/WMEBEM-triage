@@ -199,7 +199,7 @@ button:active { transform: scale(0.98); }
 .cannula-green { background: rgba(0, 127, 59, 0.1); border-color: var(--green); color: var(--green); }
 .cannula-amber { background: rgba(237, 135, 45, 0.1); border-color: var(--orange); color: var(--orange); }
 .cannula-red { background: rgba(213, 40, 27, 0.1); border-color: var(--red); color: var(--red); }
-.protocol-check { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; cursor: pointer; transition: background 0.2s; border: 1px solid transparent; }
+.protocol-check { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px; border-radius: 4px; cursor: pointer; transition: background 0.2s; border: 1px solid transparent; }
 .protocol-check:hover { background: rgba(0,0,0,0.04); }
 /* Checked = "included in the plan", not "done" - highlight it, don't strike it through. */
 .protocol-check.checked { background: rgba(0,94,184,0.08); border-color: var(--primary); font-weight: 600; }
@@ -208,6 +208,13 @@ button:active { transform: scale(0.98); }
 .profile-check { border-style: dashed; }
 .profile-check .protocol-check-text { flex-direction: row; align-items: center; gap: 4px; }
 .bbv-note { font-size: 0.75rem; color: var(--secondary); opacity: 0.85; padding: 4px 8px 8px; font-style: italic; }
+/* Planned/Requested/Done status control shown under a ticked plan item */
+.status-control { display: flex; gap: 4px; margin-top: 2px; margin-left: 28px; flex-basis: 100%; flex-wrap: wrap; }
+.status-btn { font-size: 0.7rem; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-body); color: var(--text-main); cursor: pointer; font-weight: 600; opacity: 0.7; transition: all 0.15s; }
+.status-btn:hover { opacity: 1; }
+.status-btn.active { opacity: 1; border-color: var(--primary); background: var(--primary); color: white; }
+.status-btn[data-status="Done"].active { background: var(--green); border-color: var(--green); }
+.status-btn[data-status="Requested"].active { background: var(--orange); border-color: var(--orange); }
 .lab-extra-wrap { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
 .lab-extra-label { font-size: 0.75rem; font-weight: 600; color: var(--secondary); opacity: 0.85; padding: 2px 8px; }
 .hidden { display: none !important; }
