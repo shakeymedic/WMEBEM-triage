@@ -19,7 +19,7 @@ class TriageApp {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
             prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null }, hpc: '', tx: '', txTime: '', social: '' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
-            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentTicks: {}, treatmentNotes: '', pmhPromptSuggestions: [] },
+            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentNotes: '', pmhPromptSuggestions: [] },
             triage: {
                 discriminator: null,
                 discriminatorLocked: false,
@@ -45,7 +45,6 @@ class TriageApp {
         this.cacheDOM();
         this.renderScreening();
         this.renderHighRiskMeds();
-        this.renderTreatmentTicks();
         this.bindEvents();
         this.populateDatalist();
         this.renderPainButtons();
@@ -395,28 +394,6 @@ class TriageApp {
         });
     }
 
-    // Quick-tick options for "Treatment / Meds Already Given" - separate from the PMH regular-meds field
-    // and from the forward-looking Plan; this is the note's genuine past-tense "already done" record.
-    renderTreatmentTicks() {
-        const container = document.getElementById('treatment-ticks-grid');
-        if (!container) return;
-        container.innerHTML = '';
-        (this.data.treatmentGivenOptions || []).forEach(opt => {
-            const label = document.createElement('label');
-            label.className = 'hr-med-chip';
-            label.innerHTML = `<input type="checkbox" data-cat-id="${opt.id}"> <span>${opt.label}</span>`;
-            container.appendChild(label);
-        });
-        container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            cb.addEventListener('change', (e) => {
-                const id = e.target.dataset.catId;
-                const ticks = { ...(this.state.history.treatmentTicks || {}) };
-                ticks[id] = e.target.checked;
-                e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
-                this.setState({ history: { treatmentTicks: ticks } });
-            });
-        });
-    }
 
     calcNEWS2() {
         const obs = this.state.obs;
@@ -1157,6 +1134,9 @@ class TriageApp {
         document.querySelectorAll('#seg-arrival button').forEach(b => b.classList.toggle('active', b.dataset.value === mode));
         document.getElementById('amb-fields').classList.toggle('hidden', !isAmbulance);
         document.getElementById('card-prehospital').classList.toggle('hidden', !isAmbulance);
+        // Ambulance patients already give their pre-arrival medications/treatment in the free-text
+        // Pre-Hospital Handover box above - hide this duplicate self-presented-only field for them.
+        document.getElementById('card-treatment-given').classList.toggle('hidden', isAmbulance);
     }
 
     renderPmhPrompts() {
@@ -1432,14 +1412,11 @@ class TriageApp {
         if(h.meds) txt += `\nMeds: ${h.meds}`;
 
         // TREATMENT GIVEN: past-tense record of what's already been done (pre-triage) - the genuine
-        // "actions taken" entry, kept separate from the forward-looking PLAN below.
-        const treatmentLabels = (this.data.treatmentGivenOptions || [])
-            .filter(opt => (h.treatmentTicks || {})[opt.id])
-            .map(opt => opt.label);
-        if (treatmentLabels.length > 0 || h.treatmentNotes) {
-            txt += `\n\nTREATMENT GIVEN (pre-triage):`;
-            if (treatmentLabels.length > 0) txt += `\n- ${treatmentLabels.join('\n- ')}`;
-            if (h.treatmentNotes) txt += `\n${h.treatmentNotes}`;
+        // "actions taken" entry, kept separate from the forward-looking PLAN below. Ambulance patients
+        // already have this captured in the Pre-Hospital Handover block above, so it's deliberately
+        // skipped here to avoid asking/recording the same thing twice.
+        if (p.arrivalMode !== 'Ambulance' && h.treatmentNotes) {
+            txt += `\n\nTREATMENT GIVEN (pre-triage):\n${h.treatmentNotes}`;
         }
 
         const proto = this.data.protocols[h.complaint];
@@ -1683,13 +1660,6 @@ class TriageApp {
         const manual = history.manualRiskFlags || {};
         document.querySelectorAll('#high-risk-meds-grid input[type="checkbox"]').forEach(cb => {
             const checked = !!manual[cb.dataset.catId];
-            cb.checked = checked;
-            cb.closest('.hr-med-chip').classList.toggle('checked', checked);
-        });
-
-        const treatmentTicks = history.treatmentTicks || {};
-        document.querySelectorAll('#treatment-ticks-grid input[type="checkbox"]').forEach(cb => {
-            const checked = !!treatmentTicks[cb.dataset.catId];
             cb.checked = checked;
             cb.closest('.hr-med-chip').classList.toggle('checked', checked);
         });

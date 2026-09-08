@@ -74,17 +74,6 @@ export const clinicalData = {
         { id: "lithium_clozapine", label: "Lithium / Clozapine", hint: "Toxicity/agranulocytosis risk", warning: "Toxicity Risk (Check Lithium Level / FBC if Clozapine)" }
     ],
 
-    // --- 2c. TREATMENT / MEDS ALREADY GIVEN (quick-tick options) ---
-    // Distinct from the PMH regular-medications field - this captures pre-triage treatment already
-    // administered (self, first responder, or ambulance crew), so it becomes a genuine "already done"
-    // record in the note, clearly separated from the forward-looking Plan.
-    treatmentGivenOptions: [
-        { id: "analgesia", label: "Analgesia given" },
-        { id: "own_inhaler_gtn", label: "Own GTN/inhaler used" },
-        { id: "antiemetic", label: "Antiemetic given" },
-        { id: "ambulance_tx", label: "Ambulance treatment given" }
-    ],
-
     // --- 2d. PMHx KEYWORD PROMPTS ---
     // Fuzzy-matched against free-text PMH (reusing the same matching as the meds field) to surface a
     // dismissible reminder banner - these are prompts, not safety alerts, so they never enter riskFlags
