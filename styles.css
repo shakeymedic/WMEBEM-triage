@@ -204,6 +204,12 @@ button:active { transform: scale(0.98); }
 /* Checked = "included in the plan", not "done" - highlight it, don't strike it through. */
 .protocol-check.checked { background: rgba(0,94,184,0.08); border-color: var(--primary); font-weight: 600; }
 .protocol-check input { width: 18px; height: 18px; cursor: pointer; }
+/* Named ED blood profile (whole-panel-select, matches trust ICE ordering system) */
+.profile-check { border-style: dashed; }
+.profile-check .protocol-check-text { flex-direction: row; align-items: center; gap: 4px; }
+.bbv-note { font-size: 0.75rem; color: var(--secondary); opacity: 0.85; padding: 4px 8px 8px; font-style: italic; }
+.lab-extra-wrap { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
+.lab-extra-label { font-size: 0.75rem; font-weight: 600; color: var(--secondary); opacity: 0.85; padding: 2px 8px; }
 .hidden { display: none !important; }
 .warning-box { background: rgba(213, 40, 27, 0.1); border: 1px solid var(--red); color: var(--red); padding: 15px; border-radius: 6px; font-weight: bold; margin-bottom: 15px; }
 @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }

@@ -140,6 +140,24 @@
                         <input type="date" id="date-lmp" data-js="date-lmp">
                     </div>
                 </div>
+
+                <div class="form-group mt-10">
+                    <label>Arrival</label>
+                    <div class="segmented-control" id="seg-arrival">
+                        <button data-value="Self" class="active" type="button">🚶 Self-Presented</button>
+                        <button data-value="Ambulance" type="button">🚑 Ambulance</button>
+                    </div>
+                </div>
+                <div id="amb-fields" class="form-grid hidden mt-10">
+                    <div class="form-group">
+                        <label for="amb-callsign">Call Sign</label>
+                        <input type="text" id="amb-callsign" data-js="amb-callsign" placeholder="e.g. 4017" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="amb-caseid">Case ID</label>
+                        <input type="text" id="amb-caseid" data-js="amb-caseid" placeholder="e.g. 0974" autocomplete="off">
+                    </div>
+                </div>
             </section>
 
             <section class="card span-2" id="card-obs">
@@ -204,6 +222,68 @@
 
                 <div id="visual-ews-container" class="mt-15 news-display-grid"></div>
                 <div id="sepsis-screen-container" class="mt-15 sepsis-widget"></div>
+            </section>
+
+            <section class="card span-2 hidden" id="card-prehospital" style="border-color:var(--primary);">
+                <h2>🚑 Pre-Hospital Handover</h2>
+                <p class="text-muted" style="margin-top:-8px;">From ambulance crew handover - captured here instead of a direct patient history.</p>
+
+                <div class="obs-grid">
+                    <div class="obs-item">
+                        <label for="ph-obs-rr">Resp Rate</label>
+                        <input type="number" id="ph-obs-rr" placeholder="RR" min="0" max="100">
+                    </div>
+                    <div class="obs-item">
+                        <label for="ph-obs-sats">SpO₂ (%)</label>
+                        <input type="number" id="ph-obs-sats" placeholder="%" min="0" max="100">
+                    </div>
+                    <div class="obs-item span-2-mobile">
+                        <label>Oxygen</label>
+                        <div class="segmented-control" id="seg-ph-o2">
+                            <button data-value="Air" class="active" type="button">Air</button>
+                            <button data-value="O2" type="button">O₂</button>
+                        </div>
+                    </div>
+                    <div class="obs-item">
+                        <label for="ph-obs-sbp">Systolic BP</label>
+                        <input type="number" id="ph-obs-sbp" placeholder="mmHg" min="0" max="300">
+                    </div>
+                    <div class="obs-item">
+                        <label for="ph-obs-dbp">Diastolic BP</label>
+                        <input type="number" id="ph-obs-dbp" placeholder="mmHg" min="0" max="200">
+                    </div>
+                    <div class="obs-item">
+                        <label for="ph-obs-hr">Heart Rate</label>
+                        <input type="number" id="ph-obs-hr" placeholder="BPM" min="0" max="300">
+                    </div>
+                    <div class="obs-item span-2-mobile">
+                        <label>AVPU</label>
+                        <div class="segmented-control" id="seg-ph-avpu">
+                            <button data-value="A" class="active" type="button">A</button>
+                            <button data-value="V" type="button">V</button>
+                            <button data-value="P" type="button">P</button>
+                            <button data-value="U" type="button">U</button>
+                        </div>
+                    </div>
+                    <div class="obs-item">
+                        <label for="ph-obs-gcs">GCS <small class="text-muted">(if known)</small></label>
+                        <input type="number" id="ph-obs-gcs" placeholder="3-15" min="3" max="15">
+                    </div>
+                </div>
+                <small class="text-muted">Pre-hospital obs are for reference only - not counted in this ED's own NEWS2/PEWS score above.</small>
+
+                <div class="form-group mt-15">
+                    <label for="ph-hpc">HPC (History of Presenting Complaint) <button class="mic-btn" data-target="ph-hpc">🎤</button></label>
+                    <textarea id="ph-hpc" class="w-full" rows="3" placeholder="Handover from crew: onset, associated symptoms, relevant context..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="ph-tx">Pre-Hospital Treatment <button class="mic-btn" data-target="ph-tx">🎤</button></label>
+                    <textarea id="ph-tx" class="w-full" rows="3" placeholder="e.g. IV paracetamol 1g given 0841, O2 1L via nasal cannula for low sats..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="ph-social">Social <small class="text-muted">(optional)</small></label>
+                    <input type="text" id="ph-social" placeholder="e.g. Mobilises independently with frame, PoC 3x daily" autocomplete="off">
+                </div>
             </section>
             
             <section class="card span-2">

@@ -16,7 +16,8 @@ class TriageApp {
         this.data = clinicalData;
         
         this.initialState = {
-            patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking' },
+            patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
+            prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null }, hpc: '', tx: '', social: '' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
             history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentTicks: {}, treatmentNotes: '', pmhPromptSuggestions: [] },
             triage: {
@@ -554,9 +555,27 @@ class TriageApp {
                 if (path === 'obs') update.obs = { [key]: val };
                 else if (path === 'patient') update.patient = { [key]: val };
                 else if (path === 'history') update.history = { [key]: val };
+                else if (path === 'prehospital') update.prehospital = { [key]: val };
                 this.setState(update);
             });
         };
+
+        // Pre-hospital obs are a second level of nesting (prehospital.obs.*) - setState only shallow-merges
+        // one level, so these spread the existing obs object manually rather than reusing bind() above.
+        const bindPHObs = (id, key, transform = (v) => v) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', (e) => {
+                const val = transform(e.target.value);
+                this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, [key]: val } } });
+            });
+        };
+        bindPHObs('ph-obs-rr', 'rr', parseFloat);
+        bindPHObs('ph-obs-sats', 'sats', parseFloat);
+        bindPHObs('ph-obs-sbp', 'sbp', parseFloat);
+        bindPHObs('ph-obs-dbp', 'dbp', parseFloat);
+        bindPHObs('ph-obs-hr', 'hr', parseFloat);
+        bindPHObs('ph-obs-gcs', 'gcs', parseFloat);
 
         bind('obs-rr', 'rr', 'obs', parseFloat); 
         bind('obs-sats', 'sats', 'obs', parseFloat);
@@ -572,6 +591,11 @@ class TriageApp {
         bind('patient-sex', 'sex', 'patient'); 
         bind('patient-mobility', 'mobility', 'patient');
         bind('check-pregnant', 'pregnant', 'patient');
+        bind('amb-callsign', 'ambulanceCallSign', 'patient');
+        bind('amb-caseid', 'ambulanceCaseId', 'patient');
+        bind('ph-hpc', 'hpc', 'prehospital');
+        bind('ph-tx', 'tx', 'prehospital');
+        bind('ph-social', 'social', 'prehospital');
         bind('allergies', 'allergies', 'history');
         bind('pmh', 'pmh', 'history');
         
@@ -597,6 +621,9 @@ class TriageApp {
                 const val = e.target.dataset.value;
                 if (parent.id === 'seg-avpu') this.setState({ obs: { avpu: val } });
                 if (parent.id === 'seg-o2') this.setState({ obs: { o2: val } });
+                if (parent.id === 'seg-ph-avpu') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, avpu: val } } });
+                if (parent.id === 'seg-ph-o2') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, o2: val } } });
+                if (parent.id === 'seg-arrival') this.setState({ patient: { arrivalMode: val } });
             });
         });
 
@@ -977,13 +1004,16 @@ class TriageApp {
                     if(e.target.checked) this.state.plan.push({ category, name });
                     else this.state.plan = this.state.plan.filter(t => !(t.category === category && t.name === name));
                     this.renderNote();
+                    // Plan checkboxes mutate this.state.plan directly (not via setState) since a full
+                    // re-render on every tick would be wasteful - but that means autosave must be
+                    // triggered explicitly here too, or a ticked item is never persisted to History.
+                    this.debouncedSave();
                 });
                 return div;
             };
 
             const cats = [
-                { key: 'bedside', icon: '🫀', label: 'Bedside' },
-                { key: 'lab', icon: '🩸', label: 'Bloods' }
+                { key: 'bedside', icon: '🫀', label: 'Bedside' }
             ];
 
             cats.forEach(cat => {
@@ -995,6 +1025,58 @@ class TriageApp {
                     container.appendChild(section);
                 }
             });
+
+            // Bloods (lab) - two shapes are supported:
+            //  - proto.tests.labProfile: a named ED order-set from data.bloodProfiles. Ticking it
+            //    selects/deselects the WHOLE panel at once (one plan entry), matching how the trust's
+            //    ICE ordering system actually works - individual tests within it are not separately tickable.
+            //  - proto.tests.lab: legacy array of {name, why} - each individually tickable (unchanged).
+            // Either shape can carry proto.tests.labExtra: advisory "consider also adding" tests, shown
+            // as their own small unticked checkboxes below the main panel (per-test, not whole-panel).
+            const bloodsSection = document.createElement('div');
+            bloodsSection.className = 'test-category';
+            let bloodsHasContent = false;
+
+            if (proto.tests.labProfile) {
+                bloodsHasContent = true;
+                const profileName = proto.tests.labProfile;
+                const profileTests = this.data.bloodProfiles[profileName] || [];
+                bloodsSection.innerHTML = `<h4>🩸 Bloods</h4>`;
+
+                const includesText = 'Includes: ' + profileTests.map(t => t.name).join(', ');
+                const alreadyPlanned = this.state.plan.some(x => x.category === 'Bloods' && x.name === profileName);
+                const pdiv = document.createElement('div');
+                pdiv.className = 'protocol-check profile-check' + (alreadyPlanned ? ' checked' : '');
+                pdiv.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span><strong>${profileName}</strong></span>${this.infoPopoverHTML(includesText)}</div>`;
+                pdiv.querySelector('input').addEventListener('change', (e) => {
+                    pdiv.classList.toggle('checked', e.target.checked);
+                    if (e.target.checked) this.state.plan.push({ category: 'Bloods', name: profileName });
+                    else this.state.plan = this.state.plan.filter(t => !(t.category === 'Bloods' && t.name === profileName));
+                    this.renderNote();
+                    this.debouncedSave();
+                });
+                bloodsSection.appendChild(pdiv);
+
+                const bbvNote = document.createElement('div');
+                bbvNote.className = 'bbv-note';
+                bbvNote.textContent = 'ℹ️ Trust policy: ICE automatically adds a BBV screen (Hep B, Hep C, HIV) to this request if not done in the past 12 months - no separate action needed here.';
+                bloodsSection.appendChild(bbvNote);
+            } else if (proto.tests.lab && proto.tests.lab.length > 0) {
+                bloodsHasContent = true;
+                bloodsSection.innerHTML = `<h4>🩸 Bloods</h4>`;
+                proto.tests.lab.forEach(test => bloodsSection.appendChild(createCheck(test, 'Bloods')));
+            }
+
+            if (proto.tests.labExtra && proto.tests.labExtra.length > 0) {
+                bloodsHasContent = true;
+                const extraWrap = document.createElement('div');
+                extraWrap.className = 'lab-extra-wrap';
+                extraWrap.innerHTML = `<div class="lab-extra-label">💡 Consider also adding:</div>`;
+                proto.tests.labExtra.forEach(test => extraWrap.appendChild(createCheck(test, 'Bloods')));
+                bloodsSection.appendChild(extraWrap);
+            }
+
+            if (bloodsHasContent) container.appendChild(bloodsSection);
         } else {
             container.innerHTML = `<p class="placeholder-text">No specific protocol for "${complaint}"</p>`;
         }
@@ -1002,6 +1084,7 @@ class TriageApp {
 
     render() {
         this.renderDemographics();
+        this.renderArrivalMode();
         this.renderNEWS2();
         this.renderSepsisScreen();
         this.renderPaedsSafety();
@@ -1011,6 +1094,17 @@ class TriageApp {
         this.renderUniversalChecks();
         this.renderPmhPrompts();
         this.renderNote();
+    }
+
+    // Shows/hides the ambulance-specific fields (call sign/case ID + Pre-Hospital Handover card)
+    // based on how the patient arrived. Self-presented patients never see these - the app behaves
+    // exactly as before for them.
+    renderArrivalMode() {
+        const mode = this.state.patient.arrivalMode || 'Self';
+        const isAmbulance = mode === 'Ambulance';
+        document.querySelectorAll('#seg-arrival button').forEach(b => b.classList.toggle('active', b.dataset.value === mode));
+        document.getElementById('amb-fields').classList.toggle('hidden', !isAmbulance);
+        document.getElementById('card-prehospital').classList.toggle('hidden', !isAmbulance);
     }
 
     renderPmhPrompts() {
@@ -1212,6 +1306,7 @@ class TriageApp {
             if (e.target.checked && !already) this.state.plan.push({ category: 'Universal', name });
             else if (!e.target.checked) this.state.plan = this.state.plan.filter(x => !(x.category === 'Universal' && x.name === name));
             this.renderNote();
+            this.debouncedSave();
         });
     }
 
@@ -1219,8 +1314,37 @@ class TriageApp {
         const p = this.state.patient;
         const t = this.state.triage;
         const h = this.state.history;
+        const ph = this.state.prehospital;
 
-        let txt = `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
+        let txt = '';
+
+        // Ambulance-arrival patients get a handover block first, matching the trust's own
+        // "RAA - AMBULANCE HANDOVER" documentation format - call sign/case ID, PC, HPC (from the
+        // crew, not a direct patient interview), PMH, Allergies and pre-hospital treatment - followed
+        // by the normal triage note below it.
+        if (p.arrivalMode === 'Ambulance') {
+            txt += `RAA - AMBULANCE HANDOVER\n\n`;
+            txt += `CALL SIGN: ${p.ambulanceCallSign || 'Unknown'}\n`;
+            txt += `CASE ID: ${p.ambulanceCaseId || 'Unknown'}\n\n`;
+            txt += `PC: ${h.complaint || 'Not yet recorded'}\n\n`;
+            txt += `HPC:\n${ph && ph.hpc ? ph.hpc : '(not recorded)'}\n\n`;
+            txt += `PMH:\n${h.pmh || 'Nil'}\n\n`;
+            if (ph && ph.social) txt += `SOCIAL:\n${ph.social}\n\n`;
+            txt += `Allergies:\n${h.allergies || 'NKDA'}\n\n`;
+            txt += `Pre-hospital TX:\n${ph && ph.tx ? ph.tx : 'Nil'}\n`;
+            const pho = (ph && ph.obs) || {};
+            const phoParts = [];
+            if (pho.rr) phoParts.push(`RR${pho.rr}`);
+            if (pho.sats) phoParts.push(`Sat${pho.sats}${pho.o2 === 'O2' ? 'O2' : 'Air'}`);
+            if (pho.sbp) phoParts.push(`BP${pho.sbp}/${pho.dbp || '-'}`);
+            if (pho.hr) phoParts.push(`HR${pho.hr}`);
+            if (pho.gcs) phoParts.push(`GCS${pho.gcs}`);
+            else if (pho.avpu && pho.avpu !== 'A') phoParts.push(`AVPU ${pho.avpu}`);
+            if (phoParts.length > 0) txt += `Pre-hospital obs: ${phoParts.join(' ')}\n`;
+            txt += `\n---\n\n`;
+        }
+
+        txt += `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
         const ageStr = (p.age !== null && p.age !== undefined) ? `${p.age}y` : 'Age unknown';
         txt += `ID: ${p.id || 'Unknown'} | ${ageStr} ${p.sex || ''} | Mobility: ${p.mobility}\n`;
         txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
@@ -1441,7 +1565,7 @@ class TriageApp {
         const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val !== null ? val : ''; };
         const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
         
-        const { patient, obs, history, triage } = this.state;
+        const { patient, obs, history, triage, prehospital } = this.state;
         
         setVal('patient-id', patient.id); 
         setVal('patient-dob', patient.dob);
@@ -1449,6 +1573,23 @@ class TriageApp {
         setVal('patient-sex', patient.sex);
         setVal('patient-mobility', patient.mobility); 
         setCheck('check-pregnant', patient.pregnant);
+        setVal('amb-callsign', patient.ambulanceCallSign);
+        setVal('amb-caseid', patient.ambulanceCaseId);
+
+        if (prehospital) {
+            setVal('ph-hpc', prehospital.hpc);
+            setVal('ph-tx', prehospital.tx);
+            setVal('ph-social', prehospital.social);
+            const pho = prehospital.obs || {};
+            setVal('ph-obs-rr', pho.rr);
+            setVal('ph-obs-sats', pho.sats);
+            setVal('ph-obs-sbp', pho.sbp);
+            setVal('ph-obs-dbp', pho.dbp);
+            setVal('ph-obs-hr', pho.hr);
+            setVal('ph-obs-gcs', pho.gcs);
+            document.querySelectorAll('#seg-ph-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === (pho.avpu || 'A')));
+            document.querySelectorAll('#seg-ph-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === (pho.o2 || 'Air')));
+        }
         
         setVal('obs-rr', obs.rr); 
         setVal('obs-sats', obs.sats); 
