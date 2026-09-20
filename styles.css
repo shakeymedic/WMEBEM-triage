@@ -171,6 +171,12 @@ button:active { transform: scale(0.98); }
 .btn-secondary { background: var(--secondary); color: white; padding: 8px 16px; }
 .btn-warning { background: var(--orange); color: white; padding: 8px 16px; }
 .btn-tiny { padding: 4px 8px; font-size: 0.75rem; background: rgba(0,0,0,0.1); color: var(--text-main); margin-left: 5px; border-radius: 4px; }
+
+/* Large, title-style collapse toggles for whole sections (e.g. pre-hospital obs, Physiology,
+   Screening when collapsed for ambulance arrivals) - reads as a section header, not a small button. */
+.section-toggle-title { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 16px; font-size: 1rem; font-weight: 700; text-align: left; background: var(--bg-body); color: var(--primary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; margin-bottom: 4px; text-transform: none; }
+.section-toggle-title:hover { background: var(--border); }
+.section-toggle-title .chevron { font-size: 0.85rem; transition: transform 0.2s; }
 .btn-chip { background: transparent; color: var(--primary); border: 1px solid var(--border); padding: 8px 14px; font-size: 0.85rem; margin-right: 5px; margin-bottom: 5px; border-radius: 20px; transition: all 0.2s; }
 .btn-chip:hover { border-color: var(--primary); background: rgba(0, 94, 184, 0.05); transform: translateY(-1px); }
 .btn-chip:active { background: var(--primary); color: white; }

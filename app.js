@@ -32,7 +32,9 @@ class TriageApp {
                 pewsGroup: null,
                 sepsis: { applicable: false, red: [], amber: [] },
                 stream: 'Pending',
-                timer: '--'
+                timer: '--',
+                disposition: '',
+                dispositionOther: ''
             },
             ui: { sepsisAlertShown: false, redFlagChecked: false, quickMode: false, pmhPromptsDismissed: false },
             plan: []
@@ -52,16 +54,27 @@ class TriageApp {
         this.initSpeech();
         this.loadHistory();
         
-        if(localStorage.getItem('theme') === 'dark') {
-            document.documentElement.setAttribute('data-theme', 'dark');
-            document.getElementById('checkbox-theme').checked = true;
+        // localStorage can throw (private browsing, sandboxed embeds, some in-app browsers) - never
+        // let that take the whole app down before it's even rendered anything.
+        try {
+            if (localStorage.getItem('theme') === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                document.getElementById('checkbox-theme').checked = true;
+            }
+            if (localStorage.getItem('quickMode') === 'on') {
+                this.state.ui.quickMode = true;
+                document.body.classList.add('quick-mode');
+                const qBtn = document.getElementById('btn-quick-mode');
+                if (qBtn) qBtn.classList.add('active');
+            }
+        } catch (err) {
+            console.warn('localStorage unavailable - theme/quick-mode preferences will not persist this session.', err);
         }
-        if(localStorage.getItem('quickMode') === 'on') {
-            this.state.ui.quickMode = true;
-            document.body.classList.add('quick-mode');
-            const qBtn = document.getElementById('btn-quick-mode');
-            if(qBtn) qBtn.classList.add('active');
-        }
+
+        // Run one full render immediately so every dynamic bit of UI (pregnancy section, discriminator
+        // placeholder, obs-form paeds dimming, etc.) is correct from the very first paint, rather than
+        // waiting for the nurse's first keystroke to trigger it via setState().
+        this.render();
     }
 
     // Physiologically plausible ranges for vital signs, used to flag (not block) unusual entries.
@@ -604,6 +617,18 @@ class TriageApp {
         bind('ph-tx', 'tx', 'prehospital');
         bind('ph-tx-time', 'txTime', 'prehospital');
         bind('ph-social', 'social', 'prehospital');
+
+        const selDisposition = document.getElementById('sel-disposition');
+        const txtDispositionOther = document.getElementById('txt-disposition-other');
+        selDisposition.addEventListener('change', (e) => {
+            const val = e.target.value;
+            txtDispositionOther.classList.toggle('hidden', val !== 'Other');
+            this.setState({ triage: { disposition: val } });
+            if (val !== 'Other') this.setState({ triage: { dispositionOther: '' } });
+        });
+        txtDispositionOther.addEventListener('input', (e) => {
+            this.setState({ triage: { dispositionOther: e.target.value } });
+        });
         bind('allergies', 'allergies', 'history');
         bind('pmh', 'pmh', 'history');
         
@@ -631,7 +656,27 @@ class TriageApp {
                 if (parent.id === 'seg-o2') this.setState({ obs: { o2: val } });
                 if (parent.id === 'seg-ph-avpu') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, avpu: val } } });
                 if (parent.id === 'seg-ph-o2') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, o2: val } } });
-                if (parent.id === 'seg-arrival') this.setState({ patient: { arrivalMode: val } });
+                if (parent.id === 'seg-arrival') {
+                    this.setState({ patient: { arrivalMode: val } });
+                    // Set the Physiology/Screening collapse default exactly once, right when the
+                    // mode actually changes - collapsed for ambulance (crew obs usually cover this
+                    // already), expanded for self-presented (unchanged from before this feature).
+                    // Doing this here rather than in every render means a nurse who deliberately
+                    // reopens one of them while in ambulance mode never has it snapped shut again
+                    // just because they typed into an unrelated field.
+                    const collapseForAmbulance = val === 'Ambulance';
+                    const setCollapsed = (toggleId, bodyId, collapsed) => {
+                        const toggle = document.getElementById(toggleId);
+                        const body = document.getElementById(bodyId);
+                        if (!toggle || !body) return;
+                        body.classList.toggle('hidden', collapsed);
+                        const chevron = toggle.querySelector('.chevron');
+                        if (chevron) chevron.textContent = collapsed ? '▾' : '▴';
+                        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                    };
+                    setCollapsed('obs-section-toggle', 'obs-collapsible-body', collapseForAmbulance);
+                    setCollapsed('screening-section-toggle', 'screening-container', collapseForAmbulance);
+                }
             });
         });
 
@@ -650,14 +695,26 @@ class TriageApp {
             }
         });
 
+        // Generic large title-style collapse toggle, reused for pre-hospital obs and (only for
+        // ambulance arrivals, set up in the arrival-mode handler below) Physiology/Screening. The
+        // label text stays fixed - only the chevron direction changes, so it always reads as a
+        // section header rather than a button whose wording keeps changing.
+        const bindSectionToggle = (toggleId, bodyId) => {
+            const toggle = document.getElementById(toggleId);
+            const body = document.getElementById(bodyId);
+            if (!toggle || !body) return;
+            toggle.addEventListener('click', () => {
+                const nowHidden = body.classList.toggle('hidden');
+                const chevron = toggle.querySelector('.chevron');
+                if (chevron) chevron.textContent = nowHidden ? '▾' : '▴';
+                toggle.setAttribute('aria-expanded', nowHidden ? 'false' : 'true');
+            });
+        };
         // Pre-hospital obs are usually already in the EPR from the crew, so keep the collapsible
         // hidden by default - the nurse only opens it if it's genuinely needed here too.
-        const phObsToggle = document.getElementById('ph-obs-toggle');
-        const phObsBox = document.getElementById('ph-obs-collapsible');
-        phObsToggle.addEventListener('click', () => {
-            const nowHidden = phObsBox.classList.toggle('hidden');
-            phObsToggle.textContent = nowHidden ? 'Show pre-hospital obs ▾' : 'Hide pre-hospital obs ▴';
-        });
+        bindSectionToggle('ph-obs-toggle', 'ph-obs-collapsible');
+        bindSectionToggle('obs-section-toggle', 'obs-collapsible-body');
+        bindSectionToggle('screening-section-toggle', 'screening-container');
 
         const btnBodyMap = document.getElementById('btn-body-map');
         const modalBodyMap = document.getElementById('modal-bodymap');
@@ -704,17 +761,17 @@ class TriageApp {
                 document.body.classList.toggle('quick-mode', on);
                 btnQuickMode.classList.toggle('active', on);
                 this.state.ui.quickMode = on;
-                localStorage.setItem('quickMode', on ? 'on' : 'off');
+                try { localStorage.setItem('quickMode', on ? 'on' : 'off'); } catch (err) { /* preference just won't persist */ }
             });
         }
 
         document.getElementById('checkbox-theme').addEventListener('change', (e) => {
             if(e.target.checked) {
                 document.documentElement.setAttribute('data-theme', 'dark');
-                localStorage.setItem('theme', 'dark');
+                try { localStorage.setItem('theme', 'dark'); } catch (err) { /* preference just won't persist */ }
             } else {
                 document.documentElement.removeAttribute('data-theme');
-                localStorage.setItem('theme', 'light');
+                try { localStorage.setItem('theme', 'light'); } catch (err) { /* preference just won't persist */ }
             }
         });
 
@@ -1160,6 +1217,14 @@ class TriageApp {
         // Ambulance patients already give their pre-arrival medications/treatment in the free-text
         // Pre-Hospital Medications box above - hide this duplicate self-presented-only field for them.
         document.getElementById('card-treatment-given').classList.toggle('hidden', isAmbulance);
+
+        // The Physiology/Screening collapse toggles only make sense for ambulance arrivals (crew obs
+        // usually already cover this) - self-presented patients never see the toggle and both sections
+        // stay expanded exactly as before. The actual collapse/expand default is set once, at the
+        // moment the arrival toggle is clicked (see bindEvents) - not here, so it isn't re-forced shut
+        // on every render while the nurse has deliberately reopened one of them.
+        document.getElementById('obs-section-toggle').classList.toggle('hidden', !isAmbulance);
+        document.getElementById('screening-section-toggle').classList.toggle('hidden', !isAmbulance);
     }
 
     renderPmhPrompts() {
@@ -1233,8 +1298,11 @@ class TriageApp {
     renderDemographics() {
         const p = this.state.patient;
         document.getElementById('calculated-age-display').textContent = p.age !== null ? `Age: ${p.age}` : 'Age: --';
-        const isFemaleRepro = p.sex === 'Female' && p.age >= 12 && p.age <= 55;
-        document.getElementById('female-health-section').classList.toggle('hidden', !isFemaleRepro);
+        // Always show the pregnancy checkbox for anyone not explicitly marked Male - never gated on
+        // age or DOB being entered, since that's exactly the info an ambulance nurse often doesn't
+        // have yet during a rapid initial assessment. Blank/unknown sex still shows it deliberately.
+        const showPregnancySection = p.sex !== 'Male';
+        document.getElementById('female-health-section').classList.toggle('hidden', !showPregnancySection);
         const isPaeds = p.age !== null && p.age < 16;
         document.getElementById('obs-form').style.opacity = isPaeds ? '0.5' : '1';
     }
@@ -1493,6 +1561,10 @@ class TriageApp {
         txt += `\n\nTRIAGE CATEGORY: ${t.finalPriority.toUpperCase()}\n`;
         txt += `Stream: ${t.stream}\n`;
         txt += `Target: ${t.timer}\n`;
+        if (t.disposition) {
+            const dispositionLabel = t.disposition === 'Other' ? (t.dispositionOther || 'Other') : t.disposition;
+            txt += `Disposition: ${dispositionLabel}\n`;
+        }
         if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
 
         document.getElementById('epr-note').value = txt;
@@ -1543,19 +1615,26 @@ class TriageApp {
 
     saveSession() {
         if(!this.state.patient.id && !this.state.history.complaint) return;
-        const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
-        const current = {
-            id: this.state.patient.id || 'Unknown',
-            complaint: this.state.history.complaint,
-            priority: this.state.triage.finalPriority,
-            time: new Date().toLocaleString(),
-            data: this.state
-        };
-        const existingIndex = sessions.findIndex(s => s.id === current.id && s.id !== 'Unknown');
-        if(existingIndex >= 0) sessions.splice(existingIndex, 1);
-        sessions.unshift(current); 
-        if(sessions.length > 15) sessions.pop(); 
-        localStorage.setItem('triage_history', JSON.stringify(sessions));
+        // Autosave is a convenience, never something the triage itself should depend on - if
+        // localStorage is unavailable (private browsing, sandboxed embed, quota exceeded), fail
+        // quietly rather than breaking the render cycle that called this.
+        try {
+            const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
+            const current = {
+                id: this.state.patient.id || 'Unknown',
+                complaint: this.state.history.complaint,
+                priority: this.state.triage.finalPriority,
+                time: new Date().toLocaleString(),
+                data: this.state
+            };
+            const existingIndex = sessions.findIndex(s => s.id === current.id && s.id !== 'Unknown');
+            if(existingIndex >= 0) sessions.splice(existingIndex, 1);
+            sessions.unshift(current); 
+            if(sessions.length > 15) sessions.pop(); 
+            localStorage.setItem('triage_history', JSON.stringify(sessions));
+        } catch (err) {
+            console.warn('Autosave failed - localStorage unavailable.', err);
+        }
     }
 
     showToast(msg, type='info') {
@@ -1610,7 +1689,12 @@ class TriageApp {
 
     renderHistoryList() {
         const list = document.getElementById('history-list');
-        const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
+        let sessions = [];
+        try {
+            sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
+        } catch (err) {
+            console.warn('Could not read saved patients - localStorage unavailable.', err);
+        }
         list.innerHTML = '';
         if(sessions.length === 0) list.innerHTML = '<p class="text-muted">No recent patients locally stored.</p>';
         sessions.forEach(s => {
@@ -1652,6 +1736,9 @@ class TriageApp {
         setCheck('check-pregnant', patient.pregnant);
         setVal('amb-callsign', patient.ambulanceCallSign);
         setVal('amb-caseid', patient.ambulanceCaseId);
+        setVal('sel-disposition', triage.disposition);
+        setVal('txt-disposition-other', triage.dispositionOther);
+        document.getElementById('txt-disposition-other').classList.toggle('hidden', triage.disposition !== 'Other');
 
         if (prehospital) {
             setVal('ph-hpc', prehospital.hpc);

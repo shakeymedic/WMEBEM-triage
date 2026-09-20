@@ -162,7 +162,9 @@
 
             <section class="card span-2" id="card-obs">
                 <h2 id="obs-title">2. Physiology (NEWS2 / MEOWS / PEWS)</h2>
-                
+                <button type="button" class="section-toggle-title hidden" id="obs-section-toggle" aria-expanded="true"><span>Physiology Obs</span><span class="chevron">▴</span></button>
+
+                <div id="obs-collapsible-body">
                 <div id="obs-form" class="obs-grid">
                     <div class="obs-item">
                         <label for="obs-rr">Resp Rate</label>
@@ -222,6 +224,7 @@
 
                 <div id="visual-ews-container" class="mt-15 news-display-grid"></div>
                 <div id="sepsis-screen-container" class="mt-15 sepsis-widget"></div>
+                </div>
             </section>
             
             <section class="card span-2" id="card-history">
@@ -247,7 +250,7 @@
                 </div>
 
                 <div id="amb-handover-top" class="hidden ambulance-block">
-                    <button type="button" class="btn-tiny calc-toggle" id="ph-obs-toggle">Show pre-hospital obs ▾</button>
+                    <button type="button" class="section-toggle-title" id="ph-obs-toggle"><span>Pre-Hospital Observations</span><span class="chevron">▾</span></button>
                     <div id="ph-obs-collapsible" class="calc-criteria hidden">
                         <div class="obs-grid mt-10">
                             <div class="obs-item">
@@ -370,6 +373,7 @@
 
             <section class="card span-2" id="card-screening">
                 <h2>4. Mandatory & Opportunistic Screening</h2>
+                <button type="button" class="section-toggle-title hidden" id="screening-section-toggle" aria-expanded="true"><span>Screening Checklist</span><span class="chevron">▴</span></button>
                 <div id="screening-container" class="screening-grid"></div>
             </section>
 
@@ -423,6 +427,27 @@
                     <label>Triage Narrative / Additional Plan <button class="mic-btn" data-target="plan-narrative">🎤</button></label>
                     <textarea id="plan-narrative" class="w-full" rows="3" placeholder="Enter specific instructions, escalation notes, or social concerns here..."></textarea>
                 </div>
+
+                <div class="form-group mt-15" id="disposition-section">
+                    <label for="sel-disposition">Placement / Disposition</label>
+                    <select id="sel-disposition" data-js="sel-disposition">
+                        <option value="">-- Not yet decided --</option>
+                        <optgroup label="In the Department">
+                            <option value="Cubicle">Offloaded to Cubicle</option>
+                            <option value="Escalation">Escalation Area (Overcrowding)</option>
+                            <option value="Held on Ambulance">Held on Ambulance (No Capacity)</option>
+                        </optgroup>
+                        <optgroup label="Direct to Unit">
+                            <option value="EDAA">EDAA (Ambulatory)</option>
+                            <option value="FSDEC">FSDEC (Frailty SDEC)</option>
+                            <option value="SDEC">SDEC (Same Day Emergency Care)</option>
+                            <option value="MAU">MAU (Medical Assessment Unit)</option>
+                            <option value="SAU">SAU (Surgical Assessment Unit)</option>
+                        </optgroup>
+                        <option value="Other">Other (specify)</option>
+                    </select>
+                    <input type="text" id="txt-disposition-other" class="hidden mt-10" placeholder="Specify placement/destination" autocomplete="off">
+                </div>
             </section>
 
             <section class="card full-width">
@@ -457,8 +482,12 @@
     
     <script type="module" src="app.js"></script>
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
+        try {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js');
+            }
+        } catch (err) {
+            console.warn('Service worker unavailable (sandboxed context) - offline support disabled this session.', err);
         }
     </script>
 </body>
