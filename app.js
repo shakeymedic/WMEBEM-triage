@@ -17,7 +17,7 @@ class TriageApp {
         
         this.initialState = {
             patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
-            prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null }, hpc: '', tx: '', txTime: '', social: '' },
+            prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
             history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentNotes: '', pmhPromptSuggestions: [] },
             triage: {
@@ -580,6 +580,9 @@ class TriageApp {
         bindPHObs('ph-obs-dbp', 'dbp', parseFloat);
         bindPHObs('ph-obs-hr', 'hr', parseFloat);
         bindPHObs('ph-obs-gcs', 'gcs', parseFloat);
+        bindPHObs('ph-obs-bm', 'bm', parseFloat);
+        bindPHObs('ph-obs-ecg', 'ecg');
+        bindPHObs('ph-obs-pupils', 'pupils');
 
         bind('obs-rr', 'rr', 'obs', parseFloat); 
         bind('obs-sats', 'sats', 'obs', parseFloat);
@@ -1407,6 +1410,9 @@ class TriageApp {
             if (pho.hr) phoParts.push(`HR${pho.hr}`);
             if (pho.gcs) phoParts.push(`GCS${pho.gcs}`);
             else if (pho.avpu && pho.avpu !== 'A') phoParts.push(`AVPU ${pho.avpu}`);
+            if (pho.bm !== null && pho.bm !== undefined && pho.bm !== '' && !Number.isNaN(pho.bm)) phoParts.push(`BM${pho.bm}`);
+            if (pho.ecg) phoParts.push(`ECG ${pho.ecg}`);
+            if (pho.pupils) phoParts.push(`Pupils ${pho.pupils}`);
             if (phoParts.length > 0) txt += `Pre-hospital obs: ${phoParts.join(' ')}\n`;
             txt += `\n---\n\n`;
         }
@@ -1659,6 +1665,9 @@ class TriageApp {
             setVal('ph-obs-dbp', pho.dbp);
             setVal('ph-obs-hr', pho.hr);
             setVal('ph-obs-gcs', pho.gcs);
+            setVal('ph-obs-bm', pho.bm);
+            setVal('ph-obs-ecg', pho.ecg);
+            setVal('ph-obs-pupils', pho.pupils);
             document.querySelectorAll('#seg-ph-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === (pho.avpu || 'A')));
             document.querySelectorAll('#seg-ph-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === (pho.o2 || 'Air')));
         }

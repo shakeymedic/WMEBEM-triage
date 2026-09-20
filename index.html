@@ -247,8 +247,6 @@
                 </div>
 
                 <div id="amb-handover-top" class="hidden ambulance-block">
-                    <p class="text-muted" style="margin-top:-4px;">Crew handover - trusted as accurate, this replaces a direct patient history for ambulance arrivals.</p>
-
                     <button type="button" class="btn-tiny calc-toggle" id="ph-obs-toggle">Show pre-hospital obs ▾</button>
                     <div id="ph-obs-collapsible" class="calc-criteria hidden">
                         <div class="obs-grid mt-10">
@@ -291,6 +289,18 @@
                             <div class="obs-item">
                                 <label for="ph-obs-gcs">GCS <small class="text-muted">(if known)</small></label>
                                 <input type="number" id="ph-obs-gcs" placeholder="3-15" min="3" max="15">
+                            </div>
+                            <div class="obs-item">
+                                <label for="ph-obs-bm">BM (mmol/L)</label>
+                                <input type="number" id="ph-obs-bm" placeholder="BM" min="0" max="40" step="0.1">
+                            </div>
+                            <div class="obs-item">
+                                <label for="ph-obs-ecg">ECG Rhythm</label>
+                                <input type="text" id="ph-obs-ecg" placeholder="e.g. Sinus, AF, Brady sinus" autocomplete="off">
+                            </div>
+                            <div class="obs-item">
+                                <label for="ph-obs-pupils">Pupils</label>
+                                <input type="text" id="ph-obs-pupils" placeholder="e.g. PEARL, 2+2+" autocomplete="off">
                             </div>
                         </div>
                         <small class="text-muted">Usually already in the EPR from the crew - only fill in if not, or if different from your own obs below.</small>
