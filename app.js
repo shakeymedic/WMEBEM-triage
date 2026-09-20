@@ -647,6 +647,15 @@ class TriageApp {
             }
         });
 
+        // Pre-hospital obs are usually already in the EPR from the crew, so keep the collapsible
+        // hidden by default - the nurse only opens it if it's genuinely needed here too.
+        const phObsToggle = document.getElementById('ph-obs-toggle');
+        const phObsBox = document.getElementById('ph-obs-collapsible');
+        phObsToggle.addEventListener('click', () => {
+            const nowHidden = phObsBox.classList.toggle('hidden');
+            phObsToggle.textContent = nowHidden ? 'Show pre-hospital obs ▾' : 'Hide pre-hospital obs ▴';
+        });
+
         const btnBodyMap = document.getElementById('btn-body-map');
         const modalBodyMap = document.getElementById('modal-bodymap');
         btnBodyMap.addEventListener('click', () => modalBodyMap.classList.remove('hidden'));
@@ -1133,9 +1142,20 @@ class TriageApp {
         const isAmbulance = mode === 'Ambulance';
         document.querySelectorAll('#seg-arrival button').forEach(b => b.classList.toggle('active', b.dataset.value === mode));
         document.getElementById('amb-fields').classList.toggle('hidden', !isAmbulance);
-        document.getElementById('card-prehospital').classList.toggle('hidden', !isAmbulance);
+
+        // History & Complaint absorbs the ambulance handover fields instead of having its own separate
+        // card - this avoids two stacked sections and keeps documentation in one place. The crew's info
+        // is trusted as-is: HPC/obs sit before, and pre-hospital treatment after, the SAME single
+        // Allergies/PMH/Meds fields used for every patient - so nothing is ever asked or shown twice.
+        // The whole section also moves ahead of Physiology for ambulance arrivals (via the .pull-to-top
+        // CSS order), since the crew's handover is taken before the ED's own obs.
+        document.getElementById('amb-handover-top').classList.toggle('hidden', !isAmbulance);
+        document.getElementById('amb-handover-bottom').classList.toggle('hidden', !isAmbulance);
+        document.getElementById('card-history').classList.toggle('pull-to-top', isAmbulance);
+        document.getElementById('history-title').textContent = isAmbulance ? '3. History, Complaint & Pre-Hospital Handover' : '3. History & Complaint';
+
         // Ambulance patients already give their pre-arrival medications/treatment in the free-text
-        // Pre-Hospital Handover box above - hide this duplicate self-presented-only field for them.
+        // Pre-Hospital Medications box above - hide this duplicate self-presented-only field for them.
         document.getElementById('card-treatment-given').classList.toggle('hidden', isAmbulance);
     }
 
@@ -1407,8 +1427,13 @@ class TriageApp {
             txt += `\n⚠️ CLINICAL ALERTS:\n- ${[...new Set(h.riskFlags)].join('\n- ')}`;
         }
 
-        if(h.allergies) txt += `\nAllergies: ${h.allergies}`;
-        if(h.pmh) txt += `\nPMH: ${h.pmh}`;
+        // Ambulance patients already had Allergies and PMH stated in the handover block above -
+        // repeating them here would be exactly the duplication we're trying to avoid. Meds is kept
+        // for every patient since the handover block has no separate 'Meds' line of its own.
+        if (p.arrivalMode !== 'Ambulance') {
+            if(h.allergies) txt += `\nAllergies: ${h.allergies}`;
+            if(h.pmh) txt += `\nPMH: ${h.pmh}`;
+        }
         if(h.meds) txt += `\nMeds: ${h.meds}`;
 
         // TREATMENT GIVEN: past-tense record of what's already been done (pre-triage) - the genuine

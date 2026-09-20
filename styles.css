@@ -39,6 +39,12 @@ input:checked + .slider:before { transform: translateX(24px); }
 
 /* Layout */
 .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; }
+/* Ambulance arrivals: History & Complaint (with the merged handover block) moves ahead of Physiology,
+   since the crew's handover is taken before the ED's own obs. Demographics always stays first. */
+#card-demographics { order: -2; }
+#card-history.pull-to-top { order: -1; }
+.ambulance-block { border-left: 3px solid var(--primary); padding-left: 12px; margin-bottom: 15px; }
+.amb-divider { border: none; border-top: 1px dashed var(--border); margin: 5px 0 15px; }
 .card { background: var(--bg-card); padding: 20px; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); transition: border-color 0.3s; position: relative; }
 .card:hover { border-color: var(--primary); }
 .span-2 { grid-column: span 2; }
