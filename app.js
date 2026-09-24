@@ -363,8 +363,8 @@ class TriageApp {
             else if (obs.sbp <= 100) amber.push(`Systolic BP 91-100 (${obs.sbp})`);
         }
         if (has(obs.hr)) {
-            if (obs.hr > 130) red.push(`Heart rate > 130 (${obs.hr})`);
-            else if (obs.hr >= 91) amber.push(`Heart rate 91-130 (${obs.hr})`);
+            if (obs.hr >= 130) red.push(`Heart rate ≥ 130 (${obs.hr})`);
+            else if (obs.hr >= 91) amber.push(`Heart rate 91-129 (${obs.hr})`);
         }
         if (has(obs.rr)) {
             if (obs.rr >= 25) red.push(`Resp rate \u2265 25 (${obs.rr})`);
@@ -420,11 +420,12 @@ class TriageApp {
             if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
             return s;
         };
-        if(obs.rr) score += getScore(obs.rr, rules.rr, 'RR');
-        if(obs.sats) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1, 'SpO2');
-        if(obs.sbp) score += getScore(obs.sbp, rules.sbp, 'BP');
-        if(obs.hr) score += getScore(obs.hr, rules.hr, 'HR');
-        if(obs.temp) score += getScore(obs.temp, rules.temp, 'Temp');
+        const has = (v) => v !== null && v !== undefined && v !== '';
+        if(has(obs.rr)) score += getScore(obs.rr, rules.rr, 'RR');
+        if(has(obs.sats)) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1, 'SpO2');
+        if(has(obs.sbp)) score += getScore(obs.sbp, rules.sbp, 'BP');
+        if(has(obs.hr)) score += getScore(obs.hr, rules.hr, 'HR');
+        if(has(obs.temp)) score += getScore(obs.temp, rules.temp, 'Temp');
         if (obs.avpu !== 'A') { score += 3; breakdown.push(`AVPU: ${obs.avpu} (+3)`); }
         if (obs.o2 === 'O2') { score += 2; breakdown.push(`O2: On (+2)`); }
         this.state.triage.newsScore = score;
@@ -450,11 +451,12 @@ class TriageApp {
             if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
             return s;
         };
-        if (obs.rr) score += getScore(obs.rr, data.rr, 'RR');
-        if (obs.hr) score += getScore(obs.hr, data.hr, 'HR');
-        if (obs.sats && obs.sats < 94) { score += 3; breakdown.push('Sats <94 (+3)'); }
+        const has = (v) => v !== null && v !== undefined && v !== '';
+        if (has(obs.rr)) score += getScore(obs.rr, data.rr, 'RR');
+        if (has(obs.hr)) score += getScore(obs.hr, data.hr, 'HR');
+        if (has(obs.sats) && obs.sats < 94) { score += 3; breakdown.push('Sats <94 (+3)'); }
         if (obs.o2 === 'O2') { score += 2; breakdown.push('O2 (+2)'); }
-        if (obs.crt > 2) { score += 1; breakdown.push('CRT >2s (+1)'); }
+        if (has(obs.crt) && obs.crt > 2) { score += 1; breakdown.push('CRT >2s (+1)'); }
         if (obs.avpu !== 'A') { score += 3; breakdown.push('AVPU (+3)'); }
         
         this.state.triage.newsScore = score;
@@ -467,23 +469,40 @@ class TriageApp {
         const obs = this.state.obs;
         let score = 0;
         let breakdown = [];
+        // Guard every trigger on the value actually being entered - without this, an unset field
+        // (null) coerces to 0 in numeric comparisons and gets scored as maximally abnormal (e.g.
+        // `null < 10` is true), so a patient would show a false "MEOWS Red" the instant "Pregnant"
+        // was ticked, before any observations had been taken.
+        const has = (v) => v !== null && v !== undefined && v !== '';
+
         // Triggers based on Standard MEOWS
-        if(obs.rr < 10 || obs.rr > 30) { score+=3; breakdown.push('RR Red'); }
-        else if(obs.rr > 20) { score+=1; breakdown.push('RR Yellow'); }
-        
-        if(obs.hr < 40 || obs.hr > 120) { score+=3; breakdown.push('HR Red'); }
-        else if(obs.hr > 100) { score+=1; breakdown.push('HR Yellow'); }
-        
-        if(obs.sbp < 90 || obs.sbp > 160) { score+=3; breakdown.push('SBP Red'); }
-        else if(obs.sbp > 150) { score+=1; breakdown.push('SBP Yellow'); }
-        
-        if(obs.dbp > 100) { score+=3; breakdown.push('DBP >100 (Red)'); }
-        else if(obs.dbp >= 90) { score+=1; breakdown.push('DBP >90 (Yellow)'); }
-        
-        if(obs.sats < 95) { score+=3; breakdown.push('Sats <95 (Red)'); }
-        if(obs.temp > 38 || obs.temp < 35) { score+=3; breakdown.push('Temp Red'); }
-        else if(obs.temp > 37.5 || obs.temp < 36) { score+=1; breakdown.push('Temp Yellow'); }
-        
+        if (has(obs.rr)) {
+            if(obs.rr < 10 || obs.rr > 30) { score+=3; breakdown.push('RR Red'); }
+            else if(obs.rr > 20) { score+=1; breakdown.push('RR Yellow'); }
+        }
+
+        if (has(obs.hr)) {
+            if(obs.hr < 40 || obs.hr > 120) { score+=3; breakdown.push('HR Red'); }
+            else if(obs.hr > 100) { score+=1; breakdown.push('HR Yellow'); }
+        }
+
+        if (has(obs.sbp)) {
+            if(obs.sbp < 90 || obs.sbp > 160) { score+=3; breakdown.push('SBP Red'); }
+            else if(obs.sbp > 150) { score+=1; breakdown.push('SBP Yellow'); }
+        }
+
+        if (has(obs.dbp)) {
+            if(obs.dbp > 100) { score+=3; breakdown.push('DBP >100 (Red)'); }
+            else if(obs.dbp >= 90) { score+=1; breakdown.push('DBP >90 (Yellow)'); }
+        }
+
+        if (has(obs.sats) && obs.sats < 95) { score+=3; breakdown.push('Sats <95 (Red)'); }
+
+        if (has(obs.temp)) {
+            if(obs.temp > 38 || obs.temp < 35) { score+=3; breakdown.push('Temp Red'); }
+            else if(obs.temp > 37.5 || obs.temp < 36) { score+=1; breakdown.push('Temp Yellow'); }
+        }
+
         this.state.triage.newsScore = score;
         this.state.triage.newsBreakdown = breakdown;
     }
