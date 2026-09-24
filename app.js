@@ -16,7 +16,7 @@ class TriageApp {
         this.data = clinicalData;
         
         this.initialState = {
-            patient: { id: '', dob: null, age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
+            patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
             prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
             obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
             history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentNotes: '', pmhPromptSuggestions: [] },
@@ -41,6 +41,7 @@ class TriageApp {
         };
 
         this.state = JSON.parse(JSON.stringify(this.initialState));
+        this.state.meta = TriageApp.newMeta();
         this.saveTimeout = null;
         this.dom = {}; 
 
@@ -75,6 +76,28 @@ class TriageApp {
         // placeholder, obs-form paeds dimming, etc.) is correct from the very first paint, rather than
         // waiting for the nurse's first keystroke to trigger it via setState().
         this.render();
+    }
+
+    // No name/DOB is captured, so History entries are keyed by a per-session random ID instead.
+    static newMeta() {
+        return { sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, startedAt: new Date().toISOString() };
+    }
+
+    // Number inputs report '' when cleared and parseFloat('') is NaN - normalise both to null so a
+    // cleared field reads as "not entered" rather than an out-of-range reading.
+    static toNumber(v) {
+        if (v === null || v === undefined || v === '') return null;
+        const n = parseFloat(v);
+        return Number.isNaN(n) ? null : n;
+    }
+
+    static hasValue(v) {
+        return v !== null && v !== undefined && v !== '' && !Number.isNaN(v);
+    }
+
+    static ageLabel(p) {
+        if (!TriageApp.hasValue(p.ageValue)) return '';
+        return p.ageUnit === 'Months' ? `${p.ageValue} months` : `${p.ageValue}y`;
     }
 
     // Physiologically plausible ranges for vital signs, used to flag (not block) unusual entries.
@@ -221,10 +244,11 @@ class TriageApp {
     }
 
     runClinicalLogic() {
-        if (this.state.patient.dob) {
-            const diff = Date.now() - new Date(this.state.patient.dob).getTime();
-            this.state.patient.age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
-        }
+        // Age is stored in years (fractional for infants entered in months) so every existing
+        // threshold - PEWS bands (<1, <5, <12), <16 paeds, >=65 frailty - works unchanged.
+        const pt = this.state.patient;
+        if (!TriageApp.hasValue(pt.ageValue)) pt.age = null;
+        else pt.age = pt.ageUnit === 'Months' ? pt.ageValue / 12 : pt.ageValue;
 
         this.checkMedsRisks();
         this.checkPmhPrompts();
@@ -354,7 +378,7 @@ class TriageApp {
 
         const obs = this.state.obs;
         const red = [], amber = [];
-        const has = (v) => v !== null && v !== undefined && v !== '';
+        const has = TriageApp.hasValue;
 
         if (obs.avpu && obs.avpu !== 'A') red.push(`New/altered mental state (AVPU ${obs.avpu})`);
 
@@ -414,13 +438,13 @@ class TriageApp {
         let score = 0;
         let breakdown = [];
         const getScore = (val, buckets, label) => {
-            if (val === null || val === '') return 0;
+            if (!TriageApp.hasValue(val)) return 0;
             const match = buckets.find(b => val <= b.max);
             const s = match ? match.score : 3;
             if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
             return s;
         };
-        const has = (v) => v !== null && v !== undefined && v !== '';
+        const has = TriageApp.hasValue;
         if(has(obs.rr)) score += getScore(obs.rr, rules.rr, 'RR');
         if(has(obs.sats)) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1, 'SpO2');
         if(has(obs.sbp)) score += getScore(obs.sbp, rules.sbp, 'BP');
@@ -445,13 +469,13 @@ class TriageApp {
         let score = 0;
         let breakdown = [];
         const getScore = (val, buckets, label) => {
-            if (val === null || val === '') return 0;
+            if (!TriageApp.hasValue(val)) return 0;
             const match = buckets.find(b => val <= b.max);
             const s = match ? match.score : 3;
             if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
             return s;
         };
-        const has = (v) => v !== null && v !== undefined && v !== '';
+        const has = TriageApp.hasValue;
         if (has(obs.rr)) score += getScore(obs.rr, data.rr, 'RR');
         if (has(obs.hr)) score += getScore(obs.hr, data.hr, 'HR');
         if (has(obs.sats) && obs.sats < 94) { score += 3; breakdown.push('Sats <94 (+3)'); }
@@ -473,7 +497,7 @@ class TriageApp {
         // (null) coerces to 0 in numeric comparisons and gets scored as maximally abnormal (e.g.
         // `null < 10` is true), so a patient would show a false "MEOWS Red" the instant "Pregnant"
         // was ticked, before any observations had been taken.
-        const has = (v) => v !== null && v !== undefined && v !== '';
+        const has = TriageApp.hasValue;
 
         // Triggers based on Standard MEOWS
         if (has(obs.rr)) {
@@ -606,27 +630,27 @@ class TriageApp {
                 this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, [key]: val } } });
             });
         };
-        bindPHObs('ph-obs-rr', 'rr', parseFloat);
-        bindPHObs('ph-obs-sats', 'sats', parseFloat);
-        bindPHObs('ph-obs-sbp', 'sbp', parseFloat);
-        bindPHObs('ph-obs-dbp', 'dbp', parseFloat);
-        bindPHObs('ph-obs-hr', 'hr', parseFloat);
-        bindPHObs('ph-obs-gcs', 'gcs', parseFloat);
-        bindPHObs('ph-obs-bm', 'bm', parseFloat);
+        const num = TriageApp.toNumber;
+        bindPHObs('ph-obs-rr', 'rr', num);
+        bindPHObs('ph-obs-sats', 'sats', num);
+        bindPHObs('ph-obs-sbp', 'sbp', num);
+        bindPHObs('ph-obs-dbp', 'dbp', num);
+        bindPHObs('ph-obs-hr', 'hr', num);
+        bindPHObs('ph-obs-gcs', 'gcs', num);
+        bindPHObs('ph-obs-bm', 'bm', num);
         bindPHObs('ph-obs-ecg', 'ecg');
         bindPHObs('ph-obs-pupils', 'pupils');
 
-        bind('obs-rr', 'rr', 'obs', parseFloat); 
-        bind('obs-sats', 'sats', 'obs', parseFloat);
-        bind('obs-sbp', 'sbp', 'obs', parseFloat); 
-        bind('obs-dbp', 'dbp', 'obs', parseFloat); 
-        bind('obs-hr', 'hr', 'obs', parseFloat);
-        bind('obs-temp', 'temp', 'obs', parseFloat); 
-        bind('obs-crt', 'crt', 'obs', parseFloat); 
+        bind('obs-rr', 'rr', 'obs', num);
+        bind('obs-sats', 'sats', 'obs', num);
+        bind('obs-sbp', 'sbp', 'obs', num);
+        bind('obs-dbp', 'dbp', 'obs', num);
+        bind('obs-hr', 'hr', 'obs', num);
+        bind('obs-temp', 'temp', 'obs', num);
+        bind('obs-crt', 'crt', 'obs', num);
         bind('obs-scale2', 'scale2', 'obs');
-        bind('patient-dob', 'dob', 'patient'); 
-        bind('patient-id', 'id', 'patient');
-        bind('patient-weight', 'weight', 'patient', parseFloat);
+        bind('patient-age', 'ageValue', 'patient', num);
+        bind('patient-weight', 'weight', 'patient', num);
         bind('patient-sex', 'sex', 'patient'); 
         bind('patient-mobility', 'mobility', 'patient');
         bind('check-pregnant', 'pregnant', 'patient');
@@ -675,26 +699,17 @@ class TriageApp {
                 if (parent.id === 'seg-o2') this.setState({ obs: { o2: val } });
                 if (parent.id === 'seg-ph-avpu') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, avpu: val } } });
                 if (parent.id === 'seg-ph-o2') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, o2: val } } });
+                if (parent.id === 'seg-age-unit') this.setState({ patient: { ageUnit: val } });
                 if (parent.id === 'seg-arrival') {
                     this.setState({ patient: { arrivalMode: val } });
                     // Set the Physiology/Screening collapse default exactly once, right when the
                     // mode actually changes - collapsed for ambulance (crew obs usually cover this
-                    // already), expanded for self-presented (unchanged from before this feature).
-                    // Doing this here rather than in every render means a nurse who deliberately
-                    // reopens one of them while in ambulance mode never has it snapped shut again
-                    // just because they typed into an unrelated field.
+                    // already), expanded for self-presented. Doing this here rather than in every
+                    // render means a section the nurse deliberately reopens is never snapped shut
+                    // again just because they typed into an unrelated field.
                     const collapseForAmbulance = val === 'Ambulance';
-                    const setCollapsed = (toggleId, bodyId, collapsed) => {
-                        const toggle = document.getElementById(toggleId);
-                        const body = document.getElementById(bodyId);
-                        if (!toggle || !body) return;
-                        body.classList.toggle('hidden', collapsed);
-                        const chevron = toggle.querySelector('.chevron');
-                        if (chevron) chevron.textContent = collapsed ? '▾' : '▴';
-                        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-                    };
-                    setCollapsed('obs-section-toggle', 'obs-collapsible-body', collapseForAmbulance);
-                    setCollapsed('screening-section-toggle', 'screening-container', collapseForAmbulance);
+                    this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', collapseForAmbulance);
+                    this.setSectionCollapsed('screening-section-toggle', 'screening-container', collapseForAmbulance);
                 }
             });
         });
@@ -714,19 +729,12 @@ class TriageApp {
             }
         });
 
-        // Generic large title-style collapse toggle, reused for pre-hospital obs and (only for
-        // ambulance arrivals, set up in the arrival-mode handler below) Physiology/Screening. The
-        // label text stays fixed - only the chevron direction changes, so it always reads as a
-        // section header rather than a button whose wording keeps changing.
         const bindSectionToggle = (toggleId, bodyId) => {
             const toggle = document.getElementById(toggleId);
             const body = document.getElementById(bodyId);
             if (!toggle || !body) return;
             toggle.addEventListener('click', () => {
-                const nowHidden = body.classList.toggle('hidden');
-                const chevron = toggle.querySelector('.chevron');
-                if (chevron) chevron.textContent = nowHidden ? '▾' : '▴';
-                toggle.setAttribute('aria-expanded', nowHidden ? 'false' : 'true');
+                this.setSectionCollapsed(toggleId, bodyId, !body.classList.contains('hidden'));
             });
         };
         // Pre-hospital obs are usually already in the EPR from the crew, so keep the collapsible
@@ -831,6 +839,22 @@ class TriageApp {
                 clickedPop.classList.toggle('open');
             }
         });
+    }
+
+    setSectionCollapsed(toggleId, bodyId, collapsed) {
+        const toggle = document.getElementById(toggleId);
+        const body = document.getElementById(bodyId);
+        if (!toggle || !body) return;
+        body.classList.toggle('hidden', collapsed);
+        const chevron = toggle.querySelector('.chevron');
+        if (chevron) chevron.textContent = collapsed ? '▾' : '▴';
+        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        // Whole-card toggles also tighten the card's heading when closed; the pre-hospital obs
+        // sub-toggle sits inside the History card and must not do this.
+        if (toggle.classList.contains('section-toggle')) {
+            const card = toggle.closest('.card');
+            if (card) card.classList.toggle('is-collapsed', collapsed);
+        }
     }
 
     handleMedsAutocomplete(e) {
@@ -1230,20 +1254,22 @@ class TriageApp {
         // CSS order), since the crew's handover is taken before the ED's own obs.
         document.getElementById('amb-handover-top').classList.toggle('hidden', !isAmbulance);
         document.getElementById('amb-handover-bottom').classList.toggle('hidden', !isAmbulance);
-        document.getElementById('card-history').classList.toggle('pull-to-top', isAmbulance);
-        document.getElementById('history-title').textContent = isAmbulance ? '3. History, Complaint & Pre-Hospital Handover' : '3. History & Complaint';
+        document.getElementById('history-title').textContent = isAmbulance ? 'History, complaint & pre-hospital handover' : 'History & complaint';
+
+        // Physically move the card (rather than CSS `order`) so the CSS section counter, which
+        // follows document order, numbers the sections in the order they are actually shown.
+        // Only moves when the mode changes, so it never steals focus mid-typing.
+        const historyCard = document.getElementById('card-history');
+        const obsCard = document.getElementById('card-obs');
+        if (isAmbulance && obsCard.nextElementSibling === historyCard) {
+            obsCard.parentNode.insertBefore(historyCard, obsCard);
+        } else if (!isAmbulance && historyCard.nextElementSibling === obsCard) {
+            historyCard.parentNode.insertBefore(obsCard, historyCard);
+        }
 
         // Ambulance patients already give their pre-arrival medications/treatment in the free-text
         // Pre-Hospital Medications box above - hide this duplicate self-presented-only field for them.
         document.getElementById('card-treatment-given').classList.toggle('hidden', isAmbulance);
-
-        // The Physiology/Screening collapse toggles only make sense for ambulance arrivals (crew obs
-        // usually already cover this) - self-presented patients never see the toggle and both sections
-        // stay expanded exactly as before. The actual collapse/expand default is set once, at the
-        // moment the arrival toggle is clicked (see bindEvents) - not here, so it isn't re-forced shut
-        // on every render while the nurse has deliberately reopened one of them.
-        document.getElementById('obs-section-toggle').classList.toggle('hidden', !isAmbulance);
-        document.getElementById('screening-section-toggle').classList.toggle('hidden', !isAmbulance);
     }
 
     renderPmhPrompts() {
@@ -1292,9 +1318,9 @@ class TriageApp {
         `;
 
         const manualDefs = [
-            { id: 'sepsis_rash', label: 'Non-blanching rash / mottled-ashen-cyanotic' },
+            { id: 'sepsis_rash', label: 'Non-blanching rash / mottled, ashen or cyanotic' },
             { id: 'sepsis_urine', label: 'Reduced urine output (>12h)' },
-            { id: 'sepsis_wound', label: 'Signs of wound/device/skin infection' }
+            { id: 'sepsis_wound', label: 'Signs of wound / device / skin infection' }
         ];
         const grid = document.getElementById('sepsis-manual-grid');
         manualDefs.forEach(def => {
@@ -1316,14 +1342,12 @@ class TriageApp {
 
     renderDemographics() {
         const p = this.state.patient;
-        document.getElementById('calculated-age-display').textContent = p.age !== null ? `Age: ${p.age}` : 'Age: --';
+        document.querySelectorAll('#seg-age-unit button').forEach(b => b.classList.toggle('active', b.dataset.value === (p.ageUnit || 'Years')));
         // Always show the pregnancy checkbox for anyone not explicitly marked Male - never gated on
         // age or DOB being entered, since that's exactly the info an ambulance nurse often doesn't
         // have yet during a rapid initial assessment. Blank/unknown sex still shows it deliberately.
         const showPregnancySection = p.sex !== 'Male';
         document.getElementById('female-health-section').classList.toggle('hidden', !showPregnancySection);
-        const isPaeds = p.age !== null && p.age < 16;
-        document.getElementById('obs-form').style.opacity = isPaeds ? '0.5' : '1';
     }
 
     renderNEWS2() {
@@ -1388,7 +1412,7 @@ class TriageApp {
 
         panel.style.display = 'block';
         const weight = p.weight || 0;
-        const safeWeight = Math.min(weight, this.data.paedsSafety.weightCapKg);
+        const safeWeight = Math.min(weight, this.data.scoring.paedsSafety.weightCapKg);
         const para = Math.min(safeWeight * 15, 1000).toFixed(0);
         const ibu = Math.min(safeWeight * 10, 400).toFixed(0);
         
@@ -1408,8 +1432,8 @@ class TriageApp {
         if(t.finalPriority === 'Red') badge.classList.add('pulse-alert');
         
         badge.textContent = t.finalPriority.toUpperCase();
-        document.getElementById('stream-display').textContent = `Stream: ${t.stream}`;
-        document.getElementById('timer-display').textContent = `Target: ${t.timer}`;
+        document.getElementById('stream-display').textContent = t.stream;
+        document.getElementById('timer-display').textContent = t.timer;
         document.getElementById('priority-reasons').innerHTML = t.reasons.map(r => `<div>• ${r}</div>`).join('');
         
         const sepsisFlags = t.sepsis || { red: [], amber: [] };
@@ -1505,16 +1529,20 @@ class TriageApp {
         }
 
         txt += `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
-        const ageStr = (p.age !== null && p.age !== undefined) ? `${p.age}y` : 'Age unknown';
-        txt += `ID: ${p.id || 'Unknown'} | ${ageStr} ${p.sex || ''} | Mobility: ${p.mobility}\n`;
+        const ageStr = TriageApp.ageLabel(p) || 'Age unknown';
+        txt += `Patient: ${ageStr} ${p.sex || ''} | Mobility: ${p.mobility}\n`;
         txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
         txt += `Pain: ${h.pain}/10\n`;
 
+        // Must mirror the score selection in runClinicalLogic - unknown age is scored as NEWS2.
+        const isPaedsNote = p.age !== null && p.age < 16;
         if (p.pregnant) txt += `MEOWS: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
-        else if (p.age >= 16) txt += `NEWS2: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
-        else txt += `PEWS: ${t.newsScore} (${t.pewsGroup}) [${t.newsBreakdown.join(', ')}]\n`;
+        else if (isPaedsNote) txt += `PEWS: ${t.newsScore} (${t.pewsGroup}) [${t.newsBreakdown.join(', ')}]\n`;
+        else txt += `NEWS2: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
 
-        txt += `Obs: RR${this.state.obs.rr || '-'} Sat${this.state.obs.sats || '-'}${this.state.obs.o2} BP${this.state.obs.sbp || '-'}/${this.state.obs.dbp || '-'} HR${this.state.obs.hr || '-'} T${this.state.obs.temp || '-'} ${this.state.obs.avpu}\n`;
+        const o = this.state.obs;
+        const f = (v) => TriageApp.hasValue(v) ? v : '-';
+        txt += `Obs: RR${f(o.rr)} Sat${f(o.sats)}${o.o2} BP${f(o.sbp)}/${f(o.dbp)} HR${f(o.hr)} T${f(o.temp)} ${o.avpu}\n`;
 
         if(h.riskFlags && h.riskFlags.length > 0) {
             txt += `\n⚠️ CLINICAL ALERTS:\n- ${[...new Set(h.riskFlags)].join('\n- ')}`;
@@ -1594,10 +1622,10 @@ class TriageApp {
         const t = this.state.triage;
         const h = this.state.history;
         
-        const ageText = (p.age !== null && p.age !== undefined) ? `${p.age}y ` : '';
+        const ageText = TriageApp.ageLabel(p) ? `${TriageApp.ageLabel(p)} ` : '';
         const sexText = p.sex || 'sex not recorded';
         const complaintText = h.complaint || 'an undefined complaint';
-        const s = `I have ${p.id || 'a patient'}, ${ageText}${sexText}, presenting with ${complaintText}. Priority ${t.finalPriority}.`;
+        const s = `I have a patient, ${ageText}${sexText}, presenting with ${complaintText}. Priority ${t.finalPriority}.`;
         
         let b = `${h.pmh || 'Nil PMH'}. `;
         if(h.riskFlags.length > 0) b += `Alert: ${h.riskFlags.join(', ')}. `;
@@ -1605,7 +1633,7 @@ class TriageApp {
         
         let a = '';
         if(p.pregnant) a = `MEOWS ${t.newsScore}. `;
-        else if(p.age < 16) a = `PEWS ${t.newsScore}. `;
+        else if(p.age !== null && p.age < 16) a = `PEWS ${t.newsScore}. `;
         else a = `NEWS2 ${t.newsScore}. `;
         
         if(t.newsScore > 0) a += `(${t.newsBreakdown.join(', ')}). `;
@@ -1633,20 +1661,23 @@ class TriageApp {
     }
 
     saveSession() {
-        if(!this.state.patient.id && !this.state.history.complaint) return;
+        const p = this.state.patient;
+        if (!this.state.history.complaint && p.age === null) return;
         // Autosave is a convenience, never something the triage itself should depend on - if
         // localStorage is unavailable (private browsing, sandboxed embed, quota exceeded), fail
         // quietly rather than breaking the render cycle that called this.
         try {
             const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
+            const labelParts = [TriageApp.ageLabel(p), p.sex, p.arrivalMode === 'Ambulance' && p.ambulanceCallSign ? `Amb ${p.ambulanceCallSign}` : ''].filter(Boolean);
             const current = {
-                id: this.state.patient.id || 'Unknown',
+                sessionId: this.state.meta.sessionId,
+                label: labelParts.join(' · ') || 'Patient',
                 complaint: this.state.history.complaint,
                 priority: this.state.triage.finalPriority,
-                time: new Date().toLocaleString(),
+                time: new Date().toLocaleString('en-GB'),
                 data: this.state
             };
-            const existingIndex = sessions.findIndex(s => s.id === current.id && s.id !== 'Unknown');
+            const existingIndex = sessions.findIndex(s => s.sessionId === current.sessionId);
             if(existingIndex >= 0) sessions.splice(existingIndex, 1);
             sessions.unshift(current); 
             if(sessions.length > 15) sessions.pop(); 
@@ -1668,29 +1699,34 @@ class TriageApp {
 
     initSpeech() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) return;
+        const micIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
         document.querySelectorAll('.mic-btn').forEach(btn => {
+            // Browsers without the Web Speech API (e.g. Safari, Firefox) would otherwise show buttons
+            // that silently do nothing.
+            if (!SpeechRecognition) { btn.classList.add('hidden'); return; }
+            btn.innerHTML = micIcon;
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
-                const targetId = e.currentTarget.dataset.target; 
-                const targetEl = document.getElementById(targetId);
+                const targetEl = document.getElementById(btn.dataset.target);
                 const recognition = new SpeechRecognition();
                 recognition.continuous = false;
                 recognition.lang = 'en-GB';
-                e.currentTarget.classList.add('listening');
+                btn.classList.add('listening');
                 recognition.onresult = (event) => {
                     const text = event.results[0][0].transcript;
                     if(targetEl.tagName === 'TEXTAREA' && targetEl.value) targetEl.value += `. ${text}`;
                     else targetEl.value = text;
-                    targetEl.dispatchEvent(new Event('input')); 
+                    targetEl.dispatchEvent(new Event('input'));
                     this.showToast('Dictation captured');
                 };
+                // Use `btn`, not e.currentTarget - the latter is null once the click has finished
+                // dispatching, so these async callbacks would throw and leave the mic stuck "listening".
                 recognition.onerror = (err) => {
                     console.error(err);
-                    e.currentTarget.classList.remove('listening');
+                    btn.classList.remove('listening');
                     this.showToast('Dictation failed', 'error');
                 };
-                recognition.onend = () => e.currentTarget.classList.remove('listening');
+                recognition.onend = () => btn.classList.remove('listening');
                 recognition.start();
             });
         });
@@ -1720,14 +1756,20 @@ class TriageApp {
             const div = document.createElement('div');
             div.className = 'history-item';
             div.style.borderLeft = `5px solid var(--${s.priority})`;
-            div.innerHTML = `
-                <div style="font-weight:bold; font-size:1.1rem;">${s.id}</div>
-                <div>${s.complaint || 'No complaint'}</div>
-                <div class="text-muted" style="font-size:0.8rem; margin-top:5px; display:flex; justify-content:space-between;">
-                    <span>${s.priority.toUpperCase()}</span>
-                    <span>${s.time}</span>
-                </div>
-            `;
+            // Built with textContent: these strings are free text typed by staff.
+            const title = document.createElement('div');
+            title.className = 'history-item-title';
+            title.textContent = s.label || s.id || 'Patient';
+            const complaint = document.createElement('div');
+            complaint.textContent = s.complaint || 'No complaint';
+            const meta = document.createElement('div');
+            meta.className = 'history-item-meta text-muted';
+            const pri = document.createElement('span');
+            pri.textContent = String(s.priority || '').toUpperCase();
+            const time = document.createElement('span');
+            time.textContent = s.time || '';
+            meta.append(pri, time);
+            div.append(title, complaint, meta);
             div.onclick = async () => {
                 const ok = await this.showConfirm('Load this patient? Unsaved data on current screen will be lost.', 'Load Patient');
                 if (ok) {
@@ -1742,14 +1784,23 @@ class TriageApp {
     }
 
     restoreUI() {
-        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val !== null ? val : ''; };
+        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = (val === null || val === undefined) ? '' : val; };
         const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
-        
+
         const { patient, obs, history, triage, prehospital } = this.state;
-        
-        setVal('patient-id', patient.id); 
-        setVal('patient-dob', patient.dob);
-        setVal('patient-weight', patient.weight); 
+
+        // Entries saved before v19.13 carried name/DOB and a DOB-derived age - migrate them to the
+        // direct age entry and drop the identifiers so they are not re-saved.
+        if (patient.ageValue === undefined) {
+            patient.ageValue = TriageApp.hasValue(patient.age) ? patient.age : null;
+            patient.ageUnit = 'Years';
+        }
+        delete patient.id;
+        delete patient.dob;
+        if (!this.state.meta) this.state.meta = TriageApp.newMeta();
+
+        setVal('patient-age', patient.ageValue);
+        setVal('patient-weight', patient.weight);
         setVal('patient-sex', patient.sex);
         setVal('patient-mobility', patient.mobility); 
         setCheck('check-pregnant', patient.pregnant);

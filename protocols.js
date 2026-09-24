@@ -67,7 +67,7 @@ export const clinicalData = {
         { id: "antiplatelet", label: "Antiplatelet", hint: "Aspirin, Clopidogrel, Ticagrelor", warning: "D: Antiplatelet (Bleeding Risk)" },
         { id: "insulin", label: "Insulin", hint: "Any type/brand", warning: "S: Insulin (Hypo/DKA Risk)" },
         { id: "steroid", label: "Long-term Steroids", hint: "Prednisolone equivalent, >4 weeks", warning: "S: Steroid Dependent (Adrenal Crisis Risk - consider hydrocortisone)" },
-        { id: "immunosuppressant", label: "Immunosuppressant / Biologic", hint: "Methotrexate, biologics, transplant meds", warning: "I: Immunosuppressant/Biologic (Sepsis Risk - low threshold for cultures)" },
+        { id: "immunosuppressant", label: "Immuno&shy;suppressant / Biologic", hint: "Methotrexate, biologics, transplant meds", warning: "I: Immunosuppressant/Biologic (Sepsis Risk - low threshold for cultures)" },
         { id: "parkinsons", label: "Parkinson's Medication", hint: "Levodopa, co-beneldopa, co-careldopa", warning: "M: Parkinson's (TIME CRITICAL - do not omit/delay doses)" },
         { id: "antiepileptic", label: "Anti-epileptic", hint: "Any AED", warning: "E: Anticonvulsant (Seizure Risk if delayed/missed)" },
         { id: "opioid", label: "Opioid / Substitution Rx", hint: "Methadone, buprenorphine, strong opioids", warning: "Opioid (Resp Depression Risk)" },
