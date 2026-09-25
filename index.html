@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v20.1</title>
+    <title>EMEvidence Triage v20.2</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -60,6 +60,7 @@
                 <tr><td><kbd>Enter</kbd> in an obs box</td><td>Move to the next observation</td></tr>
                 <tr><td><kbd>A</kbd> <kbd>C</kbd> <kbd>V</kbd> <kbd>P</kbd> <kbd>U</kbd></td><td>Set consciousness (when the ACVPU buttons are focused)</td></tr>
                 <tr><td><kbd>0</kbd>–<kbd>9</kbd>, <kbd>1</kbd><kbd>0</kbd></td><td>Set pain score (when the pain buttons are focused)</td></tr>
+                <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Set Clinical Frailty Scale (when the frailty buttons are focused)</td></tr>
                 <tr><td><kbd>Alt</kbd>+<kbd>C</kbd></td><td>Copy the EPR note</td></tr>
                 <tr><td><kbd>Alt</kbd>+<kbd>S</kbd></td><td>Open the SBAR handover</td></tr>
                 <tr><td><kbd>Alt</kbd>+<kbd>N</kbd></td><td>New patient (can be undone for 10 seconds)</td></tr>
@@ -84,8 +85,9 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v20.1</h3>
+            <h3 id="whatsnew-heading">What's new in v20.2</h3>
             <ul class="whatsnew-list">
+                <li><strong>Clinical Frailty Scale</strong> under the pain score (hidden for children). Press "Show criteria" for the full Rockwood CFS descriptions and click one to choose it. Flagged as missing for anyone 65 or over.</li>
                 <li><strong>Plan &amp; placement:</strong> each complaint now suggests nursing investigations (ECG, BM, urine dip, peak flow, VBG, ketones, bladder scan and more), cannula advice and the ED ICE blood bundles. Items are "Suggested" when your answers, obs or discriminator call for them, otherwise "Consider if…". No imaging. Placement is suggested from the category plus the complaint's pathways.</li>
                 <li><strong>Decision panel</strong> stays on screen: category, "see by" time, NEWS2, sepsis and anything still missing.</li>
                 <li><strong>Nothing is assumed.</strong> Pain, consciousness, oxygen and mobility start as "not recorded"; patients show NOT YET TRIAGED until you choose a discriminator.</li>
@@ -106,7 +108,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v20.1 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v20.2 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -261,6 +263,15 @@
                     </div>
                     <div class="pain-btn-group" id="pain-btn-container" role="radiogroup" aria-labelledby="pain-label"></div>
                     <div id="flacc-panel" class="tool-panel hidden"></div>
+                </div>
+                <div class="form-group" id="frailty-section">
+                    <div class="label-row">
+                        <label id="cfs-label">Clinical Frailty Scale <span id="cfs-readout" class="pain-readout">not assessed</span></label>
+                        <div class="label-actions"><button type="button" class="btn-tiny" id="btn-cfs-guide" aria-expanded="false" aria-controls="cfs-guide">Show criteria</button></div>
+                    </div>
+                    <div class="pain-btn-group cfs-btn-group" id="cfs-btn-container" role="radiogroup" aria-labelledby="cfs-label"></div>
+                    <p class="tool-note" id="cfs-note">Score how they were about 2 weeks before this illness or injury, not how they are today.</p>
+                    <div id="cfs-guide" class="tool-panel hidden"></div>
                 </div>
                 <div id="complaint-tools"></div>
             </section>
@@ -433,7 +444,7 @@
     </aside>
 
     <footer>
-        <p>v20.1 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v20.2 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>

@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '20.1');
+                localStorage.setItem('seenVersion', '20.2');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -277,6 +277,24 @@ const sep = p.locator('.profile-check', { hasText: 'AE - Sepsis' });
 check('Sore throat, infection yes, normal obs: sepsis bloods only "consider"', (await sep.getAttribute('class')).includes('plan-consider'));
 await setObs(p, { rr: 24, sats: 95, sbp: 105, hr: 115, temp: 38.6 }); await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
 check('Sore throat with NEWS2 5+: sepsis bloods suggested', (await sep.getAttribute('class')).includes('plan-suggested'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 13c. Clinical Frailty Scale.
+p = await fresh();
+await p.fill('#patient-age', '81');
+check('CFS: 65+ without a score is flagged as missing', (await p.textContent('#missing-list')).includes('Clinical Frailty Scale') && (await note(p)).includes('Clinical Frailty Scale: NOT RECORDED'));
+check('CFS criteria hidden until asked for', !(await p.isVisible('#cfs-guide')));
+await p.click('#btn-cfs-guide');
+check('CFS criteria expand with all 9 levels', await p.isVisible('#cfs-guide') && (await p.locator('#cfs-guide .cfs-row').count()) === 9);
+await p.locator('#cfs-guide .cfs-row[data-cfs="6"]').click();
+check('CFS chosen from the criteria list', (await p.textContent('#cfs-readout')).includes('6 - living with moderate frailty') && (await note(p)).includes('Clinical Frailty Scale: 6 - Living with moderate frailty'));
+check('CFS shown in the decision panel', (await p.textContent('#status-list')).includes('CFS 6'));
+await p.focus('.cfs-btn[data-cfs="6"]'); await p.keyboard.press('4');
+check('CFS keyboard entry', await p.evaluate(() => window.app.state.frailty.cfs === 4));
+await p.click('.cfs-btn[data-cfs="4"]');
+check('CFS cleared by clicking the chosen score again', await p.evaluate(() => window.app.state.frailty.cfs === null));
+await p.fill('#patient-age', '8');
+check('CFS hidden for children', !(await p.isVisible('#frailty-section')));
 allErrors.push(...p.errors); await p.context().close();
 
 // 14. Stroke & MEOWS.

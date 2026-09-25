@@ -268,3 +268,11 @@ test('Plan auto conditions and base placement', () => {
     assert.equal(C.basePlacement({ level: 'Green', mobility: 'Walking' }).to, 'Minors');
     assert.equal(C.basePlacement({ level: 'Blue', mobility: 'Stretcher' }).to, 'Majors');
 });
+
+test('Clinical Frailty Scale levels', () => {
+    assert.deepEqual(C.CFS_LEVELS.map(l => l.score), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.equal(C.cfs(null), null);
+    assert.equal(C.cfs(10), null);
+    assert.equal(C.cfs(4).frail, false);
+    assert.equal(C.cfs('5').label, 'CFS 5 - Living with mild frailty');
+});

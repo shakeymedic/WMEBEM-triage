@@ -1,4 +1,4 @@
-// protocols.js - Clinical configuration (v20.1)
+// protocols.js - Clinical configuration (v20.2)
 // STATUS: NOT CLINICALLY SIGNED OFF. The flowcharts below are a paraphrase of Manchester Triage
 // System presentations, not the licensed MTS content, and must be reviewed line by line against the
 // trust's licensed MTS edition by a named clinical lead before live use. Guideline-derived rules

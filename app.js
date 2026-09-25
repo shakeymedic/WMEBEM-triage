@@ -1,7 +1,7 @@
 import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 
-const VERSION = '20.1';
+const VERSION = '20.2';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -45,6 +45,7 @@ function freshState() {
             paeds: { recentDose: null, accompaniedBy: '', safeguarding: {} },
             ipc: {}, corridor: {}, corridorCheckedAt: null
         },
+        frailty: { cfs: null },
         screening: {},
         triage: { override: null, disposition: '', dispositionOther: '' },
         plan: [],
@@ -202,11 +203,13 @@ class TriageApp {
         if (!C.has(s.complaint.pain)) missing.push('Pain score');
         if (!s.history.allergies.trim()) missing.push('Allergies');
         if (!p.mobility) missing.push('Mobility');
+        const frailty = isPaeds ? null : C.cfs(s.frailty.cfs);
+        if (p.age !== null && p.age >= 65 && !frailty) missing.push('Clinical Frailty Scale (65 and over)');
         if (isPaeds && !C.has(p.weight)) missing.push('Weight (child)');
         if (sepsis.status === 'not-asked' && (ews.score >= 3 || (C.has(o.temp) && (o.temp >= 38 || o.temp < 36)))) missing.push('Could this be an infection? (sepsis)');
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
-        this.derived = { isPaeds, risks, anticoagDetected, ews, newsResp, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
+        this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
     }
 
     activeTools(flowchart, disc, age) {
@@ -470,6 +473,34 @@ class TriageApp {
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); this.set('complaint.pain', Math.min(10, cur + 1)); this.focusPain(); }
             else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); this.set('complaint.pain', Math.max(0, cur - 1)); this.focusPain(); }
         });
+        // Clinical Frailty Scale: 1-9 buttons, click the active one again to clear.
+        const ccont = this.$('cfs-btn-container');
+        ccont.innerHTML = C.CFS_LEVELS.map(l => `<button type="button" class="pain-btn cfs-btn" role="radio" aria-checked="false" data-cfs="${l.score}" title="${esc(l.title)}">${l.score}</button>`).join('');
+        const setCfs = (v) => { this.set('frailty.cfs', v); const a = ccont.querySelector('.cfs-btn.active') || ccont.querySelector('.cfs-btn'); if (a) a.focus(); };
+        ccont.addEventListener('click', (e) => {
+            const b = e.target.closest('.cfs-btn');
+            if (b) setCfs(this.state.frailty.cfs === Number(b.dataset.cfs) ? null : Number(b.dataset.cfs));
+        });
+        ccont.addEventListener('keydown', (e) => {
+            const cur = this.state.frailty.cfs;
+            if (/^[1-9]$/.test(e.key)) { e.preventDefault(); setCfs(Number(e.key)); }
+            else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); setCfs(Math.min(9, (cur || 0) + 1)); }
+            else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); setCfs(Math.max(1, (cur || 2) - 1)); }
+        });
+        this.$('cfs-guide').innerHTML = `<div class="tool-head"><span class="tool-title">Clinical Frailty Scale - choose the description that best fits their baseline</span></div>` +
+            `<div class="cfs-list">${C.CFS_LEVELS.map(l => `<button type="button" class="cfs-row" data-cfs="${l.score}"><span class="cfs-num">${l.score}</span><span><strong>${esc(l.title)}</strong><small>${esc(l.text)}</small></span></button>`).join('')}</div>` +
+            `<p class="tool-note"><strong>Score the baseline:</strong> how the person was about 2 weeks before this illness or injury. Validated for people aged 65 and over; not validated for younger people, people with a stable single disability or people with a learning disability.</p>` +
+            `<p class="tool-note"><strong>Dementia:</strong> ${esc(C.CFS_DEMENTIA)}</p><p class="tool-note cfs-source">${esc(C.CFS_SOURCE)}</p>`;
+        this.$('cfs-guide').addEventListener('click', (e) => {
+            const r = e.target.closest('.cfs-row');
+            if (r) setCfs(Number(r.dataset.cfs));
+        });
+        this.$('btn-cfs-guide').addEventListener('click', () => {
+            const g = this.$('cfs-guide'), open = g.classList.toggle('hidden') === false;
+            this.$('btn-cfs-guide').setAttribute('aria-expanded', String(open));
+            this.$('btn-cfs-guide').textContent = open ? 'Hide criteria' : 'Show criteria';
+        });
+
         this.$('btn-flacc').addEventListener('click', () => {
             const panel = this.$('flacc-panel');
             panel.classList.toggle('hidden');
@@ -799,6 +830,7 @@ class TriageApp {
         this.renderDiscriminators();
         this.renderComplaintTools();
         this.renderPain();
+        this.renderFrailty();
         this.renderEws();
         this.renderSepsis();
         this.renderPaeds();
@@ -885,6 +917,24 @@ class TriageApp {
         const flaccAge = this.state.patient.age !== null && this.state.patient.age < 7;
         this.$('btn-flacc').classList.toggle('hidden', !flaccAge);
         if (!flaccAge) this.$('flacc-panel').classList.add('hidden');
+    }
+
+    renderFrailty() {
+        const p = this.state.patient, v = this.state.frailty.cfs, lvl = C.cfs(v);
+        const child = p.age !== null && p.age < 16;
+        this.$('frailty-section').classList.toggle('hidden', child);
+        if (child) return;
+        this.$('cfs-btn-container').querySelectorAll('.cfs-btn').forEach(b => {
+            const on = Number(b.dataset.cfs) === v;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-checked', String(on));
+            b.tabIndex = on || (v === null && b.dataset.cfs === '1') ? 0 : -1;
+        });
+        this.$('cfs-guide').querySelectorAll('.cfs-row').forEach(r => r.classList.toggle('active', Number(r.dataset.cfs) === v));
+        this.$('cfs-readout').textContent = lvl ? `${lvl.score} - ${lvl.title.toLowerCase()}` : 'not assessed';
+        this.$('cfs-note').textContent = p.age !== null && p.age < 65
+            ? 'Validated for 65 and over - use with caution under 65. Score how they were about 2 weeks before this illness or injury.'
+            : 'Score how they were about 2 weeks before this illness or injury, not how they are today.';
     }
 
     buildFlacc() {
@@ -1258,6 +1308,7 @@ class TriageApp {
         const sp = d.sepsis;
         if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Moderate' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
         rows.push(['Pain', C.has(s.complaint.pain) ? [`${s.complaint.pain}/10 ${d.pain.band.toLowerCase()}`, s.complaint.pain >= 8 ? 'st-red' : ''] : ['Not assessed', 'st-grey']]);
+        if (d.frailty) rows.push(['Frailty', [d.frailty.label, d.frailty.frail ? 'st-amber' : '']]);
         const al = s.history.allergies.trim();
         rows.push(['Allergies', al ? [al + (s.history.allergyReaction ? ` (${s.history.allergyReaction})` : ''), /nkda|nil/i.test(al) ? '' : 'st-red'] : ['Not recorded', 'st-grey']]);
         if (d.risks.length) rows.push(['Alerts', [`${d.risks.length} high-risk medicine / group alert${d.risks.length > 1 ? 's' : ''}`, 'st-red']]);
@@ -1491,6 +1542,8 @@ class TriageApp {
         lines.push(`PC: ${s.complaint.name || (s.complaint.raw ? `${s.complaint.raw} (no flowchart selected)` : 'Not recorded')}`);
         const disc = d.disc ? `${d.disc.text} (${d.disc.priority})` : (s.complaint.noneApply ? 'None of the discriminators apply (Blue)' : 'Not selected');
         lines.push(`Discriminator: ${disc}`);
+        if (d.frailty) lines.push(`Clinical Frailty Scale: ${d.frailty.score} - ${d.frailty.title} (baseline, about 2 weeks before this illness)`);
+        else if (p.age !== null && p.age >= 65) lines.push('Clinical Frailty Scale: NOT RECORDED');
         lines.push(`Pain: ${C.has(s.complaint.pain) ? `${s.complaint.pain}/10 - ${d.pain.band.toLowerCase()}${s.complaint.painMethod === 'FLACC' ? ' (FLACC)' : ''}` : 'Not assessed'}`);
         const gcs = d.gcsTotal !== null ? `${d.gcsTotal} (E${o.gcsE} V${o.gcsV} M${o.gcsM})` : '-';
         lines.push(`Obs: RR ${f(o.rr)} | SpO2 ${f(o.sats, '%')} ${o.o2 ? (o.o2 === 'O2' ? 'on O2' : 'air') : '(air/O2 not recorded)'}${o.scale2 ? ' [scale 2]' : ''} | BP ${f(o.sbp)}/${f(o.dbp)} | HR ${f(o.hr)} | ACVPU ${o.avpu || '-'} | Temp ${f(o.temp)} | CRT ${f(o.crt, 's')} | GCS ${gcs} | BM ${f(o.bm)} | Pupils ${o.pupils || '-'}`);
@@ -1564,7 +1617,7 @@ class TriageApp {
         const s = this.state, d = this.derived, p = s.patient, h = s.history;
         const age = C.has(p.ageValue) ? (p.ageUnit === 'Months' ? `${p.ageValue}-month-old` : `${p.ageValue}-year-old`) : 'age not recorded,';
         const S = `I have a ${age} ${p.sex ? p.sex.toLowerCase() : 'patient (sex not recorded)'} who arrived ${p.arrivalMode === 'Ambulance' ? 'by ambulance' : 'self-presented'} at ${hhmm(s.meta.arrivalAt)} with ${s.complaint.name || s.complaint.raw || 'an unrecorded complaint'}. Triage category: ${d.level ? d.level + (d.priority.provisional ? ' (provisional)' : '') : 'not yet triaged'}.`;
-        const B = `PMH: ${h.pmh || 'not recorded'}. Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (${h.allergyReaction})` : ''}.${d.risks.length ? ` Alerts: ${d.risks.join('; ')}.` : ''}`;
+        const B = `PMH: ${h.pmh || 'not recorded'}. Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (${h.allergyReaction})` : ''}.${d.risks.length ? ` Alerts: ${d.risks.join('; ')}.` : ''}${d.frailty ? ` Baseline frailty: ${d.frailty.label}.` : ''}`;
         const e = d.ews;
         let A = e.recorded === 0 ? 'Obs not yet taken.' : `${e.type === 'NEWS2' ? 'NEWS2' : `Local ${e.type}`} ${e.complete ? e.score : `incomplete (partial ${e.score}, missing ${e.missing.join(', ')})`}.`;
         if (d.sepsis.status === 'assessed') A += ` Suspected infection - NG253 ${d.sepsis.risk} risk.`;

@@ -470,3 +470,24 @@ export function basePlacement({ level, isPaeds, mobility }) {
     if (mobility === 'Walking') return { to: 'Minors', why: `${level} category, walking` };
     return { to: 'Majors', why: mobility ? `${level} category, not walking` : `${level} category - record mobility` };
 }
+
+// Clinical Frailty Scale (Rockwood), version 2.0 (2020). Score the person's baseline:
+// how they were about 2 weeks before this illness or injury. Validated for age 65 and over.
+export const CFS_SOURCE = 'Clinical Frailty Scale ©2005-2020 Rockwood, Version 2.0 (EN). All rights reserved. Geriatric Medicine Research, Dalhousie University, Halifax, Canada (www.geriatricmedicineresearch.ca). Rockwood K et al. CMAJ 2005;173:489-495.';
+export const CFS_LEVELS = [
+    { score: 1, title: 'Very fit', text: 'People who are robust, active, energetic and motivated. They tend to exercise regularly and are among the fittest for their age.' },
+    { score: 2, title: 'Fit', text: 'People who have no active disease symptoms but are less fit than category 1. Often, they exercise or are very active occasionally, e.g. seasonally.' },
+    { score: 3, title: 'Managing well', text: 'People whose medical problems are well controlled, even if occasionally symptomatic, but often are not regularly active beyond routine walking.' },
+    { score: 4, title: 'Living with very mild frailty', text: 'Previously "vulnerable", this category marks early transition from complete independence. While not dependent on others for daily help, often symptoms limit activities. A common complaint is being "slowed up" and/or being tired during the day.' },
+    { score: 5, title: 'Living with mild frailty', text: 'People who often have more evident slowing, and need help with high order instrumental activities of daily living (finances, transportation, heavy housework). Typically, mild frailty progressively impairs shopping and walking outside alone, meal preparation, medications and begins to restrict light housework.' },
+    { score: 6, title: 'Living with moderate frailty', text: 'People who need help with all outside activities and with keeping house. Inside, they often have problems with stairs and need help with bathing and might need minimal assistance (cuing, standby) with dressing.' },
+    { score: 7, title: 'Living with severe frailty', text: 'Completely dependent for personal care, from whatever cause (physical or cognitive). Even so, they seem stable and not at high risk of dying (within about 6 months).' },
+    { score: 8, title: 'Living with very severe frailty', text: 'Completely dependent for personal care and approaching end of life. Typically, they could not recover even from a minor illness.' },
+    { score: 9, title: 'Terminally ill', text: 'Approaching the end of life. This category applies to people with a life expectancy under 6 months, who are not otherwise living with severe frailty. (Many terminally ill people can still exercise until very close to death.)' }
+];
+export const CFS_DEMENTIA = 'The degree of frailty generally corresponds to the degree of dementia. Mild dementia: forgetting the details of a recent event (though still remembering the event itself), repeating the same question or story, social withdrawal. Moderate dementia: recent memory is very impaired, even though they seemingly remember past life events well; they can do personal care with prompting. Severe dementia: cannot do personal care without help. Very severe dementia: often bedfast; many are virtually mute.';
+export function cfs(score) {
+    const n = toNumber(score);
+    const lvl = CFS_LEVELS.find(l => l.score === n);
+    return lvl ? { ...lvl, frail: n >= 5, label: `CFS ${n} - ${lvl.title}` } : null;
+}

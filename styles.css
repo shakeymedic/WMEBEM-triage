@@ -162,6 +162,17 @@ body:not(.dictation-on) .mic-btn { display: none; }
 .pain-btn { min-height: 32px; padding: 0; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-weight: 700; color: var(--text-main); }
 .pain-btn:hover { border-color: var(--primary); }
 .pain-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.cfs-btn-group { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.cfs-list { display: flex; flex-direction: column; gap: 3px; }
+.cfs-row { display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 6px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-main); font-size: 0.82rem; cursor: pointer; }
+.cfs-row:hover { border-color: var(--primary); }
+.cfs-row.active { background: var(--primary-soft); border-color: var(--primary); }
+.cfs-row > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.cfs-row small { color: var(--secondary); font-size: 0.75rem; font-weight: normal; line-height: 1.35; }
+.cfs-num { flex: 0 0 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border-strong); font-weight: 700; }
+.cfs-row.active .cfs-num { background: var(--primary); color: #fff; border-color: var(--primary); }
+.cfs-source { font-size: 0.68rem; font-style: italic; }
+#cfs-guide { margin-top: 6px; }
 .pain-readout { font-weight: 700; color: var(--text-main); margin-left: 4px; }
 
 /* ---------- Tool panels (NG232, ROSIER, 4AT, sepsis, fever, MH, IPC, corridor...) ---------- */
