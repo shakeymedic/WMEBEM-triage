@@ -1,1877 +1,1729 @@
 import { clinicalData } from './protocols.js';
+import * as C from './clinical.js';
 
-// Auto-detection threshold for the "Abnormal vital signs" MTS discriminator (adults, NEWS2 only -
-// not used for PEWS/MEOWS, which have their own trigger logic). Per Royal College of Physicians NEWS2
-// guidance: a total score >= this constant, OR any single parameter scoring the maximum of 3 points on
-// its own (checked independently in isAbnormalObsAutoTrue - a RED score at RCP's low-medium risk trigger,
-// which stays live even if this constant is raised). This is an RCP definition, NOT a NICE one - NEWS2
-// itself is a Royal College of Physicians tool. Change this single constant to retune sensitivity (e.g. 5).
-const NEWS2_ABNORMAL_OBS_THRESHOLD = 3;
+const VERSION = '20.0';
+const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
+const HISTORY_KEY = 'triage_history_v20';
+const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
+const CHILD_CHART = /Child|Baby|Neonate|Worried Parent/;
+const ADULT_CHART = /Adult/;
+const MIC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 
-// The exact MTS discriminator text this auto-detection drives - must match the flowchart data in protocols.js.
-const AUTO_DISCRIMINATOR_TEXT = "Abnormal vital signs";
+// localStorage/sessionStorage can throw (private windows, locked-down profiles) - never let that break triage.
+const store = {
+    get(key, fallback = null, session = false) {
+        try { const v = (session ? sessionStorage : localStorage).getItem(key); return v === null ? fallback : v; } catch { return fallback; }
+    },
+    set(key, value, session = false) {
+        try { (session ? sessionStorage : localStorage).setItem(key, value); } catch { /* preference just won't persist */ }
+    },
+    remove(key) { try { localStorage.removeItem(key); } catch { /* ignore */ } }
+};
+
+const hhmm = (d) => d ? new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+const ddmmyyyy = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// EPR fields are often not Unicode-safe: keep the note to plain characters.
+const plain = (s) => String(s ?? '').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/₂/g, '2').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/·/g, '-').replace(/­/g, '');
+const newSessionId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+function freshState() {
+    return {
+        meta: { sessionId: newSessionId(), arrivalAt: new Date().toISOString(), startedAt: null, categorySetAt: null, lastCategory: null, obsAt: null, noteCopiedAt: null },
+        patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, lmp: '', mobility: '', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '', localRef: '' },
+        prehospital: { obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
+        obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, crt: null, avpu: null, gcsE: null, gcsV: null, gcsM: null, bm: null, pupils: '' },
+        complaint: { name: '', raw: '', discriminator: null, noneApply: false, pain: null, painMethod: 'NRS', flacc: {} },
+        history: { allergies: '', allergyReaction: '', pmh: '', meds: '', manualRiskFlags: {}, treatmentNotes: '', planNarrative: '' },
+        assess: {
+            infection: null, sepsisFactors: {},
+            headache: { trauma: null, sudden: null },
+            headInjuryInvolved: false, ng232: {}, ng232Anticoag: null,
+            stroke: { lkw: '', rosier: {} }, ecgDoneAt: null,
+            fourAT: {}, nof: {}, mh: {},
+            ng143: { feverReported: false, ticks: {} },
+            paeds: { recentDose: null, accompaniedBy: '', safeguarding: {} },
+            ipc: {}, corridor: {}, corridorCheckedAt: null
+        },
+        screening: {},
+        triage: { override: null, disposition: '', dispositionOther: '' },
+        plan: [],
+        ui: { pmhPromptsDismissed: false, pmhSignature: '' }
+    };
+}
 
 class TriageApp {
     constructor() {
         this.data = clinicalData;
-        
-        this.initialState = {
-            patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, mobility: 'Walking', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '' },
-            prehospital: { obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
-            obs: { rr: null, sats: null, o2: 'Air', sbp: null, dbp: null, hr: null, avpu: 'A', temp: null, crt: null, scale2: false },
-            history: { complaint: '', pain: 0, allergies: '', pmh: '', meds: '', riskFlags: [], manualRiskFlags: {}, planNarrative: '', treatmentNotes: '', pmhPromptSuggestions: [] },
-            triage: {
-                discriminator: null,
-                discriminatorLocked: false,
-                basePriority: 'Blue',
-                finalPriority: 'Blue',
-                reasons: [],
-                override: null,
-                newsScore: 0,
-                newsBreakdown: [],
-                pewsGroup: null,
-                sepsis: { applicable: false, red: [], amber: [] },
-                stream: 'Pending',
-                timer: '--',
-                disposition: '',
-                dispositionOther: ''
-            },
-            ui: { sepsisAlertShown: false, redFlagChecked: false, quickMode: false, pmhPromptsDismissed: false },
-            plan: []
-        };
+        this.state = freshState();
+        this.derived = {};
+        this.built = {};
+        this.$ = (id) => document.getElementById(id);
 
-        this.state = JSON.parse(JSON.stringify(this.initialState));
-        this.state.meta = TriageApp.newMeta();
-        this.saveTimeout = null;
-        this.dom = {}; 
-
-        this.cacheDOM();
-        this.renderScreening();
-        this.renderHighRiskMeds();
+        this.initPreferences();
+        this.purgeHistory();
+        this.buildStatic();
         this.bindEvents();
-        this.populateDatalist();
-        this.renderPainButtons();
-        
         this.initSpeech();
-        this.loadHistory();
-        
-        // localStorage can throw (private browsing, sandboxed embeds, some in-app browsers) - never
-        // let that take the whole app down before it's even rendered anything.
-        try {
-            if (localStorage.getItem('theme') === 'dark') {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                document.getElementById('checkbox-theme').checked = true;
-            }
-            if (localStorage.getItem('quickMode') === 'on') {
-                this.state.ui.quickMode = true;
-                document.body.classList.add('quick-mode');
-                const qBtn = document.getElementById('btn-quick-mode');
-                if (qBtn) qBtn.classList.add('active');
-            }
-        } catch (err) {
-            console.warn('localStorage unavailable - theme/quick-mode preferences will not persist this session.', err);
+        this.restoreUI();
+
+        if (store.get('seenVersion') !== VERSION) {
+            store.set('seenVersion', VERSION);
+            this.openModal('modal-whatsnew');
         }
-
-        // Run one full render immediately so every dynamic bit of UI (pregnancy section, discriminator
-        // placeholder, obs-form paeds dimming, etc.) is correct from the very first paint, rather than
-        // waiting for the nurse's first keystroke to trigger it via setState().
-        this.render();
+        this.clock = setInterval(() => { this.renderDecision(); this.renderTimers(); }, 30000);
     }
 
-    // No name/DOB is captured, so History entries are keyed by a per-session random ID instead.
-    static newMeta() {
-        return { sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, startedAt: new Date().toISOString() };
+    // ------------------------------------------------------------------ preferences & settings
+    initPreferences() {
+        if (store.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        if (store.get('quickMode') === 'on') { document.body.classList.add('quick-mode'); this.$('btn-quick-mode').classList.add('active'); }
+        this.shared = store.get('sharedComputer') === 'on';
+        this.dictation = store.get('dictation') === 'on';
+        this.$('nurse-initials').value = store.get('initials', '', true) || '';
+        this.$('set-shared').checked = this.shared;
+        this.$('set-dictation').checked = this.dictation;
+        this.$('set-dark').checked = store.get('theme') === 'dark';
+        this.$('btn-history').classList.toggle('hidden', this.shared);
     }
 
-    // Number inputs report '' when cleared and parseFloat('') is NaN - normalise both to null so a
-    // cleared field reads as "not entered" rather than an out-of-range reading.
-    static toNumber(v) {
-        if (v === null || v === undefined || v === '') return null;
-        const n = parseFloat(v);
-        return Number.isNaN(n) ? null : n;
+    // ------------------------------------------------------------------ state helpers
+    set(path, value, opts = {}) {
+        const keys = path.split('.');
+        let obj = this.state;
+        keys.slice(0, -1).forEach(k => { obj = obj[k]; });
+        obj[keys[keys.length - 1]] = value;
+        if (!this.state.meta.startedAt) this.state.meta.startedAt = new Date().toISOString();
+        if (path.startsWith('obs.')) this.state.meta.obsAt = new Date().toISOString();
+        if (!opts.silent) this.update();
     }
 
-    static hasValue(v) {
-        return v !== null && v !== undefined && v !== '' && !Number.isNaN(v);
-    }
-
-    static ageLabel(p) {
-        if (!TriageApp.hasValue(p.ageValue)) return '';
-        return p.ageUnit === 'Months' ? `${p.ageValue} months` : `${p.ageValue}y`;
-    }
-
-    // Physiologically plausible ranges for vital signs, used to flag (not block) unusual entries.
-    // min/max = "double-check this" band; hardMin/hardMax = physiologically impossible.
-    static get obsBounds() {
-        return {
-            rr:   { min: 4,  max: 60,  hardMin: 0,  hardMax: 100, unit: '/min' },
-            sats: { min: 50, max: 100, hardMin: 0,  hardMax: 100, unit: '%' },
-            sbp:  { min: 40, max: 260, hardMin: 0,  hardMax: 300, unit: 'mmHg' },
-            dbp:  { min: 20, max: 160, hardMin: 0,  hardMax: 200, unit: 'mmHg' },
-            hr:   { min: 25, max: 220, hardMin: 0,  hardMax: 300, unit: 'bpm' },
-            temp: { min: 30, max: 42,  hardMin: 20, hardMax: 45,  unit: '°C' },
-            crt:  { min: 0,  max: 8,   hardMin: 0,  hardMax: 15,  unit: 's' }
-        };
-    }
-
-    // Flags implausible/unusual vital sign entries with a coloured border + tooltip, without blocking entry -
-    // genuinely extreme values (e.g. HR 220 in SVT) do happen, so we warn rather than refuse the input.
-    validateObsField(id, value) {
-        const key = id.replace('obs-', '');
-        const bounds = TriageApp.obsBounds[key];
-        const el = document.getElementById(id);
-        if (!el || !bounds) return;
-        if (value === null || value === '' || isNaN(value)) {
-            el.classList.remove('field-warning', 'field-danger');
-            el.title = '';
-            return;
-        }
-        if (value < bounds.hardMin || value > bounds.hardMax) {
-            el.classList.add('field-danger');
-            el.classList.remove('field-warning');
-            el.title = `Physiologically implausible value - please check (valid range ${bounds.hardMin}-${bounds.hardMax}${bounds.unit})`;
-        } else if (value < bounds.min || value > bounds.max) {
-            el.classList.add('field-warning');
-            el.classList.remove('field-danger');
-            el.title = `Unusual value - please double-check (typical range ${bounds.min}-${bounds.max}${bounds.unit})`;
-        } else {
-            el.classList.remove('field-warning', 'field-danger');
-            el.title = '';
-        }
-    }
-
-    // Promise-based replacement for window.confirm() so dialogs match the app's own styling
-    // and aren't liable to be suppressed/blocked by the browser like native confirm() can be.
-    showConfirm(message, title = 'Please Confirm') {
-        return new Promise((resolve) => {
-            document.getElementById('modal-confirm-title').textContent = title;
-            document.getElementById('modal-confirm-message').textContent = message;
-            const overlay = document.getElementById('modal-confirm');
-            overlay.classList.remove('hidden');
-            const okBtn = document.getElementById('modal-confirm-ok');
-            const cancelBtn = document.getElementById('modal-confirm-cancel');
-            const cleanup = (result) => {
-                overlay.classList.add('hidden');
-                okBtn.removeEventListener('click', onOk);
-                cancelBtn.removeEventListener('click', onCancel);
-                resolve(result);
-            };
-            const onOk = () => cleanup(true);
-            const onCancel = () => cleanup(false);
-            okBtn.addEventListener('click', onOk);
-            cancelBtn.addEventListener('click', onCancel);
-        });
-    }
-
-    // Markup for a small ℹ️ button that reveals a reference/citation bubble on click.
-    // Click handling is delegated once in bindEvents() so this can be dropped in anywhere via innerHTML.
-    infoPopoverHTML(text) {
-        if (!text) return '';
-        return `<span class="info-pop"><button type="button" class="info-btn" aria-label="Reference info">ℹ️</button><span class="info-bubble">${text}</span></span>`;
-    }
-
-    // Small Planned/Requested/Done status control shown under a ticked plan item (bedside, bloods,
-    // or the universal pregnancy test). Only rendered once the item is checked - an unticked item
-    // simply isn't in the plan at all, so it has no status to track.
-    statusControlHTML(status) {
-        const opts = ['Planned', 'Requested', 'Done'];
-        return `<div class="status-control">${opts.map(o => `<button type="button" class="status-btn${status === o ? ' active' : ''}" data-status="${o}">${o}</button>`).join('')}</div>`;
-    }
-
-    // Wires the click handlers for a status control just inserted into `container` (any element that
-    // contains a `.status-control` - e.g. a `.protocol-check` div). Looks up the matching plan entry
-    // by category+name and updates its `status` field in place.
-    bindStatusControl(container, category, name) {
-        const control = container.querySelector('.status-control');
-        if (!control) return;
-        control.querySelectorAll('.status-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const item = this.state.plan.find(x => x.category === category && x.name === name);
-                if (!item) return;
-                item.status = btn.dataset.status;
-                control.querySelectorAll('.status-btn').forEach(b => b.classList.toggle('active', b === btn));
-                this.renderNote();
-                this.debouncedSave();
-            });
-        });
-    }
-
-    // --- Fuzzy string matching helpers (tolerates typos, so PMHx/meds entry doesn't rely on perfect spelling) ---
-    static levenshtein(a, b) {
-        if (a === b) return 0;
-        const al = a.length, bl = b.length;
-        if (al === 0) return bl;
-        if (bl === 0) return al;
-        let prev = new Array(bl + 1);
-        for (let j = 0; j <= bl; j++) prev[j] = j;
-        for (let i = 1; i <= al; i++) {
-            const curr = [i];
-            for (let j = 1; j <= bl; j++) {
-                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-                curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
-            }
-            prev = curr;
-        }
-        return prev[bl];
-    }
-
-    // Returns true if `word` is a plausible fuzzy match for `target` (case-insensitive).
-    // Tolerance scales gently with word length so short words still require a close match.
-    static fuzzyMatch(word, target) {
-        if (!word || !target) return false;
-        word = word.toLowerCase();
-        target = target.toLowerCase();
-        if (word.length < 3) return word === target;
-        if (target.startsWith(word) || target.includes(word)) return true;
-        const maxLen = Math.max(word.length, target.length);
-        if (Math.abs(word.length - target.length) > 3) return false;
-        const tolerance = word.length <= 5 ? 1 : (word.length <= 9 ? 2 : 3);
-        return TriageApp.levenshtein(word, target.slice(0, maxLen)) <= tolerance || TriageApp.levenshtein(word, target) <= tolerance;
-    }
-
-    setState(updates) {
-        for (const key in updates) {
-            if (typeof updates[key] === 'object' && updates[key] !== null && !Array.isArray(updates[key])) {
-                this.state[key] = { ...this.state[key], ...updates[key] };
-            } else {
-                this.state[key] = updates[key];
-            }
-        }
-        this.runClinicalLogic();
+    update() {
+        this.compute();
         this.render();
         this.debouncedSave();
     }
 
-    runClinicalLogic() {
-        // Age is stored in years (fractional for infants entered in months) so every existing
-        // threshold - PEWS bands (<1, <5, <12), <16 paeds, >=65 frailty - works unchanged.
-        const pt = this.state.patient;
-        if (!TriageApp.hasValue(pt.ageValue)) pt.age = null;
-        else pt.age = pt.ageUnit === 'Months' ? pt.ageValue / 12 : pt.ageValue;
-
-        this.checkMedsRisks();
-        this.checkPmhPrompts();
-        this.calcSepsisScreen();
-
-        const p = this.state.patient;
-        this.state.triage.newsScore = 0;
-        this.state.triage.newsBreakdown = [];
-
-        if (p.pregnant) {
-            this.calcMEOWS();
-        } else if (p.age !== null && p.age < 16) {
-            this.calcPEWS();
-        } else {
-            this.calcNEWS2();
-        }
-
-        this.updateAutoDiscriminator();
-        this.calcTriagePriority();
-        this.calcStreamAndTimer();
-    }
-
-    // Adults only (NEWS2 threshold - see isAbnormalObsAutoTrue). Auto-selects/clears the "Abnormal vital
-    // signs" MTS discriminator for the current complaint's flowchart, unless the nurse has manually picked
-    // a discriminator (triage.discriminatorLocked) - a deliberate choice always wins over auto-detection.
-    updateAutoDiscriminator() {
-        const t = this.state.triage;
-        if (t.discriminatorLocked) return;
-
-        const flowchart = this.data.mtsFlowcharts[this.state.history.complaint];
-        const hasAutoOption = flowchart && flowchart.some(f => f.text === AUTO_DISCRIMINATOR_TEXT);
-        if (!hasAutoOption) return;
-
-        if (this.isAbnormalObsAutoTrue()) {
-            t.discriminator = AUTO_DISCRIMINATOR_TEXT;
-            t.basePriority = 'Yellow';
-        } else if (t.discriminator === AUTO_DISCRIMINATOR_TEXT) {
-            t.discriminator = null;
-            t.basePriority = 'Blue';
-        }
-    }
-
-    // RCP NEWS2 guidance (not NICE - NEWS2 is a Royal College of Physicians tool): total score at/above
-    // NEWS2_ABNORMAL_OBS_THRESHOLD, OR any single parameter scoring the maximum of 3 points on its own
-    // (a RED score - RCP's low-medium clinical risk trigger, independent of the total).
-    isAbnormalObsAutoTrue() {
-        const p = this.state.patient;
+    // ------------------------------------------------------------------ clinical computation
+    compute() {
+        const s = this.state, p = s.patient, o = s.obs, d = this.data;
+        p.age = !C.has(p.ageValue) ? null : (p.ageUnit === 'Months' ? p.ageValue / 12 : p.ageValue);
         const isPaeds = p.age !== null && p.age < 16;
-        if (isPaeds || p.pregnant || p.age === null) return false;
-        const t = this.state.triage;
-        if (t.newsScore >= NEWS2_ABNORMAL_OBS_THRESHOLD) return true;
-        return t.newsBreakdown.some(b => b.endsWith('(+3)'));
+
+        const risks = this.computeRiskFlags();
+        const anticoagDetected = !!(s.history.manualRiskFlags.anticoag || risks.some(r => /Anticoagulant|DOAC|LMWH/.test(r)));
+
+        let ews;
+        if (p.pregnant) ews = { type: 'MEOWS', ...C.localMeows(o) };
+        else if (isPaeds) ews = { type: 'PEWS', ...C.localPews(o, p.age, d.scoring.pews) };
+        else ews = { type: 'NEWS2', ...C.news2(o, d.scoring.news2) };
+        const newsResp = ews.type === 'NEWS2' ? C.news2Response(ews.score, ews.redParam) : null;
+        const sepsis = C.sepsisNG253({ age: p.age, pregnant: p.pregnant, infection: s.assess.infection, news: ews.type === 'NEWS2' ? ews : { score: 0, complete: false, redParam: false } });
+
+        const pain = C.mtsPain(s.complaint.pain);
+        const feverTL = C.ng143TrafficLight({ age: p.age, obs: o, ticks: s.assess.ng143.ticks });
+        const feverRelevant = feverTL.applicable && ((C.has(o.temp) && o.temp >= 38) || s.assess.ng143.feverReported);
+
+        const flowchart = d.mtsFlowcharts[s.complaint.name] || null;
+        const disc = flowchart && s.complaint.discriminator ? flowchart.find(x => x.text === s.complaint.discriminator) || null : null;
+        const autoDisc = flowchart ? flowchart.find(x => x.text === AUTO_DISCRIMINATOR_TEXT) : null;
+
+        const floors = [];
+        if (autoDisc && ews.type === 'NEWS2' && p.age !== null && (ews.score >= 3 || ews.redParam)) {
+            floors.push({ level: autoDisc.priority, reason: `${AUTO_DISCRIMINATOR_TEXT} (auto-detected from obs)` });
+        }
+        const partial = ews.complete ? '' : 'partial ';
+        if (ews.type === 'NEWS2') {
+            if (ews.score >= 7) floors.push({ level: 'Red', reason: `${partial}NEWS2 ${ews.score} (7 or more)` });
+            else if (ews.score >= 5) floors.push({ level: 'Orange', reason: `${partial}NEWS2 ${ews.score} (5-6)` });
+            else if (ews.score >= 3) floors.push({ level: 'Yellow', reason: `${partial}NEWS2 ${ews.score}` });
+        } else if (ews.type === 'PEWS') {
+            if (ews.score >= 7) floors.push({ level: 'Red', reason: `${partial}local PEWS ${ews.score} (high)` });
+            else if (ews.score >= 5) floors.push({ level: 'Orange', reason: `${partial}local PEWS ${ews.score}` });
+        } else if (ews.score >= 3) {
+            floors.push({ level: 'Orange', reason: `${partial}local MEOWS ${ews.score}` });
+        }
+        if (pain && pain.floor) floors.push({ level: pain.floor, reason: `${pain.band} pain ${s.complaint.pain}/10 (MTS pain ruler)` });
+        if (s.assess.sepsisFactors.sepsis_rash || (feverRelevant && s.assess.ng143.ticks.non_blanching)) floors.push({ level: 'Orange', reason: 'Non-blanching rash' });
+
+        const priority = C.triagePriority({ discriminator: disc, noneApply: s.complaint.noneApply, floors, override: s.triage.override });
+        const level = priority.final;
+        const seeBy = level ? C.seeBy(s.meta.arrivalAt, level, d.targetMinutes) : null;
+
+        if (priority.triaged && level !== s.meta.lastCategory) {
+            s.meta.lastCategory = level;
+            s.meta.categorySetAt = new Date().toISOString();
+        } else if (!priority.triaged) {
+            s.meta.lastCategory = null;
+            s.meta.categorySetAt = null;
+        }
+
+        // Streaming
+        let stream = '-';
+        if (level === 'Red') stream = 'Resus';
+        else if (level === 'Orange' || level === 'Yellow') stream = 'Majors';
+        else if (level === 'Green' || level === 'Blue') {
+            stream = p.mobility === 'Walking' ? 'Minors / See & Treat' : (p.mobility ? 'Majors (mobility)' : 'Minors or Majors - record mobility');
+        }
+        if (level && isPaeds) stream = `Paeds ED (${stream})`;
+        if (level && p.pregnant) stream = `Maternity / ${stream}`;
+
+        // Reassessment timing (NEWS2 response; NG253 sepsis reassessment if shorter).
+        let obsMins = newsResp ? newsResp.monitorMins : null;
+        if (sepsis.status === 'assessed' && obsMins !== null) obsMins = Math.min(obsMins, sepsis.reassessMins);
+        const obsBase = s.meta.obsAt ? new Date(s.meta.obsAt) : null;
+        let nextObs = '-', nextObsAt = null;
+        if (ews.type !== 'NEWS2') nextObs = 'Per local chart';
+        else if (ews.recorded === 0) nextObs = 'Obs not taken';
+        else if (obsMins === 0) nextObs = 'Continuous';
+        else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt); }
+
+        const tools = this.activeTools(flowchart, disc, p.age);
+        const ng232 = tools.ng232 ? C.ng232({ age: p.age, answers: s.assess.ng232, anticoagulated: s.assess.ng232Anticoag === null ? anticoagDetected : s.assess.ng232Anticoag }) : null;
+        const rosier = tools.stroke ? C.rosier(s.assess.stroke.rosier) : null;
+        const fourAT = tools.fourAT ? C.fourAT(s.assess.fourAT) : null;
+        const analgesia = isPaeds ? C.paedsAnalgesia({ age: p.age, weight: p.weight, weightCapKg: d.scoring.paedsSafety.weightCapKg }) : null;
+        const gestation = p.pregnant && p.lmp ? C.gestationFromLmp(p.lmp) : null;
+        const gcsTotal = [o.gcsE, o.gcsV, o.gcsM].every(C.has) ? Number(o.gcsE) + Number(o.gcsV) + Number(o.gcsM) : null;
+        const ipcFlag = Object.values(s.assess.ipc).some(Boolean);
+
+        // What is still missing before the note is complete.
+        const missing = [];
+        if (!store.get('initials', '', true)) missing.push('Triage nurse initials (top of screen)');
+        if (p.age === null) missing.push('Age');
+        if (!p.sex) missing.push('Sex');
+        if (!s.complaint.name) missing.push('Presenting complaint (choose a flowchart)');
+        else if (!priority.triaged) missing.push('Discriminator - choose one, or "None of these apply"');
+        if (ews.missing.length) missing.push(`Obs: ${ews.missing.join(', ')}`);
+        if (!C.has(s.complaint.pain)) missing.push('Pain score');
+        if (!s.history.allergies.trim()) missing.push('Allergies');
+        if (!p.mobility) missing.push('Mobility');
+        if (isPaeds && !C.has(p.weight)) missing.push('Weight (child)');
+        if (sepsis.status === 'not-asked' && (ews.score >= 3 || (C.has(o.temp) && (o.temp >= 38 || o.temp < 36)))) missing.push('Could this be an infection? (sepsis)');
+        if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
+
+        this.derived = { isPaeds, risks, anticoagDetected, ews, newsResp, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
     }
 
-    checkMedsRisks() {
-        const medsRaw = (this.state.history.meds || '').toLowerCase();
+    activeTools(flowchart, disc, age) {
+        const t = this.data.assessmentTools, name = this.state.complaint.name;
+        const inList = (list) => !!flowchart && list.includes(name);
+        return {
+            headache: name === 'Headache',
+            ng232: inList(t.headInjury) || (inList(t.headInjuryOptional) && this.state.assess.headInjuryInvolved),
+            ng232Optional: inList(t.headInjuryOptional),
+            stroke: inList(t.stroke),
+            ecg: inList(t.ecgTimer),
+            fourAT: inList(t.delirium) || (age !== null && age >= 65 && !!flowchart),
+            fourATOptional: !inList(t.delirium),
+            mh: inList(t.mentalHealth),
+            nof: !!disc && disc.text === t.nofDiscriminator
+        };
+    }
+
+    computeRiskFlags() {
+        const h = this.state.history;
+        const medsRaw = (h.meds || '').toLowerCase();
         const words = medsRaw.split(/[^a-z]+/).filter(w => w.length >= 3);
-        let risks = [];
-
+        const risks = [];
         Object.entries(this.data.highRiskDrugs).forEach(([key, warning]) => {
-            if (key.includes(' ')) {
-                // Multi-word keys (e.g. "sodium valproate"): exact substring is reliable enough here.
-                if (medsRaw.includes(key)) risks.push(warning);
-            } else if (words.some(w => TriageApp.fuzzyMatch(w, key))) {
-                // Single-word keys: tolerate typos (e.g. "wafarin" -> "warfarin").
-                risks.push(warning);
-            }
+            if (key.includes(' ') ? medsRaw.includes(key) : words.some(w => TriageApp.fuzzyMatch(w, key))) risks.push(warning);
         });
-
-        // Merge in the tick-box categories, which are spelling-independent by design.
-        const manual = this.state.history.manualRiskFlags || {};
-        (this.data.highRiskCategories || []).forEach(cat => {
-            if (manual[cat.id]) risks.push(cat.warning);
-        });
-
-        risks = [...new Set(risks)];
-        this.state.history.riskFlags = risks;
-
-        const safeWords = ['nil', 'none', 'nkda', 'no meds', 'nothing'];
-        const el = document.getElementById('meds-alert');
-        if (risks.length > 0) {
-            el.innerHTML = `⚠️ SAFETY ALERTS: ${risks.join(', ')}`;
-            el.className = 'meds-status-bar meds-risk';
-        } else if (safeWords.some(k => medsRaw.includes(k)) || medsRaw.length > 5) {
-            el.innerHTML = '✅ No High Risks Detected';
-            el.className = 'meds-status-bar meds-safe';
-        } else {
-             el.innerHTML = '';
-             el.className = 'meds-status-bar';
-        }
+        (this.data.highRiskCategories || []).forEach(cat => { if (h.manualRiskFlags[cat.id]) risks.push(cat.warning); });
+        return [...new Set(risks)];
     }
 
-    // Fuzzy-matches free-text PMH against a small keyword dictionary (protocols.js pmhPrompts) to surface
-    // dismissible reminders (e.g. "diabetes" -> check capillary glucose). These are prompts, not safety
-    // alerts, so they never join riskFlags and never appear in the generated note.
-    checkPmhPrompts() {
-        const pmhRaw = (this.state.history.pmh || '').toLowerCase();
-        const words = pmhRaw.split(/[^a-z]+/).filter(w => w.length >= 3);
-        const prompts = [];
+    // ------------------------------------------------------------------ fuzzy matching
+    static levenshtein(a, b) {
+        if (a === b) return 0;
+        if (!a.length) return b.length;
+        if (!b.length) return a.length;
+        let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+        for (let i = 1; i <= a.length; i++) {
+            const curr = [i];
+            for (let j = 1; j <= b.length; j++) curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            prev = curr;
+        }
+        return prev[b.length];
+    }
 
-        Object.entries(this.data.pmhPrompts || {}).forEach(([key, text]) => {
-            if (key.includes(' ')) {
-                if (pmhRaw.includes(key)) prompts.push(text);
-            } else if (words.some(w => TriageApp.fuzzyMatch(w, key))) {
-                prompts.push(text);
-            }
+    static fuzzyMatch(word, target) {
+        if (!word || !target) return false;
+        word = word.toLowerCase(); target = target.toLowerCase();
+        if (word.length < 3) return word === target;
+        if (target.startsWith(word) || target.includes(word)) return true;
+        if (Math.abs(word.length - target.length) > 3) return false;
+        const tol = word.length <= 5 ? 1 : (word.length <= 9 ? 2 : 3);
+        return TriageApp.levenshtein(word, target) <= tol;
+    }
+
+    searchCharts(query) {
+        const q = query.trim().toLowerCase();
+        if (!q) return [];
+        const names = Object.keys(this.data.mtsFlowcharts);
+        const scores = new Map();
+        const add = (n, sc, via = '') => { if (!scores.has(n) || scores.get(n).sc > sc) scores.set(n, { sc, via }); };
+        names.forEach(n => {
+            const l = n.toLowerCase();
+            if (l === q) add(n, 0);
+            else if (l.startsWith(q)) add(n, 1);
+            else if (l.split(/[^a-z]+/).some(w => w && w.startsWith(q))) add(n, 2);
+            else if (l.includes(q)) add(n, 3);
+            else if (q.includes(' ') && q.split(/\s+/).every(w => l.includes(w))) add(n, 2.5);
         });
-
-        const unique = [...new Set(prompts)];
-        const prevSignature = (this.state.history.pmhPromptSuggestions || []).join('|');
-        if (unique.join('|') !== prevSignature) this.state.ui.pmhPromptsDismissed = false;
-        this.state.history.pmhPromptSuggestions = unique;
+        Object.entries(this.data.complaintSynonyms).forEach(([term, charts]) => {
+            if (term === q) charts.forEach(c => add(c, 0.5, term));
+            else if (q.length >= 2 && term.startsWith(q)) charts.forEach(c => add(c, 1.5, term));
+        });
+        if (scores.size === 0 && q.length >= 4) {
+            names.forEach(n => { if (n.toLowerCase().split(/[^a-z]+/).some(w => w.length >= 3 && TriageApp.fuzzyMatch(q, w))) add(n, 4); });
+            Object.entries(this.data.complaintSynonyms).forEach(([term, charts]) => { if (term.length >= 4 && TriageApp.levenshtein(q, term) <= 2) charts.forEach(c => add(c, 4, term)); });
+        }
+        const age = this.state.patient.age;
+        const agePenalty = (n) => age === null ? 0 : (age < 16 ? (ADULT_CHART.test(n) ? 0.3 : 0) : (CHILD_CHART.test(n) ? 0.3 : 0));
+        return [...scores.entries()]
+            .map(([n, v]) => ({ name: n, score: v.sc + agePenalty(n), via: v.via }))
+            .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name))
+            .slice(0, 8);
     }
 
-    // Auto-calculated Red/Amber Flag Sepsis screen (NICE NG253 / UK Sepsis Trust thresholds), adults 16+ only.
-    // Deliberately does NOT require a lactate, since one is rarely available at the triage desk -
-    // it relies on obs already captured plus two quick manual checkboxes for things vitals can't show.
-    calcSepsisScreen() {
-        const p = this.state.patient;
-        const isPaeds = p.age !== null && p.age < 16;
-        const isPreg = p.pregnant;
-
-        if (isPaeds || isPreg || p.age === null) {
-            this.state.triage.sepsis = { applicable: false, red: [], amber: [] };
-            return;
+    // ------------------------------------------------------------------ static UI built once
+    buildStatic() {
+        // Pain 0-10
+        const pc = this.$('pain-btn-container');
+        for (let i = 0; i <= 10; i++) {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'pain-btn'; b.textContent = i; b.dataset.score = i;
+            b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false');
+            b.tabIndex = i === 0 ? 0 : -1;
+            pc.appendChild(b);
         }
-
-        const obs = this.state.obs;
-        const red = [], amber = [];
-        const has = TriageApp.hasValue;
-
-        if (obs.avpu && obs.avpu !== 'A') red.push(`New/altered mental state (AVPU ${obs.avpu})`);
-
-        if (has(obs.sbp)) {
-            if (obs.sbp <= 90) red.push(`Systolic BP \u2264 90 (${obs.sbp})`);
-            else if (obs.sbp <= 100) amber.push(`Systolic BP 91-100 (${obs.sbp})`);
-        }
-        if (has(obs.hr)) {
-            if (obs.hr >= 130) red.push(`Heart rate ≥ 130 (${obs.hr})`);
-            else if (obs.hr >= 91) amber.push(`Heart rate 91-129 (${obs.hr})`);
-        }
-        if (has(obs.rr)) {
-            if (obs.rr >= 25) red.push(`Resp rate \u2265 25 (${obs.rr})`);
-            else if (obs.rr >= 21) amber.push(`Resp rate 21-24 (${obs.rr})`);
-        }
-        if (has(obs.sats)) {
-            if (obs.sats < 92 && obs.o2 === 'O2') red.push(`New O\u2082 need, SpO\u2082 still < 92% (${obs.sats}%)`);
-            else if (obs.sats < 92) amber.push(`SpO\u2082 < 92% on air (${obs.sats}%)`);
-        }
-        if (has(obs.temp) && obs.temp < 36.0) amber.push(`Temp < 36.0\u00b0C (${obs.temp})`);
-
-        const manual = this.state.history.manualRiskFlags || {};
-        if (manual.sepsis_rash) red.push('Non-blanching rash / mottled, ashen or cyanotic skin');
-        if (manual.sepsis_urine) amber.push('Reduced urine output (>12h)');
-        if (manual.sepsis_wound) amber.push('Signs of wound/device/skin infection');
-        if (manual.immunosuppressant) amber.push('Immunosuppressed (on immunosuppressant/biologic)');
-
-        this.state.triage.sepsis = { applicable: true, red, amber };
-    }
-
-    renderHighRiskMeds() {
-        const container = document.getElementById('high-risk-meds-grid');
-        if (!container) return;
-        container.innerHTML = '';
+        // High-risk groups
+        const grid = this.$('high-risk-meds-grid');
         (this.data.highRiskCategories || []).forEach(cat => {
             const label = document.createElement('label');
             label.className = 'hr-med-chip';
             label.title = cat.hint || '';
             label.innerHTML = `<input type="checkbox" data-cat-id="${cat.id}"> <span>${cat.label}</span>`;
-            container.appendChild(label);
+            grid.appendChild(label);
         });
-        container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            cb.addEventListener('change', (e) => {
-                const id = e.target.dataset.catId;
-                const manual = { ...(this.state.history.manualRiskFlags || {}) };
-                manual[id] = e.target.checked;
-                e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
-                this.setState({ history: { manualRiskFlags: manual } });
-            });
-        });
+        this.buildScreening();
     }
 
-
-    calcNEWS2() {
-        const obs = this.state.obs;
-        const rules = this.data.scoring.news2;
-        let score = 0;
-        let breakdown = [];
-        const getScore = (val, buckets, label) => {
-            if (!TriageApp.hasValue(val)) return 0;
-            const match = buckets.find(b => val <= b.max);
-            const s = match ? match.score : 3;
-            if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
-            return s;
-        };
-        const has = TriageApp.hasValue;
-        if(has(obs.rr)) score += getScore(obs.rr, rules.rr, 'RR');
-        if(has(obs.sats)) score += getScore(obs.sats, obs.scale2 ? rules.sats2 : rules.sats1, 'SpO2');
-        if(has(obs.sbp)) score += getScore(obs.sbp, rules.sbp, 'BP');
-        if(has(obs.hr)) score += getScore(obs.hr, rules.hr, 'HR');
-        if(has(obs.temp)) score += getScore(obs.temp, rules.temp, 'Temp');
-        if (obs.avpu !== 'A') { score += 3; breakdown.push(`AVPU: ${obs.avpu} (+3)`); }
-        if (obs.o2 === 'O2') { score += 2; breakdown.push(`O2: On (+2)`); }
-        this.state.triage.newsScore = score;
-        this.state.triage.newsBreakdown = breakdown;
-    }
-
-    calcPEWS() {
-        const obs = this.state.obs;
-        const age = this.state.patient.age;
-        if (age === null) return;
-        let group = 'teen';
-        if (age < 1) group = 'infant';
-        else if (age < 5) group = 'toddler';
-        else if (age < 12) group = 'child';
-        
-        const data = this.data.scoring.pews[group];
-        let score = 0;
-        let breakdown = [];
-        const getScore = (val, buckets, label) => {
-            if (!TriageApp.hasValue(val)) return 0;
-            const match = buckets.find(b => val <= b.max);
-            const s = match ? match.score : 3;
-            if (s > 0) breakdown.push(`${label}: ${val} (+${s})`);
-            return s;
-        };
-        const has = TriageApp.hasValue;
-        if (has(obs.rr)) score += getScore(obs.rr, data.rr, 'RR');
-        if (has(obs.hr)) score += getScore(obs.hr, data.hr, 'HR');
-        if (has(obs.sats) && obs.sats < 94) { score += 3; breakdown.push('Sats <94 (+3)'); }
-        if (obs.o2 === 'O2') { score += 2; breakdown.push('O2 (+2)'); }
-        if (has(obs.crt) && obs.crt > 2) { score += 1; breakdown.push('CRT >2s (+1)'); }
-        if (obs.avpu !== 'A') { score += 3; breakdown.push('AVPU (+3)'); }
-        
-        this.state.triage.newsScore = score;
-        this.state.triage.newsBreakdown = breakdown;
-        this.state.triage.pewsGroup = group;
-    }
-
-    calcMEOWS() {
-        // Red/Yellow trigger system logic translated to score for visual consistency
-        const obs = this.state.obs;
-        let score = 0;
-        let breakdown = [];
-        // Guard every trigger on the value actually being entered - without this, an unset field
-        // (null) coerces to 0 in numeric comparisons and gets scored as maximally abnormal (e.g.
-        // `null < 10` is true), so a patient would show a false "MEOWS Red" the instant "Pregnant"
-        // was ticked, before any observations had been taken.
-        const has = TriageApp.hasValue;
-
-        // Triggers based on Standard MEOWS
-        if (has(obs.rr)) {
-            if(obs.rr < 10 || obs.rr > 30) { score+=3; breakdown.push('RR Red'); }
-            else if(obs.rr > 20) { score+=1; breakdown.push('RR Yellow'); }
-        }
-
-        if (has(obs.hr)) {
-            if(obs.hr < 40 || obs.hr > 120) { score+=3; breakdown.push('HR Red'); }
-            else if(obs.hr > 100) { score+=1; breakdown.push('HR Yellow'); }
-        }
-
-        if (has(obs.sbp)) {
-            if(obs.sbp < 90 || obs.sbp > 160) { score+=3; breakdown.push('SBP Red'); }
-            else if(obs.sbp > 150) { score+=1; breakdown.push('SBP Yellow'); }
-        }
-
-        if (has(obs.dbp)) {
-            if(obs.dbp > 100) { score+=3; breakdown.push('DBP >100 (Red)'); }
-            else if(obs.dbp >= 90) { score+=1; breakdown.push('DBP >90 (Yellow)'); }
-        }
-
-        if (has(obs.sats) && obs.sats < 95) { score+=3; breakdown.push('Sats <95 (Red)'); }
-
-        if (has(obs.temp)) {
-            if(obs.temp > 38 || obs.temp < 35) { score+=3; breakdown.push('Temp Red'); }
-            else if(obs.temp > 37.5 || obs.temp < 36) { score+=1; breakdown.push('Temp Yellow'); }
-        }
-
-        this.state.triage.newsScore = score;
-        this.state.triage.newsBreakdown = breakdown;
-    }
-
-    calcTriagePriority() {
-        let p = this.state.triage.discriminator ? this.state.triage.basePriority : 'Blue';
-        let reasons = this.state.triage.discriminator ? [`MTS: ${this.state.triage.discriminator}`] : [];
-
-        if (this.state.history.pain >= 7) {
-            const isShocked = (this.state.obs.hr > 110) || (this.state.obs.sbp && this.state.obs.sbp < 90);
-            if (['Yellow', 'Green', 'Blue'].includes(p)) {
-                p = 'Orange';
-                reasons.push(isShocked ? 'Severe Pain + Shock Signs' : 'Severe Pain (Priority Analgesia)');
-            }
-        }
-
-        const score = this.state.triage.newsScore;
-        const isPaeds = this.state.patient.age !== null && this.state.patient.age < 16;
-        const isPreg = this.state.patient.pregnant;
-
-        if (isPaeds) {
-            if (score >= 7) { p = 'Red'; reasons.push(`PEWS ${score} (High Risk)`); }
-            else if (score >= 5 && p !== 'Red') { p = 'Orange'; reasons.push(`PEWS ${score} (Mod Risk)`); }
-        } else if (isPreg) {
-            if (score >= 3) { p = 'Orange'; reasons.push(`MEOWS Abnormal (Score ${score})`); }
-        } else {
-            if (score >= 7) { p = 'Red'; reasons.push(`NEWS2 ${score} (≥7)`); }
-            else if (score >= 5 && p !== 'Red') { p = 'Orange'; reasons.push(`NEWS2 ${score} (≥5 Sepsis?)`); }
-            else if (score >= 3 && (p === 'Green' || p === 'Blue')) { p = 'Yellow'; reasons.push(`NEWS2 ${score}`); }
-        }
-
-        const sepsis = this.state.triage.sepsis;
-        if (sepsis && sepsis.applicable) {
-            if (sepsis.red.length > 0) {
-                if (['Yellow', 'Green', 'Blue'].includes(p)) { p = 'Orange'; }
-                reasons.push(`RED FLAG SEPSIS: ${sepsis.red.join('; ')}`);
-            } else if (sepsis.amber.length > 0 && (p === 'Green' || p === 'Blue')) {
-                p = 'Yellow';
-                reasons.push(`Amber Flag Sepsis: ${sepsis.amber.join('; ')}`);
-            }
-        }
-
-        if (this.state.triage.override) {
-            p = this.state.triage.override.level;
-            reasons.push(`OVERRIDE: ${this.state.triage.override.reason}`);
-        }
-
-        this.state.triage.finalPriority = p;
-        this.state.triage.reasons = reasons;
-    }
-
-    calcStreamAndTimer() {
-        const p = this.state.triage.finalPriority;
-        const timers = { 'Red': 'IMMEDIATE', 'Orange': '15 mins', 'Yellow': '60 mins', 'Green': '120 mins', 'Blue': '240 mins' };
-        this.state.triage.timer = timers[p] || '--';
-
-        let stream = 'Majors';
-        if (p === 'Red' || p === 'Orange') stream = 'RESUS / MAJORS';
-        else if (p === 'Green' || p === 'Blue') {
-            if (this.state.patient.mobility === 'Walking') stream = 'See & Treat / Minors';
-            else stream = 'Majors (Mobility)';
-        }
-        
-        if (this.state.patient.age !== null && this.state.patient.age < 16) stream = `Paeds (${stream})`;
-        if (this.state.patient.pregnant) stream = `Maternity / ${stream}`;
-        this.state.triage.stream = stream;
-    }
-
-    cacheDOM() {
-        this.dom = {
-            complaintInput: document.getElementById('input-complaint'),
-            discriminatorBox: document.getElementById('discriminator-container'),
-            medsInput: document.getElementById('meds'),
-            suggestionsBox: document.getElementById('meds-suggestions')
-        };
-    }
-
-    bindEvents() {
-        const bind = (id, key, path, transform = (v) => v) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', (e) => {
-                const val = el.type === 'checkbox' ? e.target.checked : transform(e.target.value);
-                if (path === 'obs' && el.type !== 'checkbox') this.validateObsField(id, val);
-                const update = {};
-                if (path === 'obs') update.obs = { [key]: val };
-                else if (path === 'patient') update.patient = { [key]: val };
-                else if (path === 'history') update.history = { [key]: val };
-                else if (path === 'prehospital') update.prehospital = { [key]: val };
-                this.setState(update);
-            });
-        };
-
-        // Pre-hospital obs are a second level of nesting (prehospital.obs.*) - setState only shallow-merges
-        // one level, so these spread the existing obs object manually rather than reusing bind() above.
-        const bindPHObs = (id, key, transform = (v) => v) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('input', (e) => {
-                const val = transform(e.target.value);
-                this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, [key]: val } } });
-            });
-        };
-        const num = TriageApp.toNumber;
-        bindPHObs('ph-obs-rr', 'rr', num);
-        bindPHObs('ph-obs-sats', 'sats', num);
-        bindPHObs('ph-obs-sbp', 'sbp', num);
-        bindPHObs('ph-obs-dbp', 'dbp', num);
-        bindPHObs('ph-obs-hr', 'hr', num);
-        bindPHObs('ph-obs-gcs', 'gcs', num);
-        bindPHObs('ph-obs-bm', 'bm', num);
-        bindPHObs('ph-obs-ecg', 'ecg');
-        bindPHObs('ph-obs-pupils', 'pupils');
-
-        bind('obs-rr', 'rr', 'obs', num);
-        bind('obs-sats', 'sats', 'obs', num);
-        bind('obs-sbp', 'sbp', 'obs', num);
-        bind('obs-dbp', 'dbp', 'obs', num);
-        bind('obs-hr', 'hr', 'obs', num);
-        bind('obs-temp', 'temp', 'obs', num);
-        bind('obs-crt', 'crt', 'obs', num);
-        bind('obs-scale2', 'scale2', 'obs');
-        bind('patient-age', 'ageValue', 'patient', num);
-        bind('patient-weight', 'weight', 'patient', num);
-        bind('patient-sex', 'sex', 'patient'); 
-        bind('patient-mobility', 'mobility', 'patient');
-        bind('check-pregnant', 'pregnant', 'patient');
-        bind('amb-callsign', 'ambulanceCallSign', 'patient');
-        bind('amb-caseid', 'ambulanceCaseId', 'patient');
-        bind('ph-hpc', 'hpc', 'prehospital');
-        bind('ph-tx', 'tx', 'prehospital');
-        bind('ph-tx-time', 'txTime', 'prehospital');
-        bind('ph-social', 'social', 'prehospital');
-
-        const selDisposition = document.getElementById('sel-disposition');
-        const txtDispositionOther = document.getElementById('txt-disposition-other');
-        selDisposition.addEventListener('change', (e) => {
-            const val = e.target.value;
-            txtDispositionOther.classList.toggle('hidden', val !== 'Other');
-            this.setState({ triage: { disposition: val } });
-            if (val !== 'Other') this.setState({ triage: { dispositionOther: '' } });
-        });
-        txtDispositionOther.addEventListener('input', (e) => {
-            this.setState({ triage: { dispositionOther: e.target.value } });
-        });
-        bind('allergies', 'allergies', 'history');
-        bind('pmh', 'pmh', 'history');
-        
-        document.getElementById('plan-narrative').addEventListener('input', (e) => {
-            this.setState({ history: { planNarrative: e.target.value } });
-        });
-
-        document.getElementById('treatment-notes').addEventListener('input', (e) => {
-            this.setState({ history: { treatmentNotes: e.target.value } });
-        });
-
-        this.dom.medsInput.addEventListener('keyup', (e) => this.handleMedsAutocomplete(e));
-        this.dom.medsInput.addEventListener('blur', () => setTimeout(() => this.dom.suggestionsBox.classList.add('hidden'), 200));
-        this.dom.medsInput.addEventListener('input', (e) => this.setState({ history: { meds: e.target.value } }));
-
-        document.querySelectorAll('.segmented-control button').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const parent = e.target.parentElement;
-                if (!parent.id || parent.id.startsWith('toggle-')) return; 
-                parent.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-                
-                const val = e.target.dataset.value;
-                if (parent.id === 'seg-avpu') this.setState({ obs: { avpu: val } });
-                if (parent.id === 'seg-o2') this.setState({ obs: { o2: val } });
-                if (parent.id === 'seg-ph-avpu') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, avpu: val } } });
-                if (parent.id === 'seg-ph-o2') this.setState({ prehospital: { obs: { ...this.state.prehospital.obs, o2: val } } });
-                if (parent.id === 'seg-age-unit') this.setState({ patient: { ageUnit: val } });
-                if (parent.id === 'seg-arrival') {
-                    this.setState({ patient: { arrivalMode: val } });
-                    // Set the Physiology/Screening collapse default exactly once, right when the
-                    // mode actually changes - collapsed for ambulance (crew obs usually cover this
-                    // already), expanded for self-presented. Doing this here rather than in every
-                    // render means a section the nurse deliberately reopens is never snapped shut
-                    // again just because they typed into an unrelated field.
-                    const collapseForAmbulance = val === 'Ambulance';
-                    this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', collapseForAmbulance);
-                    this.setSectionCollapsed('screening-section-toggle', 'screening-container', collapseForAmbulance);
-                }
-            });
-        });
-
-        this.dom.complaintInput.addEventListener('input', (e) => this.handleComplaint(e.target.value));
-
-        document.querySelector('.dashboard').addEventListener('click', (e) => {
-            if (e.target.dataset.action === 'setComplaint') {
-                this.dom.complaintInput.value = e.target.dataset.val;
-                this.handleComplaint(e.target.dataset.val);
-            }
-            if (e.target.dataset.action === 'quickText') {
-                e.preventDefault();
-                const target = document.getElementById(e.target.dataset.target);
-                target.value = e.target.dataset.val;
-                target.dispatchEvent(new Event('input')); 
-            }
-        });
-
-        const bindSectionToggle = (toggleId, bodyId) => {
-            const toggle = document.getElementById(toggleId);
-            const body = document.getElementById(bodyId);
-            if (!toggle || !body) return;
-            toggle.addEventListener('click', () => {
-                this.setSectionCollapsed(toggleId, bodyId, !body.classList.contains('hidden'));
-            });
-        };
-        // Pre-hospital obs are usually already in the EPR from the crew, so keep the collapsible
-        // hidden by default - the nurse only opens it if it's genuinely needed here too.
-        bindSectionToggle('ph-obs-toggle', 'ph-obs-collapsible');
-        bindSectionToggle('obs-section-toggle', 'obs-collapsible-body');
-        bindSectionToggle('screening-section-toggle', 'screening-container');
-
-        const btnBodyMap = document.getElementById('btn-body-map');
-        const modalBodyMap = document.getElementById('modal-bodymap');
-        btnBodyMap.addEventListener('click', () => modalBodyMap.classList.remove('hidden'));
-        document.getElementById('btn-close-map').addEventListener('click', () => modalBodyMap.classList.add('hidden'));
-        document.querySelectorAll('.map-zone').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const val = e.target.dataset.val;
-                this.dom.complaintInput.value = val;
-                this.handleComplaint(val);
-                modalBodyMap.classList.add('hidden');
-            });
-        });
-
-        document.getElementById('btn-sbar').addEventListener('click', () => {
-            this.generateSBAR();
-            document.getElementById('modal-sbar').classList.remove('hidden');
-        });
-        document.getElementById('btn-close-sbar').addEventListener('click', () => {
-            document.getElementById('modal-sbar').classList.add('hidden');
-        });
-
-        const btnOverride = document.getElementById('btn-override-toggle');
-        const panelOverride = document.getElementById('override-options');
-        btnOverride.addEventListener('click', () => {
-            const isHidden = panelOverride.classList.contains('hidden');
-            panelOverride.classList.toggle('hidden');
-            btnOverride.classList.toggle('active', isHidden);
-            if (!isHidden) this.setState({ triage: { override: null } });
-        });
-
-        const updateOverride = () => {
-            const level = document.getElementById('sel-override').value;
-            const reason = document.getElementById('txt-override').value;
-            if (reason) this.setState({ triage: { override: { level, reason } } });
-        };
-        document.getElementById('sel-override').addEventListener('change', updateOverride);
-        document.getElementById('txt-override').addEventListener('input', updateOverride);
-
-        const btnQuickMode = document.getElementById('btn-quick-mode');
-        if (btnQuickMode) {
-            btnQuickMode.addEventListener('click', () => {
-                const on = !document.body.classList.contains('quick-mode');
-                document.body.classList.toggle('quick-mode', on);
-                btnQuickMode.classList.toggle('active', on);
-                this.state.ui.quickMode = on;
-                try { localStorage.setItem('quickMode', on ? 'on' : 'off'); } catch (err) { /* preference just won't persist */ }
-            });
-        }
-
-        document.getElementById('checkbox-theme').addEventListener('change', (e) => {
-            if(e.target.checked) {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                try { localStorage.setItem('theme', 'dark'); } catch (err) { /* preference just won't persist */ }
-            } else {
-                document.documentElement.removeAttribute('data-theme');
-                try { localStorage.setItem('theme', 'light'); } catch (err) { /* preference just won't persist */ }
-            }
-        });
-
-        document.getElementById('btn-reset').addEventListener('click', async () => {
-            const ok = await this.showConfirm('Start new patient? Unsaved data will be lost.', 'New Patient');
-            if (ok) window.location.reload();
-        });
-
-        document.getElementById('btn-copy').addEventListener('click', async () => {
-            const note = document.getElementById('epr-note');
-            try {
-                await navigator.clipboard.writeText(note.value);
-                this.showToast('Note copied to clipboard');
-            } catch (err) {
-                try {
-                    note.select();
-                    document.execCommand('copy');
-                    this.showToast('Note copied to clipboard');
-                } catch (err2) {
-                    this.showToast('Copy failed - please copy manually', 'error');
-                }
-            }
-        });
-
-        document.getElementById('modal-close').addEventListener('click', () => {
-            document.getElementById('modal-overlay').classList.add('hidden');
-        });
-
-        // ℹ️ reference popovers: delegated so it works for any .info-pop rendered later via innerHTML.
-        document.addEventListener('click', (e) => {
-            const btn = e.target.closest('.info-btn');
-            const clickedPop = btn ? btn.closest('.info-pop') : null;
-            document.querySelectorAll('.info-pop.open').forEach(p => {
-                if (p !== clickedPop) p.classList.remove('open');
-            });
-            if (clickedPop) {
-                e.stopPropagation();
-                clickedPop.classList.toggle('open');
-            }
-        });
-    }
-
-    setSectionCollapsed(toggleId, bodyId, collapsed) {
-        const toggle = document.getElementById(toggleId);
-        const body = document.getElementById(bodyId);
-        if (!toggle || !body) return;
-        body.classList.toggle('hidden', collapsed);
-        const chevron = toggle.querySelector('.chevron');
-        if (chevron) chevron.textContent = collapsed ? '▾' : '▴';
-        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        // Whole-card toggles also tighten the card's heading when closed; the pre-hospital obs
-        // sub-toggle sits inside the History card and must not do this.
-        if (toggle.classList.contains('section-toggle')) {
-            const card = toggle.closest('.card');
-            if (card) card.classList.toggle('is-collapsed', collapsed);
-        }
-    }
-
-    handleMedsAutocomplete(e) {
-        const val = e.target.value;
-        const cursor = e.target.selectionStart;
-        const textBefore = val.slice(0, cursor);
-        const lastWord = textBefore.split(/[\s,\n]+/).pop();
-
-        if (lastWord.length < 3) {
-            this.dom.suggestionsBox.classList.add('hidden');
-            return;
-        }
-
-        const lower = lastWord.toLowerCase();
-        let matches = this.data.drugIndex.filter(d => d.toLowerCase().startsWith(lower));
-        if (matches.length === 0) {
-            // No exact prefix match - fall back to fuzzy matching so typos still surface a suggestion.
-            matches = this.data.drugIndex.filter(d => TriageApp.fuzzyMatch(lower, d.toLowerCase()));
-        }
-        matches = matches.slice(0, 5);
-        
-        if (matches.length > 0) {
-            this.dom.suggestionsBox.innerHTML = matches.map(m => `<div class="suggestion-item">${m}</div>`).join('');
-            this.dom.suggestionsBox.classList.remove('hidden');
-            this.dom.suggestionsBox.querySelectorAll('.suggestion-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const wordToReplace = lastWord;
-                    const newValue = val.slice(0, cursor - wordToReplace.length) + item.textContent + val.slice(cursor);
-                    this.dom.medsInput.value = newValue + ', ';
-                    this.dom.suggestionsBox.classList.add('hidden');
-                    this.dom.medsInput.focus();
-                    this.setState({ history: { meds: newValue } });
-                });
-            });
-        } else {
-            this.dom.suggestionsBox.classList.add('hidden');
-        }
-    }
-
-    renderScreening() {
-        const container = document.getElementById('screening-container');
-        container.innerHTML = '';
-        Object.entries(this.data.screening).forEach(([key, data]) => {
+    buildScreening() {
+        const c = this.$('screening-container');
+        c.innerHTML = '';
+        Object.entries(this.data.screening).forEach(([key, def]) => {
             const div = document.createElement('div');
             div.className = 'screening-item';
             div.id = `screen-${key}`;
-            let html = `<span class="screening-title">${data.label}</span>${data.info ? this.infoPopoverHTML(data.info) : ''}`;
-            if (data.options) {
-                html += `<select id="screen-input-${key}" class="w-full"><option value="">Select...</option>`;
-                data.options.forEach(opt => html += `<option value="${opt.val}">${opt.text}</option>`);
-                html += `</select>`;
-            } else if (data.yesNo) {
-                html += `<div class="segmented-control" id="toggle-${key}">
-                    <button type="button" data-val="No" class="active">No</button>
-                    <button type="button" data-val="Yes">Yes</button>
-                </div>`;
+            let html = `<div><span class="screening-title">${esc(def.label)}</span>${def.info ? this.infoPopoverHTML(def.info) : ''}</div>`;
+            if (def.options) {
+                html += `<select id="screen-input-${key}" data-screen="${key}"><option value="">Not asked</option>${def.options.map(o => `<option value="${o.val}">${esc(o.text)}</option>`).join('')}</select>`;
+            } else {
+                html += `<div class="segmented-control" id="toggle-${key}" data-screen="${key}"><button type="button" data-value="No">No</button><button type="button" data-value="Yes">Yes</button></div>`;
             }
             div.innerHTML = html;
-            container.appendChild(div);
-            
-            const toggle = div.querySelector('.segmented-control');
-            if(toggle) {
-                toggle.querySelectorAll('button').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-                        e.target.classList.add('active');
-                        this.renderNote(); 
-                    });
-                });
-            } else {
-                div.querySelector('select')?.addEventListener('change', () => this.renderNote());
-            }
+            c.appendChild(div);
         });
+    }
+
+    infoPopoverHTML(text) {
+        if (!text) return '';
+        return `<span class="info-pop"><button type="button" class="info-btn" aria-label="Reference">ℹ️</button><span class="info-bubble">${esc(text)}</span></span>`;
+    }
+
+    // ------------------------------------------------------------------ events
+    bindEvents() {
+        const num = C.toNumber;
+        const bindInput = (id, path, transform = (v) => v, extra) => {
+            const el = this.$(id);
+            if (!el) return;
+            const evt = el.type === 'checkbox' ? 'change' : (el.tagName === 'SELECT' ? 'change' : 'input');
+            el.addEventListener(evt, () => {
+                const val = el.type === 'checkbox' ? el.checked : transform(el.value);
+                if (extra) extra(val);
+                this.set(path, val);
+            });
+        };
+
+        // Patient
+        bindInput('patient-age', 'patient.ageValue', num);
+        bindInput('patient-weight', 'patient.weight', num);
+        bindInput('patient-sex', 'patient.sex');
+        bindInput('patient-mobility', 'patient.mobility');
+        bindInput('check-pregnant', 'patient.pregnant');
+        bindInput('date-lmp', 'patient.lmp');
+        bindInput('patient-ref', 'patient.localRef');
+        bindInput('amb-callsign', 'patient.ambulanceCallSign');
+        bindInput('amb-caseid', 'patient.ambulanceCaseId');
+        this.$('arrival-time').addEventListener('change', (e) => {
+            const [h, m] = (e.target.value || '').split(':').map(Number);
+            if (Number.isNaN(h) || Number.isNaN(m)) return;
+            const now = new Date();
+            const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+            if (d > now) d.setDate(d.getDate() - 1); // an arrival time "later" than now was yesterday
+            this.set('meta.arrivalAt', d.toISOString());
+        });
+
+        // Handover
+        ['hpc', 'tx', 'social'].forEach(k => bindInput(`ph-${k}`, `prehospital.${k}`));
+        bindInput('ph-tx-time', 'prehospital.txTime');
+        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'gcs', 'bm'].forEach(k => bindInput(`ph-obs-${k}`, `prehospital.obs.${k}`, num));
+        ['ecg', 'pupils'].forEach(k => bindInput(`ph-obs-${k}`, `prehospital.obs.${k}`));
+
+        // Obs
+        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm'].forEach(k => bindInput(`obs-${k}`, `obs.${k}`, num, (v) => this.validateObsField(`obs-${k}`, v)));
+        bindInput('obs-pupils', 'obs.pupils');
+        bindInput('obs-scale2', 'obs.scale2');
+        ['e', 'v', 'm'].forEach(k => bindInput(`obs-gcs-${k}`, `obs.gcs${k.toUpperCase()}`, num));
+
+        // History
+        bindInput('allergies', 'history.allergies');
+        bindInput('allergy-reaction', 'history.allergyReaction');
+        bindInput('pmh', 'history.pmh');
+        bindInput('treatment-notes', 'history.treatmentNotes');
+        bindInput('plan-narrative', 'history.planNarrative');
+        const meds = this.$('meds');
+        meds.addEventListener('input', () => this.set('history.meds', meds.value));
+        meds.addEventListener('keyup', (e) => this.handleMedsAutocomplete(e));
+        meds.addEventListener('blur', () => setTimeout(() => this.$('meds-suggestions').classList.add('hidden'), 200));
+        this.$('high-risk-meds-grid').addEventListener('change', (e) => {
+            const id = e.target.dataset.catId;
+            if (!id) return;
+            e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
+            this.set(`history.manualRiskFlags.${id}`, e.target.checked);
+        });
+
+        // Segmented controls (click + keyboard)
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.segmented-control button');
+            if (!btn) return;
+            const group = btn.parentElement;
+            this.onSegmented(group, btn.dataset.value, btn);
+        });
+        document.addEventListener('keydown', (e) => this.onSegmentedKey(e));
+
+        // Screening
+        this.$('screening-container').addEventListener('change', (e) => {
+            const key = e.target.dataset.screen;
+            if (key) this.set(`screening.${key}`, e.target.value);
+        });
+
+        // Complaint search (combobox)
+        this.bindCombobox();
+        this.$('quick-actions-bar').addEventListener('click', (e) => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            if (b.id === 'btn-body-map') return this.openBodyMap();
+            if (b.dataset.chart) this.setComplaint(b.dataset.chart);
+        });
+        this.$('body-map-grid').addEventListener('click', (e) => {
+            const b = e.target.closest('.map-zone');
+            if (!b) return;
+            this.closeModal('modal-bodymap');
+            this.setComplaint(b.dataset.chart);
+        });
+        this.$('btn-close-map').addEventListener('click', () => this.closeModal('modal-bodymap'));
+
+        // Discriminators (roving listbox)
+        const dc = this.$('discriminator-container');
+        dc.addEventListener('click', (e) => {
+            const b = e.target.closest('.discriminator');
+            if (b) this.chooseDiscriminator(b.dataset.text || null, b.classList.contains('none-apply'));
+        });
+        dc.addEventListener('keydown', (e) => {
+            const items = [...dc.querySelectorAll('.discriminator')];
+            const i = items.indexOf(document.activeElement);
+            if (i < 0) return;
+            let next = null;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = items[Math.min(i + 1, items.length - 1)];
+            if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = items[Math.max(i - 1, 0)];
+            if (e.key === 'Home') next = items[0];
+            if (e.key === 'End') next = items[items.length - 1];
+            if (next) { e.preventDefault(); items.forEach(x => { x.tabIndex = -1; }); next.tabIndex = 0; next.focus(); }
+        });
+
+        // Pain
+        const pcont = this.$('pain-btn-container');
+        pcont.addEventListener('click', (e) => {
+            const b = e.target.closest('.pain-btn');
+            if (b) { this.state.complaint.painMethod = 'NRS'; this.set('complaint.pain', Number(b.dataset.score)); }
+        });
+        let painBuffer = '', painTimer = null;
+        pcont.addEventListener('keydown', (e) => {
+            const cur = C.has(this.state.complaint.pain) ? this.state.complaint.pain : -1;
+            if (/^[0-9]$/.test(e.key)) {
+                e.preventDefault();
+                painBuffer += e.key;
+                clearTimeout(painTimer);
+                let v = Number(painBuffer);
+                if (v > 10) { painBuffer = e.key; v = Number(e.key); }
+                this.state.complaint.painMethod = 'NRS';
+                this.set('complaint.pain', v);
+                painTimer = setTimeout(() => { painBuffer = ''; }, 700);
+                this.focusPain();
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); this.set('complaint.pain', Math.min(10, cur + 1)); this.focusPain(); }
+            else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); this.set('complaint.pain', Math.max(0, cur - 1)); this.focusPain(); }
+        });
+        this.$('btn-flacc').addEventListener('click', () => {
+            const panel = this.$('flacc-panel');
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) this.buildFlacc();
+        });
+
+        // Enter moves to the next observation.
+        this.$('obs-form').addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
+            const stops = [];
+            this.$('obs-form').querySelectorAll('.obs-item').forEach(item => {
+                item.querySelectorAll('input.obs-input, select.obs-input').forEach(x => stops.push(x));
+                const seg = item.querySelector('.segmented-control');
+                if (seg) stops.push(seg.querySelector('button.active') || seg.querySelector('button'));
+            });
+            const i = stops.indexOf(e.target);
+            if (i >= 0 && stops[i + 1]) { e.preventDefault(); stops[i + 1].focus(); }
+        });
+
+        // Dynamic tool panels delegate their inputs to data-path attributes.
+        document.addEventListener('change', (e) => {
+            const el = e.target.closest('[data-path]');
+            if (!el || el.tagName === 'DIV') return;
+            let val = el.type === 'checkbox' ? el.checked : el.value;
+            if (el.dataset.num !== undefined) val = C.toNumber(val);
+            this.set(el.dataset.path, val);
+        });
+        document.addEventListener('input', (e) => {
+            const el = e.target.closest('input[type="text"][data-path], input[type="datetime-local"][data-path]');
+            if (el) this.set(el.dataset.path, el.value);
+        });
+        document.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-action]');
+            if (!b) return;
+            this.onAction(b.dataset.action, b);
+        });
+
+        // Section collapse
+        this.bindSectionToggle('obs-section-toggle', 'obs-collapsible-body');
+        this.bindSectionToggle('screening-section-toggle', 'screening-body');
+        this.bindSectionToggle('ph-obs-toggle', 'ph-obs-collapsible');
+
+        // Disposition
+        this.$('sel-disposition').addEventListener('change', (e) => {
+            this.$('txt-disposition-other').classList.toggle('hidden', e.target.value !== 'Other');
+            if (e.target.value !== 'Other') this.state.triage.dispositionOther = '';
+            this.set('triage.disposition', e.target.value);
+        });
+        bindInput('txt-disposition-other', 'triage.dispositionOther');
+
+        // Override
+        const btnO = this.$('btn-override-toggle'), panelO = this.$('override-options');
+        btnO.addEventListener('click', () => {
+            const opening = panelO.classList.contains('hidden');
+            panelO.classList.toggle('hidden', !opening);
+            btnO.classList.toggle('active', opening);
+            btnO.setAttribute('aria-expanded', String(opening));
+            if (!opening) { this.$('txt-override').value = ''; this.set('triage.override', null); }
+        });
+        const updOverride = () => {
+            const reason = this.$('txt-override').value.trim();
+            this.set('triage.override', reason ? { level: this.$('sel-override').value, reason } : null);
+        };
+        this.$('sel-override').addEventListener('change', updOverride);
+        this.$('txt-override').addEventListener('input', updOverride);
+
+        // Header
+        this.$('nurse-initials').addEventListener('input', (e) => { store.set('initials', e.target.value.trim().toUpperCase(), true); this.update(); });
+        this.$('btn-quick-mode').addEventListener('click', () => {
+            const on = !document.body.classList.contains('quick-mode');
+            document.body.classList.toggle('quick-mode', on);
+            this.$('btn-quick-mode').classList.toggle('active', on);
+            store.set('quickMode', on ? 'on' : 'off');
+        });
+        this.$('btn-history').addEventListener('click', () => this.openHistory());
+        this.$('btn-close-history').addEventListener('click', () => this.$('history-sidebar').classList.remove('open'));
+        this.$('btn-settings').addEventListener('click', () => this.openModal('modal-settings'));
+        this.$('btn-help').addEventListener('click', () => this.openModal('modal-help'));
+        this.$('link-whatsnew').addEventListener('click', (e) => { e.preventDefault(); this.openModal('modal-whatsnew'); });
+        this.$('btn-reset').addEventListener('click', () => this.newPatient());
+        this.$('btn-copy').addEventListener('click', () => this.copyNote());
+        this.$('btn-sbar').addEventListener('click', () => this.openSbar());
+        this.$('btn-close-sbar').addEventListener('click', () => this.closeModal('modal-sbar'));
+        this.$('btn-copy-sbar').addEventListener('click', () => this.copyText(this.sbarText(), 'SBAR copied'));
+        document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', () => this.closeModal(b.closest('.modal').id)));
+
+        // Settings
+        this.$('set-shared').addEventListener('change', (e) => {
+            this.shared = e.target.checked;
+            store.set('sharedComputer', this.shared ? 'on' : 'off');
+            if (this.shared) { store.remove(HISTORY_KEY); this.toast('Recent patients switched off and cleared on this computer'); }
+            this.$('btn-history').classList.toggle('hidden', this.shared);
+        });
+        this.$('set-dictation').addEventListener('change', (e) => {
+            this.dictation = e.target.checked;
+            store.set('dictation', this.dictation ? 'on' : 'off');
+            this.applyDictation();
+        });
+        this.$('set-dark').addEventListener('change', (e) => {
+            if (e.target.checked) document.documentElement.setAttribute('data-theme', 'dark');
+            else document.documentElement.removeAttribute('data-theme');
+            store.set('theme', e.target.checked ? 'dark' : 'light');
+        });
+        this.$('btn-clear-history').addEventListener('click', () => { store.remove(HISTORY_KEY); this.toast('Recent patients cleared'); });
+
+        // ℹ️ popovers
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.info-btn');
+            const pop = btn ? btn.closest('.info-pop') : null;
+            document.querySelectorAll('.info-pop.open').forEach(p => { if (p !== pop) p.classList.remove('open'); });
+            if (pop) { e.stopPropagation(); pop.classList.toggle('open'); }
+        });
+
+        // Global shortcuts
+        document.addEventListener('keydown', (e) => {
+            const typing = /INPUT|TEXTAREA|SELECT/.test(e.target.tagName);
+            if (e.key === 'Escape') { document.querySelectorAll('.modal:not(.hidden)').forEach(m => this.closeModal(m.id)); this.$('history-sidebar').classList.remove('open'); return; }
+            if (e.altKey && !e.ctrlKey && !e.metaKey) {
+                const k = e.key.toLowerCase();
+                const map = { c: () => this.copyNote(), s: () => this.openSbar(), n: () => this.newPatient(), k: () => this.$('input-complaint').focus(), h: () => this.openHistory() };
+                if (map[k]) { e.preventDefault(); map[k](); }
+                return;
+            }
+            if (!typing && e.key === '?') { e.preventDefault(); this.openModal('modal-help'); }
+        });
+    }
+
+    bindSectionToggle(toggleId, bodyId) {
+        const t = this.$(toggleId);
+        t.addEventListener('click', () => this.setSectionCollapsed(toggleId, bodyId, !this.$(bodyId).classList.contains('hidden')));
+    }
+
+    setSectionCollapsed(toggleId, bodyId, collapsed) {
+        const t = this.$(toggleId), b = this.$(bodyId);
+        b.classList.toggle('hidden', collapsed);
+        const ch = t.querySelector('.chevron');
+        if (ch) ch.textContent = collapsed ? '▾' : '▴';
+        t.setAttribute('aria-expanded', String(!collapsed));
+        if (t.classList.contains('section-toggle')) t.closest('.card').classList.toggle('is-collapsed', collapsed);
+    }
+
+    onSegmented(group, value, btn) {
+        if (!group.id) return;
+        if (group.dataset.path) {
+            // Tool-panel yes/no: clicking the active answer clears it back to "not answered".
+            const cur = group.dataset.current;
+            const next = cur === value ? null : value;
+            if (group.dataset.path === 'assess.headache.sudden') {
+                // Sudden onset is itself the Orange discriminator on the Headache flowchart.
+                const c = this.state.complaint, thunder = 'Sudden Onset (Thunderclap)';
+                if (next === 'yes') { c.discriminator = thunder; c.noneApply = false; }
+                else if (c.discriminator === thunder) c.discriminator = null;
+            }
+            this.set(group.dataset.path, next);
+            return;
+        }
+        if (group.dataset.screen) {
+            this.set(`screening.${group.dataset.screen}`, this.state.screening[group.dataset.screen] === value ? '' : value);
+            return;
+        }
+        switch (group.id) {
+            case 'seg-arrival': {
+                const amb = value === 'Ambulance';
+                if (amb && !this.state.patient.mobility) { this.state.patient.mobility = 'Trolley'; this.$('patient-mobility').value = 'Trolley'; }
+                this.set('patient.arrivalMode', value);
+                this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', false);
+                break;
+            }
+            case 'seg-age-unit': this.set('patient.ageUnit', value); break;
+            case 'seg-o2': this.set('obs.o2', this.state.obs.o2 === value ? null : value); break;
+            case 'seg-avpu': this.set('obs.avpu', this.state.obs.avpu === value ? null : value); break;
+            case 'seg-ph-o2': this.set('prehospital.obs.o2', value); break;
+            default: return;
+        }
+        if (btn) btn.focus();
+    }
+
+    onSegmentedKey(e) {
+        const btn = e.target.closest && e.target.closest('.segmented-control button');
+        if (!btn || e.altKey || e.ctrlKey || e.metaKey) return;
+        const group = btn.parentElement;
+        const buttons = [...group.querySelectorAll('button')];
+        const i = buttons.indexOf(btn);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const n = buttons[(i + (e.key === 'ArrowRight' ? 1 : buttons.length - 1)) % buttons.length];
+            n.focus();
+            return;
+        }
+        const keys = (group.dataset.keys || '').split(',').filter(Boolean);
+        const k = e.key.toLowerCase();
+        const idx = keys.indexOf(k);
+        if (idx >= 0 && buttons[idx]) {
+            e.preventDefault();
+            const target = buttons[idx];
+            if (!target.classList.contains('active')) this.onSegmented(group, target.dataset.value, target);
+            target.focus();
+        }
+    }
+
+    onAction(action, el) {
+        switch (action) {
+            case 'quickText': {
+                const t = this.$(el.dataset.target);
+                t.value = el.dataset.val;
+                t.dispatchEvent(new Event('input', { bubbles: true }));
+                break;
+            }
+            case 'switch-head-injury': this.setComplaint('Head Injury'); break;
+            case 'ecg-done': this.set('assess.ecgDoneAt', new Date().toISOString()); break;
+            case 'ecg-undo': this.set('assess.ecgDoneAt', null); break;
+            case 'corridor-checked': this.set('assess.corridorCheckedAt', new Date().toISOString()); break;
+            case 'dismiss-pmh': this.state.ui.pmhPromptsDismissed = true; this.update(); break;
+            default: break;
+        }
+    }
+
+    focusPain() {
+        const active = this.$('pain-btn-container').querySelector('.pain-btn.active');
+        if (active) active.focus();
+    }
+
+    // ------------------------------------------------------------------ complaint & discriminators
+    bindCombobox() {
+        const input = this.$('input-complaint'), list = this.$('complaint-list');
+        let active = -1, results = [];
+        const close = () => { list.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); active = -1; };
+        const draw = () => {
+            list.innerHTML = results.map((r, i) => `<div class="combobox-option${i === active ? ' active' : ''}" role="option" id="cbo-${i}" data-name="${esc(r.name)}" aria-selected="${i === active}">${esc(r.name)}${r.via ? ` <small>"${esc(r.via)}"</small>` : ''}</div>`).join('')
+                || '<div class="combobox-option" aria-disabled="true"><small>No matching flowchart - try another word</small></div>';
+            list.classList.remove('hidden');
+            input.setAttribute('aria-expanded', 'true');
+            if (active >= 0) input.setAttribute('aria-activedescendant', `cbo-${active}`); else input.removeAttribute('aria-activedescendant');
+        };
+        input.addEventListener('input', () => {
+            const v = input.value;
+            this.state.complaint.raw = v;
+            const exact = Object.keys(this.data.mtsFlowcharts).find(n => n.toLowerCase() === v.trim().toLowerCase());
+            if (exact) { this.setComplaint(exact, { keepFocus: true }); close(); return; }
+            if (this.state.complaint.name && v !== this.state.complaint.name) this.clearComplaint();
+            results = this.searchCharts(v);
+            active = results.length ? 0 : -1;
+            if (v.trim()) draw(); else close();
+        });
+        input.addEventListener('keydown', (e) => {
+            if (list.classList.contains('hidden')) {
+                if (e.key === 'ArrowDown' && input.value.trim()) { results = this.searchCharts(input.value); active = 0; draw(); e.preventDefault(); }
+                return;
+            }
+            if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, results.length - 1); draw(); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); draw(); }
+            else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (results[active]) { this.setComplaint(results[active].name); close(); this.focusFirstDiscriminator(); }
+            } else if (e.key === 'Escape') close();
+        });
+        list.addEventListener('mousedown', (e) => {
+            const o = e.target.closest('.combobox-option[data-name]');
+            if (!o) return;
+            e.preventDefault();
+            this.setComplaint(o.dataset.name);
+            close();
+            this.focusFirstDiscriminator();
+        });
+        input.addEventListener('blur', () => setTimeout(close, 150));
+    }
+
+    focusFirstDiscriminator() {
+        const first = this.$('discriminator-container').querySelector('.discriminator[tabindex="0"]') || this.$('discriminator-container').querySelector('.discriminator');
+        if (first) first.focus();
+    }
+
+    clearComplaint() {
+        const c = this.state.complaint;
+        c.name = ''; c.discriminator = null; c.noneApply = false;
+        this.state.assess.headache = { trauma: null, sudden: null };
+        this.state.plan = this.state.plan.filter(i => i.category === 'Universal');
+        this.renderProtocol('');
+        this.update();
+    }
+
+    setComplaint(name, opts = {}) {
+        if (!this.data.mtsFlowcharts[name]) return;
+        const c = this.state.complaint;
+        const changed = c.name !== name;
+        this.$('input-complaint').value = name;
+        c.raw = name;
+        if (changed) {
+            c.name = name; c.discriminator = null; c.noneApply = false;
+            this.state.assess.headache = { trauma: null, sudden: null };
+            this.state.plan = this.state.plan.filter(i => i.category === 'Universal');
+            if (!this.state.meta.startedAt) this.state.meta.startedAt = new Date().toISOString();
+        }
+        this.renderProtocol(name);
+        this.update();
+        if (!opts.keepFocus && changed) this.$('input-complaint').setAttribute('aria-expanded', 'false');
+    }
+
+    chooseDiscriminator(text, none) {
+        const c = this.state.complaint;
+        if (none) { c.noneApply = !c.noneApply; c.discriminator = null; }
+        else { c.discriminator = c.discriminator === text ? null : text; c.noneApply = false; }
+        this.update();
+        const sel = this.$('discriminator-container').querySelector('[aria-selected="true"]');
+        if (sel) sel.focus();
+    }
+
+    openBodyMap() {
+        const zones = this.derived.isPaeds ? this.data.bodyMap.child : this.data.bodyMap.adult;
+        this.$('body-map-grid').innerHTML = zones.map(z => `<button type="button" class="map-zone" data-chart="${esc(z.chart)}">${esc(z.label)}</button>`).join('');
+        this.openModal('modal-bodymap');
+    }
+
+    // ------------------------------------------------------------------ render
+    render() {
+        this.renderDemographics();
+        this.renderArrival();
+        this.renderChips();
+        this.renderDiscriminators();
+        this.renderComplaintTools();
+        this.renderPain();
+        this.renderEws();
+        this.renderSepsis();
+        this.renderPaeds();
+        this.renderIpc();
+        this.renderScreeningDynamic();
+        this.renderMedsAlert();
+        this.renderPmhPrompts();
+        this.renderUniversalChecks();
+        this.renderCorridor();
+        this.renderDecision();
+        this.renderTimers();
+        this.renderNote();
+    }
+
+    renderDemographics() {
+        const p = this.state.patient, d = this.derived;
+        document.querySelectorAll('#seg-age-unit button').forEach(b => b.classList.toggle('active', b.dataset.value === p.ageUnit));
+        this.$('female-health-section').classList.toggle('hidden', p.sex === 'Male');
+        this.$('pregnancy-details').classList.toggle('hidden', !p.pregnant);
+        const g = d.gestation;
+        this.$('gestation-readout').textContent = !p.lmp ? 'Enter LMP' : (!g || !g.valid ? 'Check LMP date' : `${g.weeks}+${g.days} weeks · EDD ${ddmmyyyy(g.edd)}`);
+        const est = p.age !== null && p.age <= 12 ? C.aplsWeight(p.age) : null;
+        this.$('weight-estimate').textContent = est ? `APLS estimate ~${est} kg - weigh for doses` : '';
+        const arr = new Date(this.state.meta.arrivalAt);
+        if (document.activeElement !== this.$('arrival-time')) this.$('arrival-time').value = `${String(arr.getHours()).padStart(2, '0')}:${String(arr.getMinutes()).padStart(2, '0')}`;
+    }
+
+    renderArrival() {
+        const amb = this.state.patient.arrivalMode === 'Ambulance';
+        document.querySelectorAll('#seg-arrival button').forEach(b => b.classList.toggle('active', b.dataset.value === this.state.patient.arrivalMode));
+        this.$('amb-fields').classList.toggle('hidden', !amb);
+        this.$('card-handover').classList.toggle('hidden', !amb);
+        this.$('card-treatment-given').classList.toggle('hidden', amb);
+        const pho2 = this.state.prehospital.obs.o2;
+        document.querySelectorAll('#seg-ph-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === pho2));
+    }
+
+    renderChips() {
+        const key = this.derived.isPaeds ? 'child' : 'adult';
+        if (this.built.chips === key) return;
+        this.built.chips = key;
+        const charts = this.data.quickComplaints[key];
+        this.$('quick-actions-bar').innerHTML = `<button type="button" class="btn-chip btn-chip-accent" id="btn-body-map">👤 Body map</button>` +
+            charts.map(c => `<button type="button" class="btn-chip" data-chart="${esc(c)}">${esc(c.replace(' in Adults', '').replace(' in Children', ''))}</button>`).join('');
+    }
+
+    renderDiscriminators() {
+        const d = this.derived, c = this.state.complaint, box = this.$('discriminator-container');
+        if (!d.flowchart) {
+            if (this.built.discKey !== '') { box.innerHTML = '<p class="placeholder-text">Choose a presenting complaint to see its discriminators.</p>'; this.built.discKey = ''; }
+            return;
+        }
+        const autoOn = d.floors.some(f => f.reason.startsWith(AUTO_DISCRIMINATOR_TEXT));
+        const key = JSON.stringify([c.name, c.discriminator, c.noneApply, autoOn]);
+        if (this.built.discKey === key) return;
+        const hadFocus = box.contains(document.activeElement);
+        this.built.discKey = key;
+        const order = { Red: 1, Orange: 2, Yellow: 3, Green: 4, Blue: 5 };
+        const sorted = [...d.flowchart].sort((a, b) => order[a.priority] - order[b.priority]);
+        const selIndex = c.noneApply ? sorted.length : sorted.findIndex(x => x.text === c.discriminator);
+        const tabTarget = selIndex >= 0 ? selIndex : 0;
+        box.innerHTML = sorted.map((x, i) => {
+            const sel = x.text === c.discriminator;
+            const auto = autoOn && x.text === AUTO_DISCRIMINATOR_TEXT && !sel;
+            return `<button type="button" role="option" class="discriminator priority-${x.priority}" data-text="${esc(x.text)}" aria-selected="${sel}" tabindex="${i === tabTarget ? 0 : -1}"><span>${esc(x.text)}${auto ? '<span class="auto-tag">From obs</span>' : ''}</span><span class="disc-level">${x.priority}</span></button>`;
+        }).join('') + `<button type="button" role="option" class="discriminator none-apply" aria-selected="${c.noneApply}" tabindex="${tabTarget === sorted.length ? 0 : -1}"><span>None of these apply</span><span class="disc-level">Blue</span></button>`;
+        if (hadFocus) {
+            const f = box.querySelector('[tabindex="0"]');
+            if (f) f.focus();
+        }
+    }
+
+    renderPain() {
+        const c = this.state.complaint, d = this.derived;
+        this.$('pain-btn-container').querySelectorAll('.pain-btn').forEach(b => {
+            const on = C.has(c.pain) && Number(b.dataset.score) === c.pain;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-checked', String(on));
+            b.tabIndex = on || (!C.has(c.pain) && b.dataset.score === '0') ? 0 : -1;
+        });
+        this.$('pain-readout').textContent = C.has(c.pain) ? `${c.pain}/10 - ${d.pain.band.toLowerCase()}${c.painMethod === 'FLACC' ? ' (FLACC)' : ''}` : 'not assessed';
+        const flaccAge = this.state.patient.age !== null && this.state.patient.age < 7;
+        this.$('btn-flacc').classList.toggle('hidden', !flaccAge);
+        if (!flaccAge) this.$('flacc-panel').classList.add('hidden');
+    }
+
+    buildFlacc() {
+        const items = [
+            ['face', 'Face', ['No particular expression or smile', 'Occasional grimace or frown, withdrawn', 'Frequent/constant frown, clenched jaw, quivering chin']],
+            ['legs', 'Legs', ['Normal position or relaxed', 'Uneasy, restless, tense', 'Kicking or legs drawn up']],
+            ['activity', 'Activity', ['Lying quietly, normal position, moves easily', 'Squirming, shifting, tense', 'Arched, rigid or jerking']],
+            ['cry', 'Cry', ['No cry', 'Moans or whimpers, occasional complaint', 'Crying steadily, screams or sobs, frequent complaints']],
+            ['consolability', 'Consolability', ['Content, relaxed', 'Reassured by touch or talking, distractible', 'Difficult to console or comfort']]
+        ];
+        const f = this.state.complaint.flacc;
+        this.$('flacc-panel').innerHTML = `<div class="tool-head"><span class="tool-title">FLACC (pre-verbal children)</span><span class="tool-result" id="flacc-total"></span></div>` +
+            items.map(([k, label, opts]) => `<div class="q-row"><span>${label}</span><select data-flacc="${k}"><option value="">-</option>${opts.map((o, i) => `<option value="${i}"${String(f[k]) === String(i) ? ' selected' : ''}>${i} - ${esc(o)}</option>`).join('')}</select></div>`).join('');
+        const upd = () => {
+            const vals = items.map(([k]) => f[k]);
+            const done = vals.every(v => C.has(v));
+            const total = vals.reduce((s, v) => s + (C.has(v) ? Number(v) : 0), 0);
+            this.$('flacc-total').textContent = done ? `FLACC ${total}/10` : 'Complete all 5';
+            if (done) { this.state.complaint.painMethod = 'FLACC'; this.set('complaint.pain', total); }
+        };
+        this.$('flacc-panel').querySelectorAll('select').forEach(s => s.addEventListener('change', () => { f[s.dataset.flacc] = s.value === '' ? null : Number(s.value); upd(); }));
+        upd();
+    }
+
+    // Yes/No control bound to a state path (clicking the active answer clears it).
+    ynHTML(path, current, labels = ['Yes', 'No'], values = ['yes', 'no']) {
+        return `<div class="segmented-control yn" id="yn-${path.replace(/\./g, '-')}" data-path="${path}" data-current="${current ?? ''}">${labels.map((l, i) => `<button type="button" data-value="${values[i]}" class="${current === values[i] ? 'active' : ''}">${l}</button>`).join('')}</div>`;
+    }
+
+    checksHTML(items, basePath, values, autoItems = []) {
+        return `<div class="check-grid">${autoItems.map(t => `<label class="auto"><input type="checkbox" checked disabled> ${esc(t)} (from obs)</label>`).join('')}${items.map(([k, t]) => `<label><input type="checkbox" data-path="${basePath}.${k}"${values[k] ? ' checked' : ''}> ${esc(t)}</label>`).join('')}</div>`;
+    }
+
+    renderComplaintTools() {
+        const d = this.derived, s = this.state, t = d.tools, box = this.$('complaint-tools');
+        const key = JSON.stringify([s.complaint.name, t, d.isPaeds, s.patient.age === null, s.assess.headache, s.complaint.discriminator, d.anticoagDetected, s.assess.ng232Anticoag]);
+        if (this.built.toolsKey !== key) {
+            this.built.toolsKey = key;
+            let html = '';
+            if (t.headache) {
+                html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Headache red flags</span></div>
+                    <div class="q-row"><span>Head injury or trauma?</span>${this.ynHTML('assess.headache.trauma', s.assess.headache.trauma)}</div>
+                    ${s.assess.headache.trauma === 'yes' ? '<div class="tool-actions">Head trauma: <button type="button" class="btn-tiny" data-action="switch-head-injury">Use the Head Injury flowchart</button></div>' : ''}
+                    <div class="q-row"><span>Sudden onset / worst-ever headache (thunderclap)?</span>${this.ynHTML('assess.headache.sudden', s.assess.headache.sudden)}</div>
+                    <p class="tool-note">Sudden onset stays on the Headache flowchart and selects "Sudden Onset (Thunderclap)" (Orange) - possible subarachnoid haemorrhage.</p></div>`;
+            }
+            if (t.ng232Optional && !t.ng232) {
+                html += `<div class="tool-panel"><label class="check-line"><input type="checkbox" data-path="assess.headInjuryInvolved"${s.assess.headInjuryInvolved ? ' checked' : ''}> Head injury involved - show NICE NG232 CT criteria</label></div>`;
+            } else if (t.ng232) {
+                html += this.ng232PanelHTML();
+            }
+            if (t.stroke) html += this.strokePanelHTML();
+            if (t.ecg) html += `<div class="tool-panel" id="ecg-panel"></div>`;
+            if (t.nof) html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Suspected fractured neck of femur</span></div>${this.checksHTML([
+                ['analgesia', 'Analgesia given or offered (record in plan)'], ['block', 'Fascia iliaca block considered per local pathway'], ['xray', 'Hip and chest X-ray requested per local pathway'],
+                ['pressure', 'Pressure areas checked; pressure-relieving mattress'], ['fourat', '4AT delirium screen completed'], ['bloods', 'Bloods incl. group & save']], 'assess.nof', s.assess.nof)}</div>`;
+            if (t.fourAT) html += this.fourATPanelHTML();
+            if (t.mh) html += this.mhPanelHTML();
+            box.innerHTML = html;
+        }
+        this.updateToolResults();
+    }
+
+    ng232PanelHTML() {
+        const s = this.state, age = s.patient.age;
+        if (age === null) return `<div class="tool-panel"><div class="tool-head"><span class="tool-title">NICE NG232 head injury - CT criteria</span></div><p class="tool-note">Record age first: the criteria differ for under-16s.</p></div>`;
+        const adult = age >= 16;
+        const a = s.assess.ng232;
+        let html = `<div class="tool-panel"><div class="tool-head"><span class="tool-title">NICE NG232 head injury - CT criteria (${adult ? '16 and over' : 'under 16'})</span><span class="tool-result" id="ng232-result"></span></div>`;
+        if (adult) {
+            html += `<h4>CT within 1 hour if any:</h4>${this.checksHTML(C.NG232_ADULT_1H, 'assess.ng232', a)}`;
+            html += `<h4>CT within 8 hours if loss of consciousness or amnesia AND any risk factor:</h4>${this.checksHTML([['loc_amnesia', 'Loss of consciousness or amnesia since the injury'], ...C.NG232_ADULT_8H], 'assess.ng232', a)}`;
+            html += `<p class="tool-note">Age 65 or over is applied automatically from the age entered.</p>`;
+        } else {
+            html += `<h4>CT within 1 hour if any:</h4>${this.checksHTML(C.NG232_CHILD_1H, 'assess.ng232', a)}`;
+            html += `<h4>Other risk factors (more than 1 = CT within 1 hour; exactly 1 = observe at least 4 hours):</h4>${this.checksHTML(C.NG232_CHILD_RISK, 'assess.ng232', a)}`;
+        }
+        const anti = s.assess.ng232Anticoag === null ? this.derived.anticoagDetected : s.assess.ng232Anticoag;
+        html += `<label class="check-line mt-6"><input type="checkbox" id="ng232-anticoag"${anti ? ' checked' : ''}> On an anticoagulant, or an antiplatelet other than aspirin alone${this.derived.anticoagDetected ? ' <span class="text-muted">(anticoagulant detected in meds)</span>' : ''}</label>`;
+        html += `<p class="tool-note" id="ng232-gcs"></p></div>`;
+        setTimeout(() => {
+            const cb = this.$('ng232-anticoag');
+            if (cb) cb.onchange = () => this.set('assess.ng232Anticoag', cb.checked);
+        });
+        return html;
+    }
+
+    strokePanelHTML() {
+        const s = this.state.assess.stroke;
+        return `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Stroke recognition</span><span class="tool-result" id="rosier-result"></span></div>
+            <div class="q-row"><span>Time last known well</span><input type="datetime-local" data-path="assess.stroke.lkw" value="${esc(s.lkw)}" aria-label="Time last known well"></div>
+            <p class="tool-note" id="lkw-elapsed"></p>
+            <h4>ROSIER</h4>${this.checksHTML(C.ROSIER_ITEMS.map(([k, t, pts]) => [k, `${t} (${pts > 0 ? '+' : ''}${pts})`]), 'assess.stroke.rosier', s.rosier)}
+            <p class="tool-note" id="rosier-bm"></p></div>`;
+    }
+
+    fourATPanelHTML() {
+        const a = this.state.assess.fourAT;
+        const sel = (k, opts) => `<select data-path="assess.fourAT.${k}" data-num><option value="">-</option>${opts.map(([v, t]) => `<option value="${v}"${String(a[k]) === String(v) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+        const rows = `<div class="q-row"><span>1. Alertness</span>${sel('alertness', [[0, 'Normal / mild sleepiness <10s after waking (0)'], [4, 'Clearly abnormal (4)']])}</div>
+            <div class="q-row"><span>2. AMT4 (age, DOB, place, year)</span>${sel('amt4', [[0, 'No mistakes (0)'], [1, '1 mistake (1)'], [2, '2+ mistakes / untestable (2)']])}</div>
+            <div class="q-row"><span>3. Attention (months backwards)</span>${sel('attention', [[0, '7+ months correct (0)'], [1, 'Starts but <7 / refuses (1)'], [2, 'Untestable (2)']])}</div>
+            <div class="q-row"><span>4. Acute change or fluctuating course</span>${sel('acute', [[0, 'No (0)'], [4, 'Yes (4)']])}</div>`;
+        const head = `<span class="tool-title">4AT delirium screen${this.derived.tools.fourATOptional ? ' <span class="text-muted">(aged 65+, optional)</span>' : ''}</span><span class="tool-result" id="fourat-result"></span>`;
+        if (this.derived.tools.fourATOptional) {
+            const started = Object.values(a).some(C.has);
+            return `<details class="tool-panel"${started ? ' open' : ''}><summary class="tool-head">${head}</summary>${rows}</details>`;
+        }
+        return `<div class="tool-panel"><div class="tool-head">${head}</div>${rows}</div>`;
+    }
+
+    mhPanelHTML() {
+        const m = this.state.assess.mh;
+        const sel = (k, opts) => `<select data-path="assess.mh.${k}"><option value="">Not recorded</option>${opts.map(o => `<option${m[k] === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+        return `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Mental health &amp; safety</span></div>
+            <div class="q-row"><span>Mental Health Act status</span>${sel('mha', ['Informal', 'Detained - section 136', 'Detained - other section', 'Unknown'])}</div>
+            <div class="q-row"><span>Risk of leaving before assessment</span>${sel('abscond', ['Low', 'Medium', 'High'])}</div>
+            <div class="q-row"><span>Observation level needed</span>${sel('observation', ['General', 'Within eyesight', "Within arm's length"])}</div>
+            <div class="q-row"><span>Concern about mental capacity</span>${sel('capacity', ['No', 'Yes'])}</div>
+            ${this.checksHTML([['liaison', 'Mental health liaison referral made'], ['saferoom', 'Safer room / ligature check done'], ['belongings', 'Belongings searched per local policy']], 'assess.mh', m)}</div>`;
+    }
+
+    updateToolResults() {
+        const d = this.derived, s = this.state;
+        const res = (id, text, cls) => { const el = this.$(id); if (el) { el.textContent = text; el.className = `tool-result ${cls}`; } };
+        if (d.ng232) {
+            const cls = d.ng232.level === '1h' ? 'res-red' : (d.ng232.level === 'none' ? 'res-green' : 'res-amber');
+            res('ng232-result', d.ng232.text, cls);
+            const g = this.$('ng232-gcs');
+            if (g) g.textContent = d.gcsTotal !== null ? `Current GCS ${d.gcsTotal} (from obs).` : '';
+        }
+        if (d.rosier) {
+            res('rosier-result', d.rosier.text, d.rosier.likely ? 'res-red' : 'res-grey');
+            const bm = this.$('rosier-bm');
+            if (bm) bm.textContent = C.has(s.obs.bm) ? `BM ${s.obs.bm} mmol/L${s.obs.bm < 3.5 ? ' - LOW: treat hypoglycaemia and reassess' : ''}` : 'Check BM first - hypoglycaemia can mimic stroke.';
+        }
+        if (d.fourAT) res('fourat-result', d.fourAT.text, d.fourAT.complete ? (d.fourAT.score >= 4 ? 'res-red' : (d.fourAT.score >= 1 ? 'res-amber' : 'res-green')) : 'res-grey');
+    }
+
+    renderTimers() {
+        const d = this.derived, s = this.state;
+        const ecg = this.$('ecg-panel');
+        if (ecg && d.tools.ecg) {
+            const due = new Date(new Date(s.meta.arrivalAt).getTime() + 10 * 60000);
+            if (s.assess.ecgDoneAt) {
+                const mins = Math.round((new Date(s.assess.ecgDoneAt) - new Date(s.meta.arrivalAt)) / 60000);
+                ecg.innerHTML = `<div class="tool-head"><span class="tool-title">ECG</span><span class="tool-result ${mins <= 10 ? 'res-green' : 'res-amber'}">Done ${hhmm(s.assess.ecgDoneAt)} (${mins} min after arrival)</span></div><button type="button" class="btn-tiny" data-action="ecg-undo">Undo</button>`;
+            } else {
+                const late = new Date() > due;
+                ecg.innerHTML = `<div class="tool-head"><span class="tool-title">ECG within 10 minutes of arrival</span><span class="tool-result ${late ? 'res-red' : 'res-amber'}">${late ? 'OVERDUE - was due' : 'Due by'} ${hhmm(due)}</span></div><button type="button" class="btn-primary" data-action="ecg-done">ECG done now</button>`;
+            }
+        }
+        const lkwEl = this.$('lkw-elapsed');
+        if (lkwEl) {
+            const lkw = s.assess.stroke.lkw ? new Date(s.assess.stroke.lkw) : null;
+            if (lkw && !Number.isNaN(lkw.getTime())) {
+                const mins = Math.round((Date.now() - lkw.getTime()) / 60000);
+                lkwEl.textContent = mins >= 0 ? `${Math.floor(mins / 60)} h ${mins % 60} min since last known well - alert the stroke team per local pathway.` : 'Last known well is in the future - check the time.';
+            } else lkwEl.textContent = 'Record when the patient was last known to be well - it decides treatment options.';
+        }
+    }
+
+    renderEws() {
+        const d = this.derived, e = d.ews;
+        this.$('ews-label').textContent = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? 'local PEWS' : 'local MEOWS');
+        const pts = {};
+        e.params.forEach(p => { pts[p.key] = p.points; });
+        this.$('obs-form').querySelectorAll('.obs-item[data-param]').forEach(el => {
+            const v = pts[el.dataset.param];
+            el.classList.remove('nw-1', 'nw-2', 'nw-3');
+            if (e.type === 'NEWS2' && v) el.classList.add(`nw-${Math.min(v, 3)}`);
+            if (e.type !== 'NEWS2' && v) el.classList.add(v >= 3 ? 'nw-3' : 'nw-1');
+        });
+        document.querySelectorAll('#seg-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === this.state.obs.o2));
+        document.querySelectorAll('#seg-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === this.state.obs.avpu));
+        const gt = this.$('gcs-total');
+        gt.textContent = d.gcsTotal !== null ? `= ${d.gcsTotal}` : '';
+
+        let cls = 'ews-none', text;
+        const ref = e.type === 'NEWS2' ? this.data.references.news2 : (e.type === 'PEWS' ? this.data.references.pews : this.data.references.meows);
+        const label = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
+        if (e.recorded === 0) text = `${label}: no obs recorded`;
+        else if (!e.complete) {
+            text = `${label}: INCOMPLETE ${e.recorded}/${e.recorded + e.missing.length} - partial score ${e.score}`;
+            if (e.score >= 7) cls = 'ews-crit'; else if (e.score >= 5) cls = 'ews-high'; else if (e.score >= 3 || e.redParam) cls = 'ews-mid';
+        } else {
+            text = `${label} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} risk` : ''}`;
+            if (e.type === 'NEWS2') cls = e.score >= 7 ? 'ews-crit' : (e.score >= 5 ? 'ews-high' : (e.score >= 1 || e.redParam ? 'ews-mid' : 'ews-low'));
+            else cls = e.score >= 5 ? 'ews-crit' : (e.score >= 1 ? 'ews-mid' : 'ews-low');
+        }
+        const tags = e.params.filter(p => p.points > 0).map(p => `<span class="news-tag">${esc(p.label)} ${esc(p.value)} (+${p.points})</span>`).join('')
+            + e.missing.map(m => `<span class="news-tag missing">${esc(m)} missing</span>`).join('');
+        this.$('visual-ews-container').innerHTML = `<span class="ews-badge ${cls}">${esc(text)}</span>${this.infoPopoverHTML(ref)}<div class="news-breakdown">${tags}</div>${d.newsResp && e.recorded ? `<span class="hint">RCP response: obs ${esc(d.newsResp.monitorText)}</span>` : ''}`;
+    }
+
+    renderSepsis() {
+        const d = this.derived, s = this.state, sp = d.sepsis, box = this.$('sepsis-screen-container');
+        const key = JSON.stringify([sp.applicable, s.assess.infection, sp.status === 'paeds' || sp.status === 'pregnant' || sp.status === 'no-age']);
+        if (this.built.sepsisKey !== key) {
+            this.built.sepsisKey = key;
+            if (!sp.applicable) {
+                box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG253)</span></div><p class="tool-note" id="sepsis-text"></p>`;
+            } else {
+                box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG253, 16 and over)</span><span class="tool-result" id="sepsis-result"></span></div>
+                    <div class="q-row"><span><strong>Could this be an infection?</strong> (suspected or confirmed)</span>${this.ynHTML('assess.infection', s.assess.infection)}</div>
+                    <p class="tool-actions" id="sepsis-actions"></p><p class="tool-note" id="sepsis-judgement"></p>
+                    ${s.assess.infection === 'yes' ? `<h4>Also record:</h4>${this.checksHTML(this.data.sepsisConsiderations.map(c => [c.id, c.label]), 'assess.sepsisFactors', s.assess.sepsisFactors)}` : ''}
+                    <p class="tool-note">Risk comes from a complete NEWS2. Chemotherapy and immunosuppression: tick the high-risk groups in History.</p>`;
+            }
+        }
+        const t = this.$('sepsis-text');
+        if (t) t.textContent = sp.text;
+        const r = this.$('sepsis-result');
+        if (r) {
+            if (sp.status === 'assessed') {
+                r.textContent = `${sp.risk} risk${sp.provisional ? ' (provisional - obs incomplete)' : ''}`;
+                r.className = `tool-result ${sp.risk === 'High' ? 'res-red' : (sp.risk === 'Moderate' ? 'res-amber' : 'res-grey')}`;
+            } else { r.textContent = sp.status === 'not-suspected' ? 'Not applied' : 'Not assessed'; r.className = 'tool-result res-grey'; }
+            this.$('sepsis-actions').textContent = sp.status === 'assessed' ? sp.actions : '';
+            this.$('sepsis-judgement').textContent = sp.judgement || '';
+        }
+    }
+
+    renderPaeds() {
+        const d = this.derived, s = this.state, p = s.patient;
+        this.$('card-paeds').classList.toggle('hidden', !d.isPaeds);
+        if (!d.isPaeds) { this.built.paedsKey = null; return; }
+        const under5 = p.age < 5;
+        const key = JSON.stringify([under5, p.age < 1, s.assess.paeds.recentDose, s.assess.ng143.feverReported, d.feverRelevant]);
+        if (this.built.paedsKey !== key) {
+            this.built.paedsKey = key;
+            const pa = s.assess.paeds;
+            let html = `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Analgesia / antipyretic check</span></div>
+                <div class="q-row"><span>Paracetamol or ibuprofen given in the last 4-6 hours?</span>${this.ynHTML('assess.paeds.recentDose', pa.recentDose, ['Yes', 'No', 'Unknown'], ['yes', 'no', 'unknown'])}</div>
+                <div id="paeds-doses"></div>
+                <p class="tool-note">Guidance only - check BNFc and your PGD. Doses use measured weight (capped at ${this.data.scoring.paedsSafety.weightCapKg} kg).</p></div>`;
+            if (under5) {
+                html +=`<div class="tool-panel"><div class="tool-head"><span class="tool-title">NICE NG143 fever traffic light (under 5)</span><span class="tool-result" id="ng143-result"></span></div>
+                    <label class="check-line"><input type="checkbox" data-path="assess.ng143.feverReported"${s.assess.ng143.feverReported ? ' checked' : ''}> Fever reported by parent/carer (applies automatically if measured temp is 38°C or more)</label>
+                    <div id="ng143-auto" class="tool-note"></div>
+                    ${d.feverRelevant ? `<h4>Red features</h4>${this.checksHTML(C.NG143_ITEMS.red, 'assess.ng143.ticks', s.assess.ng143.ticks)}<h4>Amber features</h4>${this.checksHTML(C.NG143_ITEMS.amber, 'assess.ng143.ticks', s.assess.ng143.ticks)}` : ''}</div>`;
+            }
+            html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Safeguarding children</span></div>
+                <div class="q-row"><span>Accompanied by (name / relationship)</span><input type="text" data-path="assess.paeds.accompaniedBy" value="${esc(pa.accompaniedBy)}" autocomplete="off"></div>
+                ${this.checksHTML([['cpis', 'Child Protection - Information Sharing (CP-IS) checked'], ['pr', 'Person with parental responsibility identified'],
+                    ['nonmobile', 'Injury or bruising in a non-mobile child'], ['story', 'Explanation inconsistent with injury or development'], ['notbrought', 'Concern about previous attendances or missed ("was not brought") appointments']], 'assess.paeds.safeguarding', pa.safeguarding)}
+                <p class="tool-note" id="sg-note"></p></div>`;
+            this.$('paeds-content').innerHTML = html;
+        }
+        const a = d.analgesia, doses = this.$('paeds-doses');
+        if (doses) {
+            if (a.blocked) doses.innerHTML = `<p class="tool-actions"><strong>${esc(a.blocked)}</strong></p>`;
+            else if (!s.assess.paeds.recentDose) doses.innerHTML = '<p class="tool-actions">Answer the question above to see doses.</p>';
+            else doses.innerHTML = `<p class="tool-actions"><strong>Paracetamol ${a.paracetamol} mg</strong> (15 mg/kg) · <strong>${a.ibuprofen === null ? 'Ibuprofen: not suitable' : `Ibuprofen ${a.ibuprofen} mg`}</strong>${a.ibuprofen === null ? '' : ' (10 mg/kg)'}${a.ibuprofenNote ? ` - ${esc(a.ibuprofenNote)}` : ''}</p>${s.assess.paeds.recentDose !== 'no' ? '<p class="tool-note"><strong>Check the time and dose already given - do not exceed the maximum daily dose.</strong></p>' : ''}`;
+        }
+        const r = this.$('ng143-result');
+        if (r) {
+            const tl = d.feverTL;
+            if (!d.feverRelevant) { r.textContent = 'No fever recorded'; r.className = 'tool-result res-grey'; }
+            else { r.textContent = tl.level ? `${tl.level.toUpperCase()}${tl.level === 'Green' ? ' so far' : ''}` : 'Record temp, RR and HR'; r.className = `tool-result ${tl.level === 'Red' ? 'res-red' : tl.level === 'Amber' ? 'res-amber' : tl.level === 'Green' ? 'res-green' : 'res-grey'}`; }
+            const au = this.$('ng143-auto');
+            const obsItems = [...tl.red, ...tl.amber].filter(t => /\d/.test(t));
+            if (au) au.textContent = obsItems.length ? `From obs: ${obsItems.join('; ')}` : '';
+        }
+        const sg = s.assess.paeds.safeguarding;
+        const n = this.$('sg-note');
+        if (n) n.textContent = (sg.nonmobile || sg.story || sg.notbrought) ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '';
+    }
+
+    renderIpc() {
+        const s = this.state, box = this.$('ipc-panel');
+        if (!this.built.ipc) {
+            this.built.ipc = true;
+            box.innerHTML = `<div class="tool-head"><span class="tool-title">Infection prevention &amp; control</span><span class="tool-result" id="ipc-result"></span></div>` +
+                this.checksHTML([['dv', 'Diarrhoea and/or vomiting'], ['resp', 'New cough / respiratory infection symptoms'], ['rash', 'Rash with fever'],
+                    ['travel', 'Travelled abroad recently (record where and when)'], ['mdro', 'Known MRSA / CPE / other resistant organism']], 'assess.ipc', s.assess.ipc);
+        }
+        const r = this.$('ipc-result');
+        r.textContent = this.derived.ipcFlag ? 'Side room / isolation - follow local IPC policy' : 'No IPC flags';
+        r.className = `tool-result ${this.derived.ipcFlag ? 'res-amber' : 'res-grey'}`;
     }
 
     renderScreeningDynamic() {
         const age = this.state.patient.age;
-        const frailtyDiv = document.getElementById('screen-frailty');
-        if(frailtyDiv) frailtyDiv.style.display = (age !== null && age >= 65) ? 'block' : 'none';
-        const fallsDiv = document.getElementById('screen-falls');
-        if(fallsDiv) fallsDiv.style.display = (age !== null && age >= 65) ? 'block' : 'none';
-    }
-
-    renderPainButtons() {
-        const c = document.getElementById('pain-btn-container');
-        c.innerHTML = '';
-        for (let i = 0; i <= 10; i++) {
-            const b = document.createElement('button');
-            b.className = 'pain-btn';
-            b.textContent = i;
-            b.type = "button";
-            b.onclick = () => {
-                document.querySelectorAll('.pain-btn').forEach(x => x.classList.remove('active'));
-                b.classList.add('active');
-                document.getElementById('pain-val').textContent = i;
-                this.setState({ history: { pain: i } });
-            };
-            c.appendChild(b);
-        }
-    }
-
-    populateDatalist() {
-        const dl = document.getElementById('flowcharts');
-        Object.keys(this.data.mtsFlowcharts).sort().forEach(key => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            dl.appendChild(opt);
+        Object.entries(this.data.screening).forEach(([key, def]) => {
+            const el = this.$(`screen-${key}`);
+            if (!el) return;
+            const show = (def.minAge === undefined || (age !== null && age >= def.minAge)) && (def.maxAge === undefined || (age !== null && age <= def.maxAge));
+            el.style.display = show ? '' : 'none';
+            const v = this.state.screening[key] || '';
+            if (def.options) { const sel = this.$(`screen-input-${key}`); if (sel && sel.value !== v) sel.value = v; }
+            else document.querySelectorAll(`#toggle-${key} button`).forEach(b => b.classList.toggle('active', b.dataset.value === v));
         });
     }
 
-    async handleComplaint(val) {
-        const lowerVal = val.toLowerCase();
-        if (lowerVal === 'headache' && !this.state.ui.redFlagChecked) {
-             const check = await this.showConfirm('Is there any history of trauma, fall, or sudden onset?', '⚠️ Red Flag Check');
-             if (check) {
-                 val = "Head Injury"; 
-                 this.dom.complaintInput.value = val;
-                 this.showToast('Switched to Head Injury Protocol', 'error');
-             }
-             this.state.ui.redFlagChecked = true;
+    renderCorridor() {
+        const s = this.state, box = this.$('corridor-panel');
+        const on = s.triage.disposition === 'Escalation' || s.triage.disposition === 'Held on Ambulance';
+        box.classList.toggle('hidden', !on);
+        if (!on) { this.built.corridor = false; return; }
+        if (!this.built.corridor) {
+            this.built.corridor = true;
+            box.innerHTML = `<div class="tool-head"><span class="tool-title">Corridor / escalation care checks</span><span class="tool-result" id="corridor-last"></span></div>` +
+                this.checksHTML([['dignity', 'Privacy, dignity and comfort'], ['pressure', 'Pressure areas checked'], ['fluids', 'Food and drink offered (if safe)'], ['toilet', 'Toileting offered'],
+                    ['meds', 'Time-critical medicines checked'], ['callbell', 'Able to summon help'], ['obs', 'Obs repeated when due']], 'assess.corridor', s.assess.corridor) +
+                `<button type="button" class="btn-tiny mt-6" data-action="corridor-checked">Record check done now</button>`;
         }
+        this.$('corridor-last').textContent = s.assess.corridorCheckedAt ? `Last check ${hhmm(s.assess.corridorCheckedAt)}` : 'No check recorded';
+    }
 
-        // Switching to a genuinely different (matched) complaint restarts discriminator selection,
-        // so auto-detection re-engages for the new flowchart rather than carrying over a stale choice.
-        const complaintChanged = val !== this.state.history.complaint;
-        const resetDiscriminator = complaintChanged && !!this.data.mtsFlowcharts[val];
-        this.setState({
-            history: { ...this.state.history, complaint: val },
-            triage: resetDiscriminator ? { discriminator: null, basePriority: 'Blue', discriminatorLocked: false } : {}
+    renderMedsAlert() {
+        const risks = this.derived.risks, el = this.$('meds-alert'), raw = (this.state.history.meds || '').toLowerCase();
+        if (risks.length) { el.textContent = `Safety alerts: ${risks.join(', ')}`; el.className = 'meds-status-bar meds-risk'; }
+        else if (/\b(nil|none|nkda|no meds|nothing)\b/.test(raw) || raw.length > 5) { el.textContent = 'No high-risk medicines detected (check the tick-boxes too)'; el.className = 'meds-status-bar meds-safe'; }
+        else { el.textContent = ''; el.className = 'meds-status-bar'; }
+        this.$('high-risk-meds-grid').querySelectorAll('input').forEach(cb => {
+            const on = !!this.state.history.manualRiskFlags[cb.dataset.catId];
+            cb.checked = on;
+            cb.closest('.hr-med-chip').classList.toggle('checked', on);
         });
-
-        const calcBox = document.getElementById('calculator-container');
-        const calcData = this.data.calculators ? this.data.calculators[val] : null;
-        
-        if (calcData) {
-            calcBox.classList.remove('hidden');
-            let criteriaHtml = '';
-            calcData.criteria.forEach((c, idx) => {
-                criteriaHtml += `<div class="calc-item"><label>${c.text}</label>
-                         <input type="checkbox" data-score="${c.points}" class="calc-trigger"></div>`;
-            });
-            calcBox.innerHTML = `
-                <div class="calc-header">
-                    <span class="calc-title">🧮 ${calcData.title}</span>
-                    ${calcData.reference ? this.infoPopoverHTML(calcData.reference) : ''}
-                </div>
-                <div class="calc-summary">
-                    <span class="calc-score-display">Score: <span id="calc-score-val">0</span></span>
-                    <button type="button" class="btn-tiny calc-toggle" id="calc-toggle-criteria">Show criteria ▾</button>
-                </div>
-                <div id="calc-interpretation" class="calc-interpretation"></div>
-                <div id="calc-criteria" class="calc-criteria hidden">${criteriaHtml}</div>
-            `;
-
-            const scoreEl = document.getElementById('calc-score-val');
-            const interpEl = document.getElementById('calc-interpretation');
-            const triggers = calcBox.querySelectorAll('.calc-trigger');
-            const updateScore = () => {
-                let s = 0;
-                triggers.forEach(x => { if(x.checked) s += parseFloat(x.dataset.score); });
-                scoreEl.textContent = s;
-                if (calcData.interpret) {
-                    const band = calcData.interpret.find(b => s <= b.max);
-                    interpEl.textContent = band ? band.text : '';
-                }
-            };
-            triggers.forEach(t => t.addEventListener('change', updateScore));
-            updateScore();
-
-            const toggleBtn = document.getElementById('calc-toggle-criteria');
-            const criteriaBox = document.getElementById('calc-criteria');
-            toggleBtn.addEventListener('click', () => {
-                const nowHidden = criteriaBox.classList.toggle('hidden');
-                toggleBtn.textContent = nowHidden ? 'Show criteria ▾' : 'Hide criteria ▴';
-            });
-        } else {
-            calcBox.classList.add('hidden');
-        }
-
-        if (!this.data.mtsFlowcharts[val]) return;
-
-        this.renderDiscriminatorList();
-        this.renderProtocol(val, complaintChanged);
-    }
-
-    // Rebuilds the discriminator card list for the current complaint. Purely a render of current state -
-    // all the auto-detect/lock decision logic lives in updateAutoDiscriminator(), run earlier in
-    // runClinicalLogic() so the priority calc and this list never disagree with each other.
-    renderDiscriminatorList() {
-        const complaint = this.state.history.complaint;
-        const flowchart = this.data.mtsFlowcharts[complaint];
-        if (!complaint || !flowchart) return;
-
-        const container = this.dom.discriminatorBox;
-        const t = this.state.triage;
-        container.innerHTML = '';
-
-        const order = { "Red": 1, "Orange": 2, "Yellow": 3, "Green": 4, "Blue": 5 };
-        const sorted = [...flowchart].sort((a,b) => order[a.priority] - order[b.priority]);
-        const hasAutoOption = flowchart.some(f => f.text === AUTO_DISCRIMINATOR_TEXT);
-        const autoActive = !t.discriminatorLocked && t.discriminator === AUTO_DISCRIMINATOR_TEXT;
-
-        sorted.forEach(item => {
-            const div = document.createElement('div');
-            div.className = `discriminator priority-${item.priority}`;
-            const showAutoTag = autoActive && item.text === AUTO_DISCRIMINATOR_TEXT;
-            div.innerHTML = `<span>${item.text}${showAutoTag ? ' <span class="auto-tag">Auto-detected from obs</span>' : ''}</span> <span style="font-weight:bold; opacity:0.6;">${item.priority}</span>`;
-            if (item.text === t.discriminator) div.classList.add('selected');
-            div.onclick = () => {
-                this.setState({ triage: { discriminator: item.text, basePriority: item.priority, discriminatorLocked: true } });
-            };
-            container.appendChild(div);
-        });
-
-        if (t.discriminatorLocked && hasAutoOption) {
-            const resetBtn = document.createElement('button');
-            resetBtn.type = 'button';
-            resetBtn.className = 'btn-tiny reset-auto-link';
-            resetBtn.textContent = '↺ Reset to auto-detected discriminator';
-            resetBtn.onclick = () => {
-                this.setState({ triage: { discriminator: null, basePriority: 'Blue', discriminatorLocked: false } });
-            };
-            container.appendChild(resetBtn);
-        }
-    }
-
-    renderProtocol(complaint, complaintChanged = true) {
-        const proto = this.data.protocols[complaint];
-        const container = document.getElementById('protocol-actions');
-        container.innerHTML = '';
-        // Only drop complaint-specific plan items on a genuine complaint change (not on a session
-        // restore or an incidental re-render of the same complaint) - and never touch 'Universal'
-        // items (e.g. the pregnancy test check), since those are complaint-independent by design.
-        if (complaintChanged) {
-            this.state.plan = this.state.plan.filter(item => item.category === 'Universal');
-        }
-
-        if (proto && proto.tests) {
-            if (proto.cannula) {
-                const cDiv = document.createElement('div');
-                cDiv.className = `cannula-badge cannula-${proto.cannula.color}`;
-                cDiv.innerHTML = `
-                    <div style="font-size:2rem; margin-right:15px;">💉</div>
-                    <div>
-                        <strong>Cannula: ${proto.cannula.status}</strong><br>
-                        <small>${proto.cannula.reason} (${proto.cannula.size})</small>
-                    </div>
-                `;
-                container.appendChild(cDiv);
-            }
-
-            // Plan entries are { category, name } - category groups them back together for the
-            // PLAN: note output and the SBAR R: line (e.g. "Bloods: FBC, U&E").
-            const createCheck = (test, category) => {
-                // Test entries are { name, why } objects; keep backward compatibility with plain strings.
-                const name = typeof test === 'string' ? test : test.name;
-                const why = typeof test === 'string' ? '' : (test.why || '');
-                const existing = this.state.plan.find(x => x.category === category && x.name === name);
-                const alreadyPlanned = !!existing;
-                const status = existing ? (existing.status || 'Planned') : 'Planned';
-                const div = document.createElement('div');
-                div.className = 'protocol-check' + (alreadyPlanned ? ' checked' : '');
-                div.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span>${name}</span>${why ? `<small class="protocol-why">${why}</small>` : ''}</div>${alreadyPlanned ? this.statusControlHTML(status) : ''}`;
-                if (alreadyPlanned) this.bindStatusControl(div, category, name);
-                div.querySelector('input').addEventListener('change', (e) => {
-                    div.classList.toggle('checked', e.target.checked);
-                    if (e.target.checked) {
-                        this.state.plan.push({ category, name, status: 'Planned' });
-                        if (!div.querySelector('.status-control')) {
-                            div.insertAdjacentHTML('beforeend', this.statusControlHTML('Planned'));
-                            this.bindStatusControl(div, category, name);
-                        }
-                    } else {
-                        this.state.plan = this.state.plan.filter(t => !(t.category === category && t.name === name));
-                        const sc = div.querySelector('.status-control');
-                        if (sc) sc.remove();
-                    }
-                    this.renderNote();
-                    // Plan checkboxes mutate this.state.plan directly (not via setState) since a full
-                    // re-render on every tick would be wasteful - but that means autosave must be
-                    // triggered explicitly here too, or a ticked item is never persisted to History.
-                    this.debouncedSave();
-                });
-                return div;
-            };
-
-            const cats = [
-                { key: 'bedside', icon: '🫀', label: 'Bedside' }
-            ];
-
-            cats.forEach(cat => {
-                if(proto.tests[cat.key] && proto.tests[cat.key].length > 0) {
-                    const section = document.createElement('div');
-                    section.className = 'test-category';
-                    section.innerHTML = `<h4>${cat.icon} ${cat.label}</h4>`;
-                    proto.tests[cat.key].forEach(test => section.appendChild(createCheck(test, cat.label)));
-                    container.appendChild(section);
-                }
-            });
-
-            // Bloods (lab) - two shapes are supported:
-            //  - proto.tests.labProfile: a named ED order-set from data.bloodProfiles. Ticking it
-            //    selects/deselects the WHOLE panel at once (one plan entry), matching how the trust's
-            //    ICE ordering system actually works - individual tests within it are not separately tickable.
-            //  - proto.tests.lab: legacy array of {name, why} - each individually tickable (unchanged).
-            // Either shape can carry proto.tests.labExtra: advisory "consider also adding" tests, shown
-            // as their own small unticked checkboxes below the main panel (per-test, not whole-panel).
-            const bloodsSection = document.createElement('div');
-            bloodsSection.className = 'test-category';
-            let bloodsHasContent = false;
-
-            if (proto.tests.labProfile) {
-                bloodsHasContent = true;
-                const profileName = proto.tests.labProfile;
-                const profileTests = this.data.bloodProfiles[profileName] || [];
-                bloodsSection.innerHTML = `<h4>🩸 Bloods</h4>`;
-
-                const includesText = 'Includes: ' + profileTests.map(t => t.name).join(', ');
-                const existingProfile = this.state.plan.find(x => x.category === 'Bloods' && x.name === profileName);
-                const alreadyPlanned = !!existingProfile;
-                const profileStatus = existingProfile ? (existingProfile.status || 'Planned') : 'Planned';
-                const pdiv = document.createElement('div');
-                pdiv.className = 'protocol-check profile-check' + (alreadyPlanned ? ' checked' : '');
-                pdiv.innerHTML = `<input type="checkbox"${alreadyPlanned ? ' checked' : ''}> <div class="protocol-check-text"><span><strong>${profileName}</strong></span>${this.infoPopoverHTML(includesText)}</div>${alreadyPlanned ? this.statusControlHTML(profileStatus) : ''}`;
-                if (alreadyPlanned) this.bindStatusControl(pdiv, 'Bloods', profileName);
-                pdiv.querySelector('input').addEventListener('change', (e) => {
-                    pdiv.classList.toggle('checked', e.target.checked);
-                    if (e.target.checked) {
-                        this.state.plan.push({ category: 'Bloods', name: profileName, status: 'Planned' });
-                        if (!pdiv.querySelector('.status-control')) {
-                            pdiv.insertAdjacentHTML('beforeend', this.statusControlHTML('Planned'));
-                            this.bindStatusControl(pdiv, 'Bloods', profileName);
-                        }
-                    } else {
-                        this.state.plan = this.state.plan.filter(t => !(t.category === 'Bloods' && t.name === profileName));
-                        const sc = pdiv.querySelector('.status-control');
-                        if (sc) sc.remove();
-                    }
-                    this.renderNote();
-                    this.debouncedSave();
-                });
-                bloodsSection.appendChild(pdiv);
-
-                const bbvNote = document.createElement('div');
-                bbvNote.className = 'bbv-note';
-                bbvNote.textContent = 'ℹ️ Trust policy: ICE automatically adds a BBV screen (Hep B, Hep C, HIV) to this request if not done in the past 12 months - no separate action needed here.';
-                bloodsSection.appendChild(bbvNote);
-            } else if (proto.tests.lab && proto.tests.lab.length > 0) {
-                bloodsHasContent = true;
-                bloodsSection.innerHTML = `<h4>🩸 Bloods</h4>`;
-                proto.tests.lab.forEach(test => bloodsSection.appendChild(createCheck(test, 'Bloods')));
-            }
-
-            if (proto.tests.labExtra && proto.tests.labExtra.length > 0) {
-                bloodsHasContent = true;
-                const extraWrap = document.createElement('div');
-                extraWrap.className = 'lab-extra-wrap';
-                extraWrap.innerHTML = `<div class="lab-extra-label">💡 Consider also adding:</div>`;
-                proto.tests.labExtra.forEach(test => extraWrap.appendChild(createCheck(test, 'Bloods')));
-                bloodsSection.appendChild(extraWrap);
-            }
-
-            if (bloodsHasContent) container.appendChild(bloodsSection);
-        } else {
-            container.innerHTML = `<p class="placeholder-text">No specific protocol for "${complaint}"</p>`;
-        }
-    }
-
-    render() {
-        this.renderDemographics();
-        this.renderArrivalMode();
-        this.renderNEWS2();
-        this.renderSepsisScreen();
-        this.renderPaedsSafety();
-        this.renderPlan();
-        this.renderScreeningDynamic();
-        this.renderDiscriminatorList();
-        this.renderUniversalChecks();
-        this.renderPmhPrompts();
-        this.renderNote();
-    }
-
-    // Shows/hides the ambulance-specific fields (call sign/case ID + Pre-Hospital Handover card)
-    // based on how the patient arrived. Self-presented patients never see these - the app behaves
-    // exactly as before for them.
-    renderArrivalMode() {
-        const mode = this.state.patient.arrivalMode || 'Self';
-        const isAmbulance = mode === 'Ambulance';
-        document.querySelectorAll('#seg-arrival button').forEach(b => b.classList.toggle('active', b.dataset.value === mode));
-        document.getElementById('amb-fields').classList.toggle('hidden', !isAmbulance);
-
-        // History & Complaint absorbs the ambulance handover fields instead of having its own separate
-        // card - this avoids two stacked sections and keeps documentation in one place. The crew's info
-        // is trusted as-is: HPC/obs sit before, and pre-hospital treatment after, the SAME single
-        // Allergies/PMH/Meds fields used for every patient - so nothing is ever asked or shown twice.
-        // The whole section also moves ahead of Physiology for ambulance arrivals (via the .pull-to-top
-        // CSS order), since the crew's handover is taken before the ED's own obs.
-        document.getElementById('amb-handover-top').classList.toggle('hidden', !isAmbulance);
-        document.getElementById('amb-handover-bottom').classList.toggle('hidden', !isAmbulance);
-        document.getElementById('history-title').textContent = isAmbulance ? 'History, complaint & pre-hospital handover' : 'History & complaint';
-
-        // Physically move the card (rather than CSS `order`) so the CSS section counter, which
-        // follows document order, numbers the sections in the order they are actually shown.
-        // Only moves when the mode changes, so it never steals focus mid-typing.
-        const historyCard = document.getElementById('card-history');
-        const obsCard = document.getElementById('card-obs');
-        if (isAmbulance && obsCard.nextElementSibling === historyCard) {
-            obsCard.parentNode.insertBefore(historyCard, obsCard);
-        } else if (!isAmbulance && historyCard.nextElementSibling === obsCard) {
-            historyCard.parentNode.insertBefore(obsCard, historyCard);
-        }
-
-        // Ambulance patients already give their pre-arrival medications/treatment in the free-text
-        // Pre-Hospital Medications box above - hide this duplicate self-presented-only field for them.
-        document.getElementById('card-treatment-given').classList.toggle('hidden', isAmbulance);
     }
 
     renderPmhPrompts() {
-        const el = document.getElementById('pmh-prompts');
-        if (!el) return;
-        const suggestions = this.state.history.pmhPromptSuggestions || [];
-        if (suggestions.length === 0 || this.state.ui.pmhPromptsDismissed) {
-            el.classList.add('hidden');
-            el.innerHTML = '';
-            return;
-        }
+        const raw = (this.state.history.pmh || '').toLowerCase();
+        const words = raw.split(/[^a-z]+/).filter(w => w.length >= 3);
+        const prompts = [...new Set(Object.entries(this.data.pmhPrompts).filter(([k]) => k.includes(' ') ? raw.includes(k) : words.some(w => TriageApp.fuzzyMatch(w, k))).map(([, t]) => t))];
+        const sig = prompts.join('|');
+        if (sig !== this.state.ui.pmhSignature) { this.state.ui.pmhSignature = sig; this.state.ui.pmhPromptsDismissed = false; }
+        const el = this.$('pmh-prompts');
+        if (!prompts.length || this.state.ui.pmhPromptsDismissed) { el.classList.add('hidden'); el.innerHTML = ''; return; }
         el.classList.remove('hidden');
-        el.innerHTML = `<span>💡 ${suggestions.join(' ')}</span> <button type="button" class="btn-tiny pmh-prompt-dismiss">Dismiss</button>`;
-        el.querySelector('.pmh-prompt-dismiss').addEventListener('click', () => {
-            this.state.ui.pmhPromptsDismissed = true;
-            this.renderPmhPrompts();
-        });
+        el.innerHTML = `<span>💡 ${esc(prompts.join(' '))}</span> <button type="button" class="btn-tiny" data-action="dismiss-pmh">Dismiss</button>`;
     }
 
-    renderSepsisScreen() {
-        const container = document.getElementById('sepsis-screen-container');
-        if (!container) return;
-        const s = this.state.triage.sepsis || { applicable: false, red: [], amber: [] };
-        const manual = this.state.history.manualRiskFlags || {};
-
-        if (!s.applicable) {
-            container.innerHTML = `<span class="label-small-title">Sepsis Screen (NICE NG253 Red/Amber Flags)</span><p class="text-muted" style="font-size:0.78rem; margin:4px 0 0;">Adult red/amber flag thresholds don't apply to paediatric or pregnant patients - use the PEWS/MEOWS trigger above plus clinical judgement.</p>`;
-            return;
-        }
-
-        let statusClass = 'priority-Green', statusText = 'NO SEPSIS FLAGS on current obs';
-        if (s.red.length > 0) { statusClass = 'priority-Red'; statusText = 'RED FLAG SEPSIS - Sepsis Six within 1hr'; }
-        else if (s.amber.length > 0) { statusClass = 'priority-Orange'; statusText = 'AMBER FLAGS - senior review within 1hr'; }
-
-        const chipsHtml = [
-            ...s.red.map(r => `<span class="news-tag high">${r}</span>`),
-            ...s.amber.map(a => `<span class="news-tag positive">${a}</span>`)
-        ].join('');
-
-        container.innerHTML = `
-            <span class="label-small-title">Sepsis Screen (NICE NG253 Red/Amber Flags)</span>
-            <div class="priority-badge ${statusClass}" style="padding:8px; font-size:0.95rem; margin:6px 0;">${statusText}</div>
-            <div class="news-breakdown">${chipsHtml || '<span class="text-muted" style="font-size:0.8rem;">No auto-detected flags from current observations.</span>'}</div>
-            <div class="high-risk-meds-grid mt-10" id="sepsis-manual-grid"></div>
-            <small class="text-muted" style="display:block; margin-top:4px;">Lactate not required here as it's rarely available at triage - add via bloods if/when taken.</small>
-        `;
-
-        const manualDefs = [
-            { id: 'sepsis_rash', label: 'Non-blanching rash / mottled, ashen or cyanotic' },
-            { id: 'sepsis_urine', label: 'Reduced urine output (>12h)' },
-            { id: 'sepsis_wound', label: 'Signs of wound / device / skin infection' }
-        ];
-        const grid = document.getElementById('sepsis-manual-grid');
-        manualDefs.forEach(def => {
-            const label = document.createElement('label');
-            label.className = 'hr-med-chip' + (manual[def.id] ? ' checked' : '');
-            label.innerHTML = `<input type="checkbox" data-cat-id="${def.id}" ${manual[def.id] ? 'checked' : ''}> <span>${def.label}</span>`;
-            grid.appendChild(label);
-        });
-        grid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            cb.addEventListener('change', (e) => {
-                const id = e.target.dataset.catId;
-                const m = { ...(this.state.history.manualRiskFlags || {}) };
-                m[id] = e.target.checked;
-                e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
-                this.setState({ history: { manualRiskFlags: m } });
-            });
-        });
-    }
-
-    renderDemographics() {
-        const p = this.state.patient;
-        document.querySelectorAll('#seg-age-unit button').forEach(b => b.classList.toggle('active', b.dataset.value === (p.ageUnit || 'Years')));
-        // Always show the pregnancy checkbox for anyone not explicitly marked Male - never gated on
-        // age or DOB being entered, since that's exactly the info an ambulance nurse often doesn't
-        // have yet during a rapid initial assessment. Blank/unknown sex still shows it deliberately.
-        const showPregnancySection = p.sex !== 'Male';
-        document.getElementById('female-health-section').classList.toggle('hidden', !showPregnancySection);
-    }
-
-    renderNEWS2() {
-        const container = document.getElementById('visual-ews-container');
-        container.innerHTML = '';
-        
-        if (this.state.patient.pregnant || (this.state.patient.age !== null && this.state.patient.age < 16)) {
-            // Special handling for MEOWS/PEWS rendering
-            if(this.state.patient.pregnant) {
-                const score = this.state.triage.newsScore;
-                const el = document.createElement('div');
-                el.className = `priority-badge ${score >= 3 ? 'priority-Red' : (score > 0 ? 'priority-Yellow' : 'priority-Green')}`;
-                if(score >= 3) el.classList.add('pulse-alert');
-                el.style.padding = '10px';
-                el.style.fontSize = '1.1rem';
-                el.innerHTML = `<span>MEOWS Score: ${score}</span> ${this.infoPopoverHTML(this.data.references.meows)}`;
-                container.appendChild(el);
-            } else if (this.state.patient.age < 16) {
-                const score = this.state.triage.newsScore;
-                const el = document.createElement('div');
-                el.className = `priority-badge ${score >= 5 ? 'priority-Red' : (score >= 1 ? 'priority-Yellow' : 'priority-Green')}`;
-                if(score >= 5) el.classList.add('pulse-alert');
-                el.style.padding = '10px';
-                el.style.fontSize = '1.1rem';
-                el.innerHTML = `<span>PEWS Score: ${score} (${this.state.triage.pewsGroup})</span> ${this.infoPopoverHTML(this.data.references.pews)}`;
-                container.appendChild(el);
-            }
-        } else {
-            const score = this.state.triage.newsScore;
-            const el = document.createElement('div');
-            el.className = `priority-badge ${score >= 5 ? 'priority-Red' : (score >= 1 ? 'priority-Yellow' : 'priority-Green')}`;
-            if(score >= 5) el.classList.add('pulse-alert');
-            el.style.padding = '10px';
-            el.style.fontSize = '1.1rem';
-            el.innerHTML = `<span>NEWS2 Score: ${score}</span> ${this.infoPopoverHTML(this.data.references.news2)}`;
-            container.appendChild(el);
-        }
-
-        const breakdownDiv = document.createElement('div');
-        breakdownDiv.className = 'news-breakdown';
-        this.state.triage.newsBreakdown.forEach(text => {
-            const chip = document.createElement('span');
-            chip.className = 'news-tag';
-            if (text.includes('Red') || text.includes('+3')) chip.classList.add('high');
-            else if (text.includes('Yellow') || text.includes('+')) chip.classList.add('positive');
-            chip.textContent = text;
-            breakdownDiv.appendChild(chip);
-        });
-        container.appendChild(breakdownDiv);
-    }
-
-    renderPaedsSafety() {
-        const p = this.state.patient;
-        const panel = document.getElementById('paeds-panel');
-        const content = document.getElementById('paeds-content');
-        const pewsContent = document.getElementById('pews-content');
-
-        if (p.age === null || p.age >= 16) {
-            panel.style.display = 'none';
-            return;
-        }
-
-        panel.style.display = 'block';
-        const weight = p.weight || 0;
-        const safeWeight = Math.min(weight, this.data.scoring.paedsSafety.weightCapKg);
-        const para = Math.min(safeWeight * 15, 1000).toFixed(0);
-        const ibu = Math.min(safeWeight * 10, 400).toFixed(0);
-        
-        content.innerHTML = weight > 0 
-            ? `<strong>Weight ${weight}kg</strong> (${safeWeight}kg used for calcs)<br>Paracetamol: ${para}mg | Ibuprofen: ${ibu}mg`
-            : `<span style="color:var(--red); font-weight:bold;">⚠️ Enter Weight for drug doses</span>`;
-
-        pewsContent.innerHTML = '';
-    }
-
-    renderPlan() {
-        const t = this.state.triage;
-        const badge = document.getElementById('priority-display');
-        
-        badge.className = 'priority-badge';
-        badge.classList.add(`priority-${t.finalPriority}`);
-        if(t.finalPriority === 'Red') badge.classList.add('pulse-alert');
-        
-        badge.textContent = t.finalPriority.toUpperCase();
-        document.getElementById('stream-display').textContent = t.stream;
-        document.getElementById('timer-display').textContent = t.timer;
-        document.getElementById('priority-reasons').innerHTML = t.reasons.map(r => `<div>• ${r}</div>`).join('');
-        
-        const sepsisFlags = t.sepsis || { red: [], amber: [] };
-        const sepsisRisk = (t.newsScore >= 5 || sepsisFlags.red.length > 0 || t.reasons.some(r => r.toLowerCase().includes('sepsis')));
-        document.getElementById('sepsis-actions').classList.toggle('hidden', !sepsisRisk);
-    }
-
-    // Universal Safety Checks: fire independent of which complaint/flowchart is selected, unlike the
-    // per-protocol Suggested Plan. Currently just the reproductive-age pregnancy test reminder - reuses
-    // the same age/sex logic already driving the pregnancy/LMP fields (renderDemographics).
     renderUniversalChecks() {
-        const container = document.getElementById('universal-checks-container');
-        if (!container) return;
-
-        const p = this.state.patient;
-        const isFemaleRepro = p.sex === 'Female' && p.age !== null && p.age >= 12 && p.age <= 55;
-        if (!isFemaleRepro) {
-            container.classList.add('hidden');
-            container.innerHTML = '';
-            return;
-        }
-        container.classList.remove('hidden');
-
-        const name = 'Pregnancy Test';
-        const existingUniv = this.state.plan.find(x => x.category === 'Universal' && x.name === name);
-        const checked = !!existingUniv;
-        const univStatus = existingUniv ? (existingUniv.status || 'Planned') : 'Planned';
-        container.innerHTML = `
-            <h4>🌐 Universal Safety Check</h4>
-            <div class="protocol-check${checked ? ' checked' : ''}">
-                <input type="checkbox" id="universal-preg-test" ${checked ? 'checked' : ''}>
-                <div class="protocol-check-text"><span>${name}</span><small class="protocol-why">Reproductive-age female (12-55) - exclude pregnancy regardless of presenting complaint</small></div>
-                ${checked ? this.statusControlHTML(univStatus) : ''}
-            </div>
-        `;
-        const univDiv = container.querySelector('.protocol-check');
-        if (checked) this.bindStatusControl(univDiv, 'Universal', name);
-        document.getElementById('universal-preg-test').addEventListener('change', (e) => {
-            univDiv.classList.toggle('checked', e.target.checked);
-            const already = this.state.plan.some(x => x.category === 'Universal' && x.name === name);
-            if (e.target.checked && !already) {
-                this.state.plan.push({ category: 'Universal', name, status: 'Planned' });
-                if (!univDiv.querySelector('.status-control')) {
-                    univDiv.insertAdjacentHTML('beforeend', this.statusControlHTML('Planned'));
-                    this.bindStatusControl(univDiv, 'Universal', name);
-                }
-            } else if (!e.target.checked) {
-                this.state.plan = this.state.plan.filter(x => !(x.category === 'Universal' && x.name === name));
-                const sc = univDiv.querySelector('.status-control');
-                if (sc) sc.remove();
-            }
-            this.renderNote();
-            this.debouncedSave();
-        });
+        const p = this.state.patient, c = this.$('universal-checks-container');
+        const show = p.sex === 'Female' && p.age !== null && p.age >= 12 && p.age <= 55;
+        c.classList.toggle('hidden', !show);
+        const key = show ? JSON.stringify(this.state.plan.filter(i => i.category === 'Universal')) : 'off';
+        if (this.built.univ === key) return;
+        this.built.univ = key;
+        if (!show) { c.innerHTML = ''; return; }
+        c.innerHTML = '<h4>Universal safety check</h4>';
+        c.appendChild(this.planCheck({ name: 'Pregnancy Test', why: 'Female aged 12-55 - exclude pregnancy whatever the complaint' }, 'Universal'));
     }
 
-    renderNote() {
-        const p = this.state.patient;
-        const t = this.state.triage;
-        const h = this.state.history;
-        const ph = this.state.prehospital;
+    renderDecision() {
+        const d = this.derived, s = this.state;
+        if (!d.priority) return;
+        const badge = this.$('priority-display');
+        const lvl = d.level;
+        badge.className = `priority-badge priority-${lvl || 'None'}${d.priority.provisional ? ' provisional' : ''}`;
+        badge.innerHTML = lvl ? `${lvl.toUpperCase()}${d.priority.provisional ? '<small>provisional - choose a discriminator</small>' : ''}` : 'NOT YET TRIAGED';
+        const sb = this.$('seeby');
+        if (lvl && d.seeBy) {
+            const mins = Math.round((d.seeBy - Date.now()) / 60000);
+            const target = this.data.targetMinutes[lvl];
+            sb.innerHTML = lvl === 'Red' ? '<span class="overdue">See immediately</span>' :
+                `See by ${hhmm(d.seeBy)} <span class="${mins < 0 ? 'overdue' : ''}">(${mins < 0 ? `${-mins} min overdue` : `${mins} min left`})</span><small>${target}-minute target from arrival at ${hhmm(s.meta.arrivalAt)}</small>`;
+        } else sb.innerHTML = '';
+        this.$('stream-display').textContent = d.stream;
+        const obsOverdue = d.nextObsAt && d.nextObsAt < new Date();
+        this.$('next-obs-display').innerHTML = obsOverdue ? `<span class="overdue">${esc(d.nextObs)} - OVERDUE</span>` : esc(d.nextObs);
+        this.$('priority-reasons').innerHTML = d.priority.reasons.map(r => `<div>• ${esc(r)}</div>`).join('');
 
-        let txt = '';
+        const rows = [];
+        const e = d.ews;
+        rows.push(['Obs', e.recorded === 0 ? ['Not taken', 'st-grey'] : (!e.complete ? [`${e.type} incomplete (${e.missing.length} missing), partial ${e.score}`, 'st-amber'] : [`${e.type} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk}` : ''}`, e.score >= 5 ? 'st-red' : ''])]);
+        const sp = d.sepsis;
+        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Moderate' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
+        rows.push(['Pain', C.has(s.complaint.pain) ? [`${s.complaint.pain}/10 ${d.pain.band.toLowerCase()}`, s.complaint.pain >= 8 ? 'st-red' : ''] : ['Not assessed', 'st-grey']]);
+        const al = s.history.allergies.trim();
+        rows.push(['Allergies', al ? [al + (s.history.allergyReaction ? ` (${s.history.allergyReaction})` : ''), /nkda|nil/i.test(al) ? '' : 'st-red'] : ['Not recorded', 'st-grey']]);
+        if (d.risks.length) rows.push(['Alerts', [`${d.risks.length} high-risk medicine / group alert${d.risks.length > 1 ? 's' : ''}`, 'st-red']]);
+        if (d.feverRelevant) rows.push(['Fever <5', [d.feverTL.level ? `NICE traffic light ${d.feverTL.level}` : 'Traffic light incomplete', d.feverTL.level === 'Red' ? 'st-red' : (d.feverTL.level === 'Amber' ? 'st-amber' : '')]]);
+        if (d.ng232) rows.push(['CT head', [d.ng232.text, d.ng232.level === '1h' ? 'st-red' : (d.ng232.level === 'none' ? '' : 'st-amber')]]);
+        if (d.tools.ecg) rows.push(['ECG', s.assess.ecgDoneAt ? [`Done ${hhmm(s.assess.ecgDoneAt)}`, ''] : [`Due by ${hhmm(new Date(new Date(s.meta.arrivalAt).getTime() + 600000))}`, 'st-amber']]);
+        if (d.rosier) rows.push(['Stroke', [d.rosier.text, d.rosier.likely ? 'st-red' : '']]);
+        if (d.ipcFlag) rows.push(['IPC', ['Isolation / side room needed', 'st-amber']]);
+        this.$('status-list').innerHTML = rows.map(([k, [v, cls]]) => `<li><strong>${esc(k)}</strong><span class="${cls}">${esc(v)}</span></li>`).join('');
 
-        // Ambulance-arrival patients get a handover block first, matching the trust's own
-        // "RAA - AMBULANCE HANDOVER" documentation format - call sign/case ID, PC, HPC (from the
-        // crew, not a direct patient interview), PMH, Allergies and pre-hospital treatment - followed
-        // by the normal triage note below it.
+        this.$('missing-list').innerHTML = d.missing.length ? `<strong>Still to record (${d.missing.length})</strong><ul>${d.missing.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '';
+    }
+
+    // ------------------------------------------------------------------ plan / protocols
+    renderProtocol(complaint) {
+        const proto = this.data.protocols[complaint];
+        const container = this.$('protocol-actions');
+        container.innerHTML = '';
+        const calc = this.data.calculators[complaint];
+        this.$('clinician-tools').classList.toggle('hidden', !calc);
+        if (calc) this.renderCalculator(calc);
+        if (!complaint) { container.innerHTML = '<p class="placeholder-text">Choose a complaint to see suggested investigations.</p>'; return; }
+        if (!proto || !proto.tests) { container.innerHTML = `<p class="placeholder-text">No suggested investigations for "${esc(complaint)}".</p>`; return; }
+        if (proto.cannula) {
+            const cd = document.createElement('div');
+            cd.className = `cannula-badge cannula-${proto.cannula.color}`;
+            cd.innerHTML = `<span aria-hidden="true">💉</span><div><strong>Cannula: ${esc(proto.cannula.status)}</strong> - ${esc(proto.cannula.reason)} (${esc(proto.cannula.size)})</div>`;
+            container.appendChild(cd);
+        }
+        const grid = document.createElement('div');
+        grid.className = 'tests-grid';
+        if (proto.tests.bedside && proto.tests.bedside.length) {
+            const sec = document.createElement('div');
+            sec.className = 'test-category';
+            sec.innerHTML = '<h4>Bedside</h4>';
+            proto.tests.bedside.forEach(t => sec.appendChild(this.planCheck(t, 'Bedside')));
+            grid.appendChild(sec);
+        }
+        const bloods = document.createElement('div');
+        bloods.className = 'test-category';
+        let has = false;
+        if (proto.tests.labProfile) {
+            has = true;
+            const name = proto.tests.labProfile;
+            const tests = this.data.bloodProfiles[name] || [];
+            bloods.innerHTML = '<h4>Bloods</h4>';
+            const el = this.planCheck({ name, why: '' }, 'Bloods', `Includes: ${tests.map(t => t.name).join(', ')}`);
+            el.classList.add('profile-check');
+            bloods.appendChild(el);
+            const bbv = document.createElement('div');
+            bbv.className = 'bbv-note';
+            bbv.textContent = 'Trust policy: ICE adds a BBV screen (Hep B, Hep C, HIV) to this request if not done in the past 12 months.';
+            bloods.appendChild(bbv);
+        } else if (proto.tests.lab && proto.tests.lab.length) {
+            has = true;
+            bloods.innerHTML = '<h4>Bloods</h4>';
+            proto.tests.lab.forEach(t => bloods.appendChild(this.planCheck(t, 'Bloods')));
+        }
+        if (proto.tests.labExtra && proto.tests.labExtra.length) {
+            has = true;
+            const wrap = document.createElement('div');
+            wrap.className = 'lab-extra-wrap';
+            wrap.innerHTML = '<div class="lab-extra-label">Consider also:</div>';
+            proto.tests.labExtra.forEach(t => wrap.appendChild(this.planCheck(t, 'Bloods')));
+            bloods.appendChild(wrap);
+        }
+        if (has) grid.appendChild(bloods);
+        container.appendChild(grid);
+    }
+
+    // One tickable plan item with a Planned/Requested/Done status once ticked.
+    planCheck(test, category, info = '') {
+        const name = typeof test === 'string' ? test : test.name;
+        const why = typeof test === 'string' ? '' : (test.why || '');
+        const div = document.createElement('div');
+        div.className = 'protocol-check';
+        div.innerHTML = `<input type="checkbox" aria-label="${esc(name)}"> <div class="protocol-check-text"><span>${category === 'Bloods' && info ? `<strong>${esc(name)}</strong>` : esc(name)}</span>${why ? `<small class="protocol-why">${esc(why)}</small>` : ''}</div>${info ? this.infoPopoverHTML(info) : ''}` +
+            `<div class="status-control" role="group" aria-label="${esc(name)} status">${['Planned', 'Requested', 'Done'].map(o => `<button type="button" class="status-btn" data-status="${o}">${o}</button>`).join('')}</div>`;
+        const input = div.querySelector('input');
+        const statusBox = div.querySelector('.status-control');
+        // Update in place (never re-create the checkbox) so keyboard focus is kept.
+        const sync = () => {
+            const item = this.state.plan.find(x => x.category === category && x.name === name);
+            input.checked = !!item;
+            div.classList.toggle('checked', !!item);
+            statusBox.classList.toggle('hidden', !item);
+            statusBox.querySelectorAll('.status-btn').forEach(b => b.classList.toggle('active', !!item && item.status === b.dataset.status));
+        };
+        input.addEventListener('change', () => {
+            if (input.checked) this.state.plan.push({ category, name, status: 'Planned' });
+            else this.state.plan = this.state.plan.filter(x => !(x.category === category && x.name === name));
+            sync();
+            this.update();
+        });
+        statusBox.addEventListener('click', (e) => {
+            const b = e.target.closest('.status-btn');
+            const it = this.state.plan.find(x => x.category === category && x.name === name);
+            if (!b || !it) return;
+            it.status = b.dataset.status;
+            sync();
+            this.update();
+        });
+        sync();
+        return div;
+    }
+
+    renderCalculator(calc) {
+        const box = this.$('calculator-container');
+        box.innerHTML = `<div class="calc-header"><span class="calc-title">🧮 ${esc(calc.title)}</span>${calc.reference ? this.infoPopoverHTML(calc.reference) : ''}</div>
+            <div class="calc-summary"><strong>Score: <span id="calc-score-val">0</span></strong></div><div id="calc-interpretation" class="calc-interpretation"></div>
+            <div class="calc-criteria">${calc.criteria.map(c => `<div class="calc-item"><label>${esc(c.text)}</label><input type="checkbox" data-score="${c.points}" class="calc-trigger"></div>`).join('')}</div>`;
+        const upd = () => {
+            let sc = 0;
+            box.querySelectorAll('.calc-trigger').forEach(x => { if (x.checked) sc += parseFloat(x.dataset.score); });
+            this.$('calc-score-val').textContent = sc;
+            const band = (calc.interpret || []).find(b => sc <= b.max);
+            this.$('calc-interpretation').textContent = band ? band.text : '';
+        };
+        box.querySelectorAll('.calc-trigger').forEach(t => t.addEventListener('change', upd));
+        upd();
+    }
+
+    // ------------------------------------------------------------------ meds autocomplete
+    handleMedsAutocomplete(e) {
+        const val = e.target.value, cursor = e.target.selectionStart;
+        const lastWord = val.slice(0, cursor).split(/[\s,\n]+/).pop();
+        const box = this.$('meds-suggestions');
+        if (!lastWord || lastWord.length < 3) { box.classList.add('hidden'); return; }
+        const lower = lastWord.toLowerCase();
+        let matches = this.data.drugIndex.filter(d => d.toLowerCase().startsWith(lower));
+        if (!matches.length) matches = this.data.drugIndex.filter(d => TriageApp.fuzzyMatch(lower, d.toLowerCase()));
+        matches = matches.slice(0, 5);
+        if (!matches.length) { box.classList.add('hidden'); return; }
+        box.innerHTML = matches.map(m => `<div class="suggestion-item" role="option">${esc(m)}</div>`).join('');
+        box.classList.remove('hidden');
+        box.querySelectorAll('.suggestion-item').forEach(item => item.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            const nv = val.slice(0, cursor - lastWord.length) + item.textContent + ', ' + val.slice(cursor);
+            this.$('meds').value = nv;
+            box.classList.add('hidden');
+            this.$('meds').focus();
+            this.set('history.meds', nv);
+        }));
+    }
+
+    validateObsField(id, value) {
+        const bounds = {
+            'obs-rr': [4, 60, 0, 100], 'obs-sats': [50, 100, 0, 100], 'obs-sbp': [40, 260, 0, 300], 'obs-dbp': [20, 160, 0, 200],
+            'obs-hr': [25, 220, 0, 300], 'obs-temp': [30, 42, 20, 45], 'obs-crt': [0, 8, 0, 15], 'obs-bm': [1, 35, 0, 60]
+        }[id];
+        const el = this.$(id);
+        if (!bounds || !el) return;
+        const [min, max, hmin, hmax] = bounds;
+        el.classList.remove('field-warning', 'field-danger');
+        el.title = '';
+        if (!C.has(value)) return;
+        if (value < hmin || value > hmax) { el.classList.add('field-danger'); el.title = `Physiologically implausible - please check (${hmin}-${hmax})`; }
+        else if (value < min || value > max) { el.classList.add('field-warning'); el.title = `Unusual value - please double-check (typical ${min}-${max})`; }
+    }
+
+    // ------------------------------------------------------------------ note, SBAR, copy
+    composeNote() {
+        const s = this.state, d = this.derived, p = s.patient, h = s.history, ph = s.prehospital, o = s.obs;
+        const f = (v, unit = '') => C.has(v) ? `${v}${unit}` : '-';
+        const lines = [];
         if (p.arrivalMode === 'Ambulance') {
-            txt += `RAA - AMBULANCE HANDOVER\n\n`;
-            txt += `CALL SIGN: ${p.ambulanceCallSign || 'Unknown'}\n`;
-            txt += `CASE ID: ${p.ambulanceCaseId || 'Unknown'}\n\n`;
-            txt += `PC: ${h.complaint || 'Not yet recorded'}\n\n`;
-            txt += `HPC:\n${ph && ph.hpc ? ph.hpc : '(not recorded)'}\n\n`;
-            txt += `PMH:\n${h.pmh || 'Nil'}\n\n`;
-            if (ph && ph.social) txt += `SOCIAL:\n${ph.social}\n\n`;
-            txt += `Allergies:\n${h.allergies || 'NKDA'}\n\n`;
-            const txTimeStr = ph && ph.txTime ? ` (given ${ph.txTime})` : '';
-            txt += `Pre-hospital TX${txTimeStr}:\n${ph && ph.tx ? ph.tx : 'Nil'}\n`;
-            const pho = (ph && ph.obs) || {};
-            const phoParts = [];
-            if (pho.rr) phoParts.push(`RR${pho.rr}`);
-            if (pho.sats) phoParts.push(`Sat${pho.sats}${pho.o2 === 'O2' ? 'O2' : 'Air'}`);
-            if (pho.sbp) phoParts.push(`BP${pho.sbp}/${pho.dbp || '-'}`);
-            if (pho.hr) phoParts.push(`HR${pho.hr}`);
-            if (pho.gcs) phoParts.push(`GCS${pho.gcs}`);
-            else if (pho.avpu && pho.avpu !== 'A') phoParts.push(`AVPU ${pho.avpu}`);
-            if (pho.bm !== null && pho.bm !== undefined && pho.bm !== '' && !Number.isNaN(pho.bm)) phoParts.push(`BM${pho.bm}`);
-            if (pho.ecg) phoParts.push(`ECG ${pho.ecg}`);
-            if (pho.pupils) phoParts.push(`Pupils ${pho.pupils}`);
-            if (phoParts.length > 0) txt += `Pre-hospital obs: ${phoParts.join(' ')}\n`;
-            txt += `\n---\n\n`;
+            lines.push('RAA - AMBULANCE HANDOVER', `Call sign: ${p.ambulanceCallSign || 'Not recorded'} | Case ID: ${p.ambulanceCaseId || 'Not recorded'}`, `PC: ${s.complaint.name || s.complaint.raw || 'Not recorded'}`, `HPC: ${ph.hpc || 'Not recorded'}`);
+            if (ph.social) lines.push(`Social: ${ph.social}`);
+            lines.push(`Pre-hospital treatment${ph.txTime ? ` (given ${ph.txTime})` : ''}: ${ph.tx || 'None recorded'}`);
+            const pho = ph.obs, parts = [];
+            if (C.has(pho.rr)) parts.push(`RR ${pho.rr}`);
+            if (C.has(pho.sats)) parts.push(`SpO2 ${pho.sats}%${pho.o2 ? ` ${pho.o2 === 'O2' ? 'on O2' : 'air'}` : ''}`);
+            if (C.has(pho.sbp)) parts.push(`BP ${pho.sbp}/${f(pho.dbp)}`);
+            if (C.has(pho.hr)) parts.push(`HR ${pho.hr}`);
+            if (C.has(pho.gcs)) parts.push(`GCS ${pho.gcs}`);
+            if (C.has(pho.bm)) parts.push(`BM ${pho.bm}`);
+            if (pho.ecg) parts.push(`ECG ${pho.ecg}`);
+            if (pho.pupils) parts.push(`Pupils ${pho.pupils}`);
+            if (parts.length) lines.push(`Pre-hospital obs: ${parts.join(' | ')}`);
+            lines.push('---');
         }
-
-        txt += `TRIAGE NOTE - ${new Date().toLocaleString('en-GB')}\n`;
-        const ageStr = TriageApp.ageLabel(p) || 'Age unknown';
-        txt += `Patient: ${ageStr} ${p.sex || ''} | Mobility: ${p.mobility}\n`;
-        txt += `Complaint: ${h.complaint} (${t.discriminator || 'Not defined'})\n`;
-        txt += `Pain: ${h.pain}/10\n`;
-
-        // Must mirror the score selection in runClinicalLogic - unknown age is scored as NEWS2.
-        const isPaedsNote = p.age !== null && p.age < 16;
-        if (p.pregnant) txt += `MEOWS: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
-        else if (isPaedsNote) txt += `PEWS: ${t.newsScore} (${t.pewsGroup}) [${t.newsBreakdown.join(', ')}]\n`;
-        else txt += `NEWS2: ${t.newsScore} [${t.newsBreakdown.join(', ')}]\n`;
-
-        const o = this.state.obs;
-        const f = (v) => TriageApp.hasValue(v) ? v : '-';
-        txt += `Obs: RR${f(o.rr)} Sat${f(o.sats)}${o.o2} BP${f(o.sbp)}/${f(o.dbp)} HR${f(o.hr)} T${f(o.temp)} ${o.avpu}\n`;
-
-        if(h.riskFlags && h.riskFlags.length > 0) {
-            txt += `\n⚠️ CLINICAL ALERTS:\n- ${[...new Set(h.riskFlags)].join('\n- ')}`;
+        lines.push('TRIAGE NOTE');
+        lines.push(`Arrival ${hhmm(s.meta.arrivalAt)} ${ddmmyyyy(s.meta.arrivalAt)} (${p.arrivalMode === 'Ambulance' ? 'ambulance' : 'self-presented'}) | Triage started ${s.meta.startedAt ? hhmm(s.meta.startedAt) : '-'} | Category set ${s.meta.categorySetAt ? hhmm(s.meta.categorySetAt) : '-'}`);
+        lines.push(`Triage nurse: ${store.get('initials', '', true) || 'Not recorded'}`);
+        const age = !C.has(p.ageValue) ? 'Age not recorded' : (p.ageUnit === 'Months' ? `${p.ageValue} months` : `${p.ageValue}y`);
+        lines.push(`Patient: ${age} ${p.sex || 'sex not recorded'} | Mobility: ${p.mobility || 'not recorded'}${p.localRef ? ` | Ref: ${p.localRef}` : ''}`);
+        if (C.has(p.weight)) lines.push(`Weight: ${p.weight} kg (measured)`);
+        if (p.pregnant) {
+            const g = d.gestation;
+            lines.push(`Pregnant / <6 weeks postpartum: yes${g && g.valid ? ` - ${g.weeks}+${g.days} weeks by LMP ${ddmmyyyy(p.lmp)} (EDD ${ddmmyyyy(g.edd)})` : (p.lmp ? ` - LMP ${p.lmp}` : '')}`);
         }
-
-        // Ambulance patients already had Allergies and PMH stated in the handover block above -
-        // repeating them here would be exactly the duplication we're trying to avoid. Meds is kept
-        // for every patient since the handover block has no separate 'Meds' line of its own.
-        if (p.arrivalMode !== 'Ambulance') {
-            if(h.allergies) txt += `\nAllergies: ${h.allergies}`;
-            if(h.pmh) txt += `\nPMH: ${h.pmh}`;
+        lines.push(`PC: ${s.complaint.name || (s.complaint.raw ? `${s.complaint.raw} (no flowchart selected)` : 'Not recorded')}`);
+        const disc = d.disc ? `${d.disc.text} (${d.disc.priority})` : (s.complaint.noneApply ? 'None of the discriminators apply (Blue)' : 'Not selected');
+        lines.push(`Discriminator: ${disc}`);
+        lines.push(`Pain: ${C.has(s.complaint.pain) ? `${s.complaint.pain}/10 - ${d.pain.band.toLowerCase()}${s.complaint.painMethod === 'FLACC' ? ' (FLACC)' : ''}` : 'Not assessed'}`);
+        const gcs = d.gcsTotal !== null ? `${d.gcsTotal} (E${o.gcsE} V${o.gcsV} M${o.gcsM})` : '-';
+        lines.push(`Obs: RR ${f(o.rr)} | SpO2 ${f(o.sats, '%')} ${o.o2 ? (o.o2 === 'O2' ? 'on O2' : 'air') : '(air/O2 not recorded)'}${o.scale2 ? ' [scale 2]' : ''} | BP ${f(o.sbp)}/${f(o.dbp)} | HR ${f(o.hr)} | ACVPU ${o.avpu || '-'} | Temp ${f(o.temp)} | CRT ${f(o.crt, 's')} | GCS ${gcs} | BM ${f(o.bm)} | Pupils ${o.pupils || '-'}`);
+        const e = d.ews;
+        const ewsName = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
+        if (e.recorded === 0) lines.push(`${ewsName}: NOT CALCULATED - no obs recorded`);
+        else if (!e.complete) lines.push(`${ewsName}: INCOMPLETE - partial score ${e.score}; missing ${e.missing.join(', ')}`);
+        else lines.push(`${ewsName}: ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} clinical risk; obs ${d.newsResp.monitorText}` : ''}${e.params.filter(x => x.points).length ? ` [${e.params.filter(x => x.points).map(x => `${x.label} ${x.value} +${x.points}`).join(', ')}]` : ''}`);
+        const sp = d.sepsis;
+        if (sp.applicable) {
+            if (sp.status === 'assessed') {
+                lines.push(`Sepsis (NICE NG253): infection suspected - ${sp.risk} risk${sp.provisional ? ' (provisional, obs incomplete)' : ''}. ${sp.actions}${sp.judgement ? ` ${sp.judgement}` : ''}`);
+                const f2 = this.data.sepsisConsiderations.filter(c => s.assess.sepsisFactors[c.id]).map(c => c.label);
+                if (f2.length) lines.push(`Sepsis considerations: ${f2.join('; ')}`);
+            } else lines.push(`Sepsis (NICE NG253): ${sp.status === 'not-suspected' ? 'infection not suspected' : 'infection question not answered'}`);
         }
-        if(h.meds) txt += `\nMeds: ${h.meds}`;
-
-        // TREATMENT GIVEN: past-tense record of what's already been done (pre-triage) - the genuine
-        // "actions taken" entry, kept separate from the forward-looking PLAN below. Ambulance patients
-        // already have this captured in the Pre-Hospital Handover block above, so it's deliberately
-        // skipped here to avoid asking/recording the same thing twice.
-        if (p.arrivalMode !== 'Ambulance' && h.treatmentNotes) {
-            txt += `\n\nTREATMENT GIVEN (pre-triage):\n${h.treatmentNotes}`;
+        if (d.feverRelevant) {
+            const tl = d.feverTL;
+            lines.push(`Fever in under 5s (NICE NG143): ${tl.level ? tl.level.toUpperCase() : 'incomplete'}${tl.red.length ? `; red: ${tl.red.join('; ')}` : ''}${tl.amber.length ? `; amber: ${tl.amber.join('; ')}` : ''}`);
         }
-
-        const proto = this.data.protocols[h.complaint];
-        if (proto && proto.cannula) {
-             txt += `\n\nProtocol: ${h.complaint}`;
-             txt += `\nCannula: ${proto.cannula.status} (${proto.cannula.reason})`;
+        if (d.ng232) lines.push(`Head injury (NICE NG232): ${d.ng232.text}${d.ng232.because.length ? ` - ${d.ng232.because.join('; ')}` : ''}`);
+        if (d.tools.stroke) lines.push(`Stroke: last known well ${s.assess.stroke.lkw ? new Date(s.assess.stroke.lkw).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : 'not recorded'}; ${d.rosier.text}`);
+        if (d.tools.ecg) lines.push(`ECG: ${s.assess.ecgDoneAt ? `done ${hhmm(s.assess.ecgDoneAt)}` : 'not yet done'}`);
+        if (d.fourAT && d.fourAT.complete) lines.push(d.fourAT.text);
+        if (d.tools.nof) { const n = Object.entries(s.assess.nof).filter(([, v]) => v).map(([k]) => k); lines.push(`#NOF checks done: ${n.length ? n.join(', ') : 'none recorded'}`); }
+        if (d.tools.mh) {
+            const m = s.assess.mh;
+            lines.push(`Mental health: MHA ${m.mha || 'not recorded'}; leaving risk ${m.abscond || 'not recorded'}; observation ${m.observation || 'not recorded'}; capacity concern ${m.capacity || 'not recorded'}${m.liaison ? '; liaison referred' : ''}${m.saferoom ? '; safer room checked' : ''}`);
         }
-
-        // PLAN: forward-looking, grouped by category (e.g. "Bloods: FBC (Planned), U&E (Requested)") -
-        // the status suffix tracks whether each item is Planned, Requested (sent for) or Done.
-        if (this.state.plan.length > 0) {
-            const grouped = {};
-            this.state.plan.forEach(item => {
-                const label = item.name + (item.status ? ` (${item.status})` : '');
-                (grouped[item.category] = grouped[item.category] || []).push(label);
-            });
-            const lines = Object.entries(grouped).map(([cat, names]) => `${cat}: ${names.join(', ')}`);
-            txt += `\n\nPLAN:\n${lines.join('\n')}`;
+        if (d.risks.length) { lines.push('ALERTS:'); d.risks.forEach(r => lines.push(`- ${r}`)); }
+        lines.push(`Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (reaction: ${h.allergyReaction})` : ''}`);
+        lines.push(`PMH: ${h.pmh || 'Not recorded'}`);
+        lines.push(`Medicines: ${h.meds || 'Not recorded'}`);
+        if (p.arrivalMode !== 'Ambulance' && h.treatmentNotes) lines.push(`Treatment before triage: ${h.treatmentNotes}`);
+        if (d.isPaeds) {
+            const pa = s.assess.paeds, sg = Object.entries(pa.safeguarding).filter(([, v]) => v).map(([k]) => ({ cpis: 'CP-IS checked', pr: 'parental responsibility identified', nonmobile: 'injury in non-mobile child', story: 'inconsistent explanation', notbrought: 'previous attendance / not brought concern' }[k]));
+            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}`);
         }
-
-        const getScreenVal = (id) => {
-            const el = document.getElementById(id);
-            if(el) return el.value;
-            const toggle = document.querySelector(`#toggle-${id.replace('screen-input-', '')} .active`);
-            if(toggle) return toggle.textContent;
-            return null;
+        const scr = Object.entries(this.data.screening).filter(([k]) => s.screening[k]).map(([k, def]) => `${def.label}: ${def.options ? (def.options.find(o2 => o2.val === s.screening[k]) || {}).text : s.screening[k]}`);
+        if (scr.length) lines.push(`Screening: ${scr.join('; ')}`);
+        if (d.ipcFlag) lines.push(`Infection control: ${Object.entries(s.assess.ipc).filter(([, v]) => v).map(([k]) => ({ dv: 'D&V', resp: 'respiratory symptoms', rash: 'rash with fever', travel: 'recent travel', mdro: 'resistant organism' }[k])).join(', ')} - side room / isolation per local policy`);
+        if (s.plan.length) {
+            const g = {};
+            s.plan.forEach(i => { (g[i.category] = g[i.category] || []).push(`${i.name} (${i.status})`); });
+            lines.push('PLAN:');
+            Object.entries(g).forEach(([cat, n]) => lines.push(`${cat}: ${n.join(', ')}`));
         }
-
-        let screenTxt = '';
-        Object.keys(this.data.screening).forEach(key => {
-            const val = getScreenVal(`screen-input-${key}`) || getScreenVal(key);
-            if(val && val !== 'No' && val !== 'Select...') {
-                screenTxt += `\n${this.data.screening[key].label}: ${val}`;
-            }
-        });
-        if(screenTxt) txt += `\n${screenTxt}`;
-
-        if (h.planNarrative) {
-            txt += `\n\nNARRATIVE:\n${h.planNarrative}`;
+        if (h.planNarrative) lines.push(`Narrative: ${h.planNarrative}`);
+        if (s.triage.disposition) lines.push(`Placement: ${s.triage.disposition === 'Other' ? (s.triage.dispositionOther || 'Other') : s.triage.disposition}`);
+        if (s.triage.disposition === 'Escalation' || s.triage.disposition === 'Held on Ambulance') {
+            const done = Object.entries(s.assess.corridor).filter(([, v]) => v).map(([k]) => k);
+            lines.push(`Corridor care: ${done.length ? done.join(', ') : 'no checks recorded'}${s.assess.corridorCheckedAt ? ` - last check ${hhmm(s.assess.corridorCheckedAt)}` : ''}`);
         }
-
-        // Triage category is the concluding stamp on a real triage note - kept last, deliberately.
-        txt += `\n\nTRIAGE CATEGORY: ${t.finalPriority.toUpperCase()}\n`;
-        txt += `Stream: ${t.stream}\n`;
-        txt += `Target: ${t.timer}\n`;
-        if (t.disposition) {
-            const dispositionLabel = t.disposition === 'Other' ? (t.dispositionOther || 'Other') : t.disposition;
-            txt += `Disposition: ${dispositionLabel}\n`;
-        }
-        if (t.reasons.length > 0) txt += `Reasons:\n- ${t.reasons.join('\n- ')}\n`;
-
-        document.getElementById('epr-note').value = txt;
+        const lvl = d.level;
+        if (!lvl) lines.push('TRIAGE CATEGORY: NOT YET TRIAGED');
+        else lines.push(`TRIAGE CATEGORY: ${lvl.toUpperCase()}${d.priority.provisional ? ' (PROVISIONAL - no discriminator selected)' : ''}${lvl === 'Red' ? ' - see immediately' : ` - see by ${hhmm(d.seeBy)} (${this.data.targetMinutes[lvl]} min target)`}`);
+        lines.push(`Stream: ${d.stream}`);
+        if (d.priority.reasons.length) lines.push(`Reasons: ${d.priority.reasons.join('; ')}`);
+        lines.push(`Next obs due: ${d.nextObs}`);
+        return plain(lines.join('\n'));
     }
 
-    generateSBAR() {
-        const p = this.state.patient;
-        const t = this.state.triage;
-        const h = this.state.history;
-        
-        const ageText = TriageApp.ageLabel(p) ? `${TriageApp.ageLabel(p)} ` : '';
-        const sexText = p.sex || 'sex not recorded';
-        const complaintText = h.complaint || 'an undefined complaint';
-        const s = `I have a patient, ${ageText}${sexText}, presenting with ${complaintText}. Priority ${t.finalPriority}.`;
-        
-        let b = `${h.pmh || 'Nil PMH'}. `;
-        if(h.riskFlags.length > 0) b += `Alert: ${h.riskFlags.join(', ')}. `;
-        if(h.anticoagulated) b += `On Anticoagulants. `;
-        
-        let a = '';
-        if(p.pregnant) a = `MEOWS ${t.newsScore}. `;
-        else if(p.age !== null && p.age < 16) a = `PEWS ${t.newsScore}. `;
-        else a = `NEWS2 ${t.newsScore}. `;
-        
-        if(t.newsScore > 0) a += `(${t.newsBreakdown.join(', ')}). `;
-        if(h.pain > 0) a += `Pain ${h.pain}/10. `;
-        
-        let r = `Streamed to ${t.stream}. `;
-        if (this.state.plan.length > 0) {
-            r += `Plan: ${this.state.plan.map(x => x.name + (x.status ? ` (${x.status})` : '')).join(', ')}. `;
-        } else {
-            const proto = this.data.protocols[h.complaint];
-            const bedside = (proto && proto.tests && proto.tests.bedside) ? proto.tests.bedside.map(x => typeof x === 'string' ? x : x.name) : [];
-            if (bedside.length > 0) r += `Suggested plan: ${bedside.join(', ')}. `;
+    renderNote() { this.$('epr-note').value = this.composeNote(); }
+
+    sbarText() {
+        const x = this.sbarParts();
+        return `S: ${x.S}\nB: ${x.B}\nA: ${x.A}\nR: ${x.R}`;
+    }
+
+    sbarParts() {
+        const s = this.state, d = this.derived, p = s.patient, h = s.history;
+        const age = C.has(p.ageValue) ? (p.ageUnit === 'Months' ? `${p.ageValue}-month-old` : `${p.ageValue}-year-old`) : 'age not recorded,';
+        const S = `I have a ${age} ${p.sex ? p.sex.toLowerCase() : 'patient (sex not recorded)'} who arrived ${p.arrivalMode === 'Ambulance' ? 'by ambulance' : 'self-presented'} at ${hhmm(s.meta.arrivalAt)} with ${s.complaint.name || s.complaint.raw || 'an unrecorded complaint'}. Triage category: ${d.level ? d.level + (d.priority.provisional ? ' (provisional)' : '') : 'not yet triaged'}.`;
+        const B = `PMH: ${h.pmh || 'not recorded'}. Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (${h.allergyReaction})` : ''}.${d.risks.length ? ` Alerts: ${d.risks.join('; ')}.` : ''}`;
+        const e = d.ews;
+        let A = e.recorded === 0 ? 'Obs not yet taken.' : `${e.type === 'NEWS2' ? 'NEWS2' : `Local ${e.type}`} ${e.complete ? e.score : `incomplete (partial ${e.score}, missing ${e.missing.join(', ')})`}.`;
+        if (d.sepsis.status === 'assessed') A += ` Suspected infection - NG253 ${d.sepsis.risk} risk.`;
+        if (C.has(s.complaint.pain)) A += ` Pain ${s.complaint.pain}/10.`;
+        if (d.ng232) A += ` Head injury: ${d.ng232.text}.`;
+        if (d.feverRelevant && d.feverTL.level) A += ` NICE fever traffic light ${d.feverTL.level}.`;
+        let R = `Stream: ${d.stream}. Next obs due: ${d.nextObs}.`;
+        if (s.plan.length) R += ` Plan: ${s.plan.map(x => `${x.name} (${x.status})`).join(', ')}.`;
+        if (d.level === 'Red') R += ' Requires immediate review.';
+        const one = (t) => plain(t).replace(/\s*\n+\s*/g, '; ');
+        return { S: one(S), B: one(B), A: one(A), R: one(R) };
+    }
+
+    openSbar() {
+        const x = this.sbarParts();
+        this.$('sbar-s').textContent = x.S; this.$('sbar-b').textContent = x.B; this.$('sbar-a').textContent = x.A; this.$('sbar-r').textContent = x.R;
+        this.openModal('modal-sbar');
+    }
+
+    async copyText(text, msg) {
+        try { await navigator.clipboard.writeText(text); this.toast(msg); return true; } catch {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch { ok = false; }
+            ta.remove();
+            this.toast(ok ? msg : 'Copy failed - open "Preview EPR note" and copy manually', ok ? 'info' : 'error');
+            return ok;
         }
-        if(t.finalPriority === 'Red') r += `Requires immediate review.`;
-        
-        document.getElementById('sbar-s').textContent = s;
-        document.getElementById('sbar-b').textContent = b;
-        document.getElementById('sbar-a').textContent = a;
-        document.getElementById('sbar-r').textContent = r;
+    }
+
+    async copyNote() {
+        this.state.meta.noteCopiedAt = new Date().toISOString();
+        this.renderNote();
+        const ok = await this.copyText(this.$('epr-note').value, 'EPR note copied');
+        if (ok && this.derived.missing.length) this.toast(`Copied - still to record: ${this.derived.missing.length} item${this.derived.missing.length > 1 ? 's' : ''} (see panel)`, 'error');
+        this.debouncedSave();
+    }
+
+    // ------------------------------------------------------------------ modals, toasts
+    openModal(id) {
+        const m = this.$(id);
+        m.classList.remove('hidden');
+        m.setAttribute('aria-hidden', 'false');
+        this.lastFocus = document.activeElement;
+        const f = m.querySelector('button, input, select');
+        if (f) f.focus();
+    }
+
+    closeModal(id) {
+        const m = this.$(id);
+        if (!m || m.classList.contains('hidden')) return;
+        m.classList.add('hidden');
+        m.setAttribute('aria-hidden', 'true');
+        if (this.lastFocus && this.lastFocus.focus) this.lastFocus.focus();
+    }
+
+    showConfirm(message, title = 'Please confirm') {
+        return new Promise((resolve) => {
+            this.$('modal-confirm-title').textContent = title;
+            this.$('modal-confirm-message').textContent = message;
+            this.openModal('modal-confirm');
+            const ok = this.$('modal-confirm-ok'), cancel = this.$('modal-confirm-cancel');
+            const done = (r) => { this.closeModal('modal-confirm'); ok.onclick = null; cancel.onclick = null; resolve(r); };
+            ok.onclick = () => done(true);
+            cancel.onclick = () => done(false);
+        });
+    }
+
+    toast(msg, type = 'info', action) {
+        const el = document.createElement('div');
+        el.className = `toast${type === 'error' ? ' toast-error' : ''}`;
+        el.textContent = msg;
+        if (action) {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'btn-tiny'; b.textContent = action.label;
+            b.onclick = () => { action.fn(); el.remove(); };
+            el.appendChild(b);
+        }
+        this.$('toast-container').appendChild(el);
+        setTimeout(() => el.remove(), action ? 10000 : 4000);
+    }
+
+    // ------------------------------------------------------------------ new patient / undo
+    newPatient() {
+        const snapshot = JSON.stringify(this.state);
+        this.saveSession();
+        this.state = freshState();
+        this.restoreUI();
+        this.$('input-complaint').focus();
+        this.toast('New patient started', 'info', { label: 'Undo', fn: () => { this.state = JSON.parse(snapshot); this.restoreUI(); this.toast('Previous patient restored'); } });
+    }
+
+    // ------------------------------------------------------------------ recent patients (local only)
+    purgeHistory() {
+        try {
+            // Pre-v20 history could contain names/DOB and used a different format: remove it.
+            if (localStorage.getItem('triage_history') !== null) { localStorage.removeItem('triage_history'); }
+            if (this.shared) { localStorage.removeItem(HISTORY_KEY); return; }
+            const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+            const fresh = list.filter(x => Date.now() - x.savedAt < HISTORY_TTL_MS);
+            if (fresh.length !== list.length) localStorage.setItem(HISTORY_KEY, JSON.stringify(fresh));
+        } catch { /* storage unavailable */ }
     }
 
     debouncedSave() {
-        clearTimeout(this.saveTimeout);
-        this.saveTimeout = setTimeout(() => this.saveSession(), 1000);
+        clearTimeout(this.saveTimer);
+        this.saveTimer = setTimeout(() => this.saveSession(), 800);
     }
 
     saveSession() {
-        const p = this.state.patient;
-        if (!this.state.history.complaint && p.age === null) return;
-        // Autosave is a convenience, never something the triage itself should depend on - if
-        // localStorage is unavailable (private browsing, sandboxed embed, quota exceeded), fail
-        // quietly rather than breaking the render cycle that called this.
+        const s = this.state, p = s.patient;
+        if (this.shared || (!s.complaint.name && p.age === null)) return;
         try {
-            const sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
-            const labelParts = [TriageApp.ageLabel(p), p.sex, p.arrivalMode === 'Ambulance' && p.ambulanceCallSign ? `Amb ${p.ambulanceCallSign}` : ''].filter(Boolean);
-            const current = {
-                sessionId: this.state.meta.sessionId,
-                label: labelParts.join(' · ') || 'Patient',
-                complaint: this.state.history.complaint,
-                priority: this.state.triage.finalPriority,
-                time: new Date().toLocaleString('en-GB'),
-                data: this.state
-            };
-            const existingIndex = sessions.findIndex(s => s.sessionId === current.sessionId);
-            if(existingIndex >= 0) sessions.splice(existingIndex, 1);
-            sessions.unshift(current); 
-            if(sessions.length > 15) sessions.pop(); 
-            localStorage.setItem('triage_history', JSON.stringify(sessions));
-        } catch (err) {
-            console.warn('Autosave failed - localStorage unavailable.', err);
-        }
+            const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]').filter(x => Date.now() - x.savedAt < HISTORY_TTL_MS && x.sessionId !== s.meta.sessionId);
+            const age = !C.has(p.ageValue) ? '' : (p.ageUnit === 'Months' ? `${p.ageValue}m` : `${p.ageValue}y`);
+            list.unshift({
+                sessionId: s.meta.sessionId,
+                label: [p.localRef, age, p.sex].filter(Boolean).join(' · ') || 'Patient',
+                complaint: s.complaint.name,
+                priority: this.derived.level || 'Untriaged',
+                savedAt: Date.now(),
+                data: s
+            });
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20)));
+        } catch { /* storage full or unavailable */ }
     }
 
-    showToast(msg, type='info') {
-        const container = document.getElementById('toast-container');
-        const el = document.createElement('div');
-        el.className = 'toast';
-        el.textContent = msg;
-        if(type === 'error') el.style.background = 'var(--red)';
-        container.appendChild(el);
-        setTimeout(() => el.remove(), 3000);
+    openHistory() {
+        if (this.shared) return;
+        this.purgeHistory();
+        const list = (() => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; } })();
+        const box = this.$('history-list');
+        box.innerHTML = list.length ? '' : '<p class="hint">No recent patients on this computer.</p>';
+        list.forEach(x => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'history-item';
+            b.style.borderLeft = `5px solid var(--${x.priority === 'Untriaged' ? 'grey' : x.priority.toLowerCase()})`;
+            const t = document.createElement('div'); t.className = 'history-item-title'; t.textContent = x.label;
+            const c = document.createElement('div'); c.textContent = x.complaint || 'No complaint';
+            const m = document.createElement('div'); m.className = 'history-item-meta';
+            const a = document.createElement('span'); a.textContent = x.priority;
+            const tm = document.createElement('span'); tm.textContent = new Date(x.savedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            m.append(a, tm); b.append(t, c, m);
+            b.addEventListener('click', async () => {
+                if (!(await this.showConfirm('Load this patient? The current screen will be replaced (you can undo).', 'Load patient'))) return;
+                const snapshot = JSON.stringify(this.state);
+                this.state = Object.assign(freshState(), x.data);
+                this.restoreUI();
+                this.$('history-sidebar').classList.remove('open');
+                this.toast('Patient loaded', 'info', { label: 'Undo', fn: () => { this.state = JSON.parse(snapshot); this.restoreUI(); } });
+            });
+            box.appendChild(b);
+        });
+        this.$('history-sidebar').classList.add('open');
     }
 
+    // ------------------------------------------------------------------ push state into the static inputs
+    restoreUI() {
+        const s = this.state, p = s.patient, o = s.obs, h = s.history, ph = s.prehospital;
+        const val = (id, v) => { const el = this.$(id); if (el) el.value = C.has(v) ? v : ''; };
+        const chk = (id, v) => { const el = this.$(id); if (el) el.checked = !!v; };
+        val('patient-age', p.ageValue); val('patient-weight', p.weight); val('patient-sex', p.sex); val('patient-mobility', p.mobility);
+        chk('check-pregnant', p.pregnant); val('date-lmp', p.lmp); val('patient-ref', p.localRef); val('amb-callsign', p.ambulanceCallSign); val('amb-caseid', p.ambulanceCaseId);
+        val('ph-hpc', ph.hpc); val('ph-tx', ph.tx); val('ph-tx-time', ph.txTime); val('ph-social', ph.social);
+        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'gcs', 'bm', 'ecg', 'pupils'].forEach(k => val(`ph-obs-${k}`, ph.obs[k]));
+        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm'].forEach(k => { val(`obs-${k}`, o[k]); this.validateObsField(`obs-${k}`, o[k]); });
+        val('obs-pupils', o.pupils); chk('obs-scale2', o.scale2);
+        val('obs-gcs-e', o.gcsE); val('obs-gcs-v', o.gcsV); val('obs-gcs-m', o.gcsM);
+        val('input-complaint', s.complaint.name || s.complaint.raw);
+        val('allergies', h.allergies); val('allergy-reaction', h.allergyReaction); val('pmh', h.pmh); val('meds', h.meds); val('treatment-notes', h.treatmentNotes); val('plan-narrative', h.planNarrative);
+        val('sel-disposition', s.triage.disposition); val('txt-disposition-other', s.triage.dispositionOther);
+        this.$('txt-disposition-other').classList.toggle('hidden', s.triage.disposition !== 'Other');
+        const ov = s.triage.override;
+        this.$('override-options').classList.toggle('hidden', !ov);
+        this.$('btn-override-toggle').classList.toggle('active', !!ov);
+        if (ov) { val('sel-override', ov.level); val('txt-override', ov.reason); } else val('txt-override', '');
+        this.$('flacc-panel').classList.add('hidden');
+        this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', false);
+        this.built = {};
+        this.renderProtocol(s.complaint.name);
+        this.compute();
+        this.render();
+    }
+
+    // ------------------------------------------------------------------ dictation (opt-in)
     initSpeech() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const micIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
+        this.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         document.querySelectorAll('.mic-btn').forEach(btn => {
-            // Browsers without the Web Speech API (e.g. Safari, Firefox) would otherwise show buttons
-            // that silently do nothing.
-            if (!SpeechRecognition) { btn.classList.add('hidden'); return; }
-            btn.innerHTML = micIcon;
+            btn.innerHTML = MIC_ICON;
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
-                const targetEl = document.getElementById(btn.dataset.target);
-                const recognition = new SpeechRecognition();
-                recognition.continuous = false;
-                recognition.lang = 'en-GB';
+                if (!this.SpeechRecognition) return;
+                const target = this.$(btn.dataset.target);
+                const rec = new this.SpeechRecognition();
+                rec.lang = 'en-GB';
+                rec.continuous = false;
                 btn.classList.add('listening');
-                recognition.onresult = (event) => {
-                    const text = event.results[0][0].transcript;
-                    if(targetEl.tagName === 'TEXTAREA' && targetEl.value) targetEl.value += `. ${text}`;
-                    else targetEl.value = text;
-                    targetEl.dispatchEvent(new Event('input'));
-                    this.showToast('Dictation captured');
+                rec.onresult = (ev) => {
+                    const text = ev.results[0][0].transcript;
+                    target.value = target.tagName === 'TEXTAREA' && target.value ? `${target.value}. ${text}` : text;
+                    target.dispatchEvent(new Event('input', { bubbles: true }));
                 };
-                // Use `btn`, not e.currentTarget - the latter is null once the click has finished
-                // dispatching, so these async callbacks would throw and leave the mic stuck "listening".
-                recognition.onerror = (err) => {
-                    console.error(err);
-                    btn.classList.remove('listening');
-                    this.showToast('Dictation failed', 'error');
-                };
-                recognition.onend = () => btn.classList.remove('listening');
-                recognition.start();
+                rec.onerror = () => { btn.classList.remove('listening'); this.toast('Dictation failed - check the microphone', 'error'); };
+                rec.onend = () => btn.classList.remove('listening');
+                rec.start();
             });
         });
+        this.applyDictation();
     }
 
-    loadHistory() {
-        document.getElementById('btn-history').addEventListener('click', () => {
-            document.getElementById('history-sidebar').classList.add('open');
-            this.renderHistoryList();
-        });
-        document.getElementById('btn-close-history').addEventListener('click', () => {
-            document.getElementById('history-sidebar').classList.remove('open');
-        });
-    }
-
-    renderHistoryList() {
-        const list = document.getElementById('history-list');
-        let sessions = [];
-        try {
-            sessions = JSON.parse(localStorage.getItem('triage_history') || '[]');
-        } catch (err) {
-            console.warn('Could not read saved patients - localStorage unavailable.', err);
-        }
-        list.innerHTML = '';
-        if(sessions.length === 0) list.innerHTML = '<p class="text-muted">No recent patients locally stored.</p>';
-        sessions.forEach(s => {
-            const div = document.createElement('div');
-            div.className = 'history-item';
-            div.style.borderLeft = `5px solid var(--${s.priority})`;
-            // Built with textContent: these strings are free text typed by staff.
-            const title = document.createElement('div');
-            title.className = 'history-item-title';
-            title.textContent = s.label || s.id || 'Patient';
-            const complaint = document.createElement('div');
-            complaint.textContent = s.complaint || 'No complaint';
-            const meta = document.createElement('div');
-            meta.className = 'history-item-meta text-muted';
-            const pri = document.createElement('span');
-            pri.textContent = String(s.priority || '').toUpperCase();
-            const time = document.createElement('span');
-            time.textContent = s.time || '';
-            meta.append(pri, time);
-            div.append(title, complaint, meta);
-            div.onclick = async () => {
-                const ok = await this.showConfirm('Load this patient? Unsaved data on current screen will be lost.', 'Load Patient');
-                if (ok) {
-                    this.state = s.data;
-                    this.restoreUI();
-                    document.getElementById('history-sidebar').classList.remove('open');
-                    this.showToast('Patient loaded');
-                }
-            };
-            list.appendChild(div);
-        });
-    }
-
-    restoreUI() {
-        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = (val === null || val === undefined) ? '' : val; };
-        const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
-
-        const { patient, obs, history, triage, prehospital } = this.state;
-
-        // Entries saved before v19.13 carried name/DOB and a DOB-derived age - migrate them to the
-        // direct age entry and drop the identifiers so they are not re-saved.
-        if (patient.ageValue === undefined) {
-            patient.ageValue = TriageApp.hasValue(patient.age) ? patient.age : null;
-            patient.ageUnit = 'Years';
-        }
-        delete patient.id;
-        delete patient.dob;
-        if (!this.state.meta) this.state.meta = TriageApp.newMeta();
-
-        setVal('patient-age', patient.ageValue);
-        setVal('patient-weight', patient.weight);
-        setVal('patient-sex', patient.sex);
-        setVal('patient-mobility', patient.mobility); 
-        setCheck('check-pregnant', patient.pregnant);
-        setVal('amb-callsign', patient.ambulanceCallSign);
-        setVal('amb-caseid', patient.ambulanceCaseId);
-        setVal('sel-disposition', triage.disposition);
-        setVal('txt-disposition-other', triage.dispositionOther);
-        document.getElementById('txt-disposition-other').classList.toggle('hidden', triage.disposition !== 'Other');
-
-        if (prehospital) {
-            setVal('ph-hpc', prehospital.hpc);
-            setVal('ph-tx', prehospital.tx);
-            setVal('ph-tx-time', prehospital.txTime);
-            setVal('ph-social', prehospital.social);
-            const pho = prehospital.obs || {};
-            setVal('ph-obs-rr', pho.rr);
-            setVal('ph-obs-sats', pho.sats);
-            setVal('ph-obs-sbp', pho.sbp);
-            setVal('ph-obs-dbp', pho.dbp);
-            setVal('ph-obs-hr', pho.hr);
-            setVal('ph-obs-gcs', pho.gcs);
-            setVal('ph-obs-bm', pho.bm);
-            setVal('ph-obs-ecg', pho.ecg);
-            setVal('ph-obs-pupils', pho.pupils);
-            document.querySelectorAll('#seg-ph-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === (pho.avpu || 'A')));
-            document.querySelectorAll('#seg-ph-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === (pho.o2 || 'Air')));
-        }
-        
-        setVal('obs-rr', obs.rr); 
-        setVal('obs-sats', obs.sats); 
-        setVal('obs-sbp', obs.sbp);
-        setVal('obs-dbp', obs.dbp);
-        setVal('obs-hr', obs.hr); 
-        setVal('obs-temp', obs.temp); 
-        setVal('obs-crt', obs.crt);
-        setCheck('obs-scale2', obs.scale2);
-        
-        document.querySelectorAll('#seg-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === obs.avpu));
-        document.querySelectorAll('#seg-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === obs.o2));
-        
-        setVal('input-complaint', history.complaint); 
-        setVal('allergies', history.allergies); 
-        setVal('pmh', history.pmh);
-        setVal('meds', history.meds);
-        setVal('plan-narrative', history.planNarrative);
-        setVal('treatment-notes', history.treatmentNotes);
-
-        const manual = history.manualRiskFlags || {};
-        document.querySelectorAll('#high-risk-meds-grid input[type="checkbox"]').forEach(cb => {
-            const checked = !!manual[cb.dataset.catId];
-            cb.checked = checked;
-            cb.closest('.hr-med-chip').classList.toggle('checked', checked);
-        });
-
-        document.querySelectorAll('.pain-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === history.pain));
-        document.getElementById('pain-val').textContent = history.pain;
-
-        const btnOverride = document.getElementById('btn-override-toggle');
-        const panelOverride = document.getElementById('override-options');
-        if(triage.override) {
-            panelOverride.classList.remove('hidden');
-            btnOverride.classList.add('active');
-            setVal('sel-override', triage.override.level);
-            setVal('txt-override', triage.override.reason);
-        } else {
-            panelOverride.classList.add('hidden');
-            btnOverride.classList.remove('active');
-        }
-        
-        this.handleComplaint(history.complaint); 
-        this.render();
+    applyDictation() {
+        document.body.classList.toggle('dictation-on', this.dictation && !!this.SpeechRecognition);
     }
 }
 

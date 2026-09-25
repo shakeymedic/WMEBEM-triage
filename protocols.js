@@ -1,8 +1,84 @@
-// protocols.js - Clinical Configuration v19.0
-// AUDITED BY: UK EM CONSULTANT
-// STATUS: DEPLOYMENT READY | RCEM 'MISSED' MEDS COMPLIANT
+// protocols.js - Clinical configuration (v20.0)
+// STATUS: NOT CLINICALLY SIGNED OFF. The flowcharts below are a paraphrase of Manchester Triage
+// System presentations, not the licensed MTS content, and must be reviewed line by line against the
+// trust's licensed MTS edition by a named clinical lead before live use. Guideline-derived rules
+// (NEWS2, NICE NG253 / NG232 / NG143, ROSIER, 4AT) live in clinical.js with unit tests.
 
 export const clinicalData = {
+    // MTS target times (minutes). MTS: Red immediate, Orange 10, Yellow 60, Green 120, Blue 240.
+    // Change here only if the department has formally adopted different local targets.
+    targetMinutes: { Red: 0, Orange: 10, Yellow: 60, Green: 120, Blue: 240 },
+
+    // Age-appropriate quick-pick complaints and body-map targets (must be flowchart names).
+    quickComplaints: {
+        adult: ['Chest Pain', 'Shortness of Breath in Adults', 'Abdominal Pain in Adults', 'Falls', 'Head Injury', 'Limb Problems'],
+        child: ['Unwell Child', 'Shortness of Breath in Children', 'Abdominal Pain in Children', 'Head Injury', 'Limb Problems', 'Irritable Child']
+    },
+    bodyMap: {
+        adult: [
+            { label: 'Head / Face', chart: 'Head Injury' }, { label: 'Neck', chart: 'Neck Pain' }, { label: 'Chest', chart: 'Chest Pain' },
+            { label: 'Abdomen', chart: 'Abdominal Pain in Adults' }, { label: 'Back', chart: 'Back Pain' }, { label: 'Arms / Legs', chart: 'Limb Problems' },
+            { label: 'Pelvis / GU', chart: 'Urinary Problems' }, { label: 'Skin / Rash', chart: 'Rash' }, { label: 'General / Systemic', chart: 'Unwell Adult' }
+        ],
+        child: [
+            { label: 'Head / Face', chart: 'Head Injury' }, { label: 'Neck', chart: 'Neck Pain' }, { label: 'Breathing', chart: 'Shortness of Breath in Children' },
+            { label: 'Abdomen', chart: 'Abdominal Pain in Children' }, { label: 'Back', chart: 'Back Pain' }, { label: 'Arms / Legs', chart: 'Limb Problems' },
+            { label: 'Limping', chart: 'Limping Child' }, { label: 'Skin / Rash', chart: 'Rash' }, { label: 'General / Systemic', chart: 'Unwell Child' }
+        ]
+    },
+
+    // What nurses actually type -> flowchart(s). Matched case-insensitively alongside the chart names.
+    complaintSynonyms: {
+        'cp': ['Chest Pain'], 'chest': ['Chest Pain'], 'acs': ['Chest Pain'], 'mi': ['Chest Pain'],
+        'sob': ['Shortness of Breath in Adults', 'Shortness of Breath in Children'], 'dib': ['Shortness of Breath in Adults', 'Shortness of Breath in Children'],
+        'breathless': ['Shortness of Breath in Adults', 'Shortness of Breath in Children'], 'difficulty breathing': ['Shortness of Breath in Adults', 'Shortness of Breath in Children'],
+        'wheeze': ['Asthma', 'Shortness of Breath in Children'], 'copd': ['Shortness of Breath in Adults'],
+        'abdo': ['Abdominal Pain in Adults', 'Abdominal Pain in Children'], 'abdominal': ['Abdominal Pain in Adults', 'Abdominal Pain in Children'], 'tummy': ['Abdominal Pain in Children', 'Abdominal Pain in Adults'], 'stomach': ['Abdominal Pain in Adults', 'Abdominal Pain in Children'],
+        'fall': ['Falls'], 'fell': ['Falls'], 'mechanical fall': ['Falls'], 'long lie': ['Falls', 'Elderly Care / Off Legs'], 'off legs': ['Elderly Care / Off Legs'], 'nof': ['Falls', 'Limb Problems'], 'hip': ['Falls', 'Limb Problems'],
+        'hi': ['Head Injury'], 'head': ['Head Injury', 'Headache'], 'loc': ['Collapse', 'Head Injury'],
+        'collapse': ['Collapse'], 'syncope': ['Collapse'], 'faint': ['Collapse'],
+        'fit': ['Fits and Seizures'], 'seizure': ['Fits and Seizures'], 'epilepsy': ['Fits and Seizures'],
+        'od': ['Overdose and Poisoning'], 'overdose': ['Overdose and Poisoning'], 'poisoning': ['Overdose and Poisoning'], 'dsh': ['Self Harm', 'Overdose and Poisoning'], 'self harm': ['Self Harm'], 'cutting': ['Self Harm', 'Wounds'],
+        'suicidal': ['Mental Illness'], 'mental health': ['Mental Illness'], 'psych': ['Mental Illness'], 'anxiety': ['Mental Illness'],
+        'drunk': ['Apparently Drunk'], 'alcohol': ['Apparently Drunk'], 'etoh': ['Apparently Drunk'],
+        'stroke': ['Suspected Stroke'], 'cva': ['Suspected Stroke'], 'weakness': ['Suspected Stroke'], 'tia': ['Suspected TIA'],
+        'dvt': ['Suspected DVT / PE'], 'pe': ['Suspected DVT / PE'], 'calf': ['Suspected DVT / PE'],
+        'pv bleed': ['PV Bleeding'], 'pv': ['PV Bleeding'], 'miscarriage': ['PV Bleeding', 'Pregnancy'], 'pregnant': ['Pregnancy'],
+        'uti': ['Urinary Problems'], 'retention': ['Urinary Problems'], 'haematuria': ['Urinary Problems'], 'catheter': ['Urinary Problems'],
+        'gi bleed': ['Gastrointestinal Bleeding'], 'haematemesis': ['Gastrointestinal Bleeding'], 'melaena': ['Gastrointestinal Bleeding'], 'pr bleed': ['Gastrointestinal Bleeding'],
+        'd&v': ['Diarrhoea and Vomiting'], 'vomiting': ['Diarrhoea and Vomiting'], 'diarrhoea': ['Diarrhoea and Vomiting'],
+        'rash': ['Rash'], 'anaphylaxis': ['Allergy'], 'allergic': ['Allergy'],
+        'cut': ['Wounds'], 'laceration': ['Wounds'], 'wound': ['Wounds'], 'burn': ['Burns and Scalds'], 'scald': ['Burns and Scalds'],
+        'rtc': ['Major Trauma'], 'trauma': ['Major Trauma', 'Torso Injury'], 'stab': ['Torso Injury', 'Wounds'],
+        'arm': ['Limb Problems'], 'leg': ['Limb Problems'], 'ankle': ['Limb Problems'], 'wrist': ['Limb Problems'], 'knee': ['Limb Problems'], 'shoulder': ['Limb Problems'],
+        'limp': ['Limping Child'], 'fever': ['Unwell Child', 'Unwell Adult'], 'temperature': ['Unwell Child', 'Unwell Adult'], 'sepsis': ['Unwell Adult', 'Unwell Child'], 'unwell': ['Unwell Adult', 'Unwell Child'],
+        'confused': ['Confusion'], 'delirium': ['Confusion'],
+        'palps': ['Palpitations'], 'af': ['Palpitations'], 'svt': ['Palpitations'],
+        'hypo': ['Diabetes', 'Hypoglycaemia in Neonate / Child'], 'dka': ['Diabetes'], 'sugar': ['Diabetes'],
+        'eye': ['Eye Problems'], 'ear': ['Ear Problems'], 'tooth': ['Dental Problems'], 'throat': ['Sore Throat'], 'nosebleed': ['Facial Problems'], 'epistaxis': ['Facial Problems'],
+        'testicle': ['Testicular Pain'], 'scrotal': ['Testicular Pain'], 'needlestick': ['Needlestick Injury'],
+        'jaundice': ['Jaundice'], 'back': ['Back Pain'], 'neck': ['Neck Pain'], 'crying': ['Crying Baby'], 'baby': ['Crying Baby', 'Unwell Child']
+    },
+
+    // Complaint-specific nurse tools (see app.js renderAssessments). Charts listed must exist.
+    assessmentTools: {
+        headInjury: ['Head Injury'],
+        headInjuryOptional: ['Falls', 'Assault', 'Elderly Care / Off Legs', 'Major Trauma', 'Collapse', 'Apparently Drunk'],
+        stroke: ['Suspected Stroke', 'Suspected TIA'],
+        ecgTimer: ['Chest Pain'],
+        delirium: ['Confusion', 'Elderly Care / Off Legs', 'Behaving Strangely', 'Falls'],
+        mentalHealth: ['Mental Illness', 'Self Harm', 'Overdose and Poisoning', 'Behaving Strangely', 'Apparently Drunk'],
+        nofDiscriminator: 'Suspected neck of femur fracture'
+    },
+
+    // Supplementary sepsis considerations recorded alongside the NG253 NEWS2 risk (they do not
+    // change the NG253 risk band). Chemotherapy and immunosuppression are in the high-risk groups.
+    sepsisConsiderations: [
+        { id: 'sepsis_rash', label: 'Non-blanching rash' },
+        { id: 'sepsis_mottled', label: 'Mottled, ashen or cyanotic skin' },
+        { id: 'sepsis_wound', label: 'Signs of wound / device / skin infection' },
+        { id: 'sepsis_procedure', label: 'Surgery, trauma or invasive procedure in the last 6 weeks' }
+    ],
     // --- 1. DRUG INDEX (MASSIVE DATABASE - 450+ Common UK BNF Drugs) ---
     drugIndex: [
         "Abacavir", "Aciclovir", "Acitretin", "Adalimumab", "Adapalene", "Adenosine", "Adrenaline", "Alendronic Acid", "Alfuzosin", "Alimemazine", "Allopurinol", "Alogliptin", "Amitriptyline", "Amlodipine", "Amoxicillin", "Anastrozole", "Apixaban", "Apremilast", "Aripiprazole", "Aspirin", "Atazanavir", "Atenolol", "Atomoxetine", "Atorvastatin", "Azathioprine", "Azithromycin",
@@ -66,12 +142,16 @@ export const clinicalData = {
         { id: "anticoag", label: "Anticoagulant / DOAC", hint: "Warfarin, DOAC, LMWH", warning: "D: Anticoagulant/DOAC (Bleeding Risk - Check INR if Warfarin)" },
         { id: "antiplatelet", label: "Antiplatelet", hint: "Aspirin, Clopidogrel, Ticagrelor", warning: "D: Antiplatelet (Bleeding Risk)" },
         { id: "insulin", label: "Insulin", hint: "Any type/brand", warning: "S: Insulin (Hypo/DKA Risk)" },
-        { id: "steroid", label: "Long-term Steroids", hint: "Prednisolone equivalent, >4 weeks", warning: "S: Steroid Dependent (Adrenal Crisis Risk - consider hydrocortisone)" },
+        { id: "steroid", label: "Long-term Steroids", hint: "Prednisolone equivalent, >4 weeks, or NHS Steroid Emergency Card", warning: "S: Steroid Dependent (Adrenal Crisis Risk - follow Steroid Emergency Card, consider hydrocortisone)" },
         { id: "immunosuppressant", label: "Immuno&shy;suppressant / Biologic", hint: "Methotrexate, biologics, transplant meds", warning: "I: Immunosuppressant/Biologic (Sepsis Risk - low threshold for cultures)" },
         { id: "parkinsons", label: "Parkinson's Medication", hint: "Levodopa, co-beneldopa, co-careldopa", warning: "M: Parkinson's (TIME CRITICAL - do not omit/delay doses)" },
         { id: "antiepileptic", label: "Anti-epileptic", hint: "Any AED", warning: "E: Anticonvulsant (Seizure Risk if delayed/missed)" },
         { id: "opioid", label: "Opioid / Substitution Rx", hint: "Methadone, buprenorphine, strong opioids", warning: "Opioid (Resp Depression Risk)" },
-        { id: "lithium_clozapine", label: "Lithium / Clozapine", hint: "Toxicity/agranulocytosis risk", warning: "Toxicity Risk (Check Lithium Level / FBC if Clozapine)" }
+        { id: "lithium_clozapine", label: "Lithium / Clozapine", hint: "Toxicity/agranulocytosis risk", warning: "Toxicity Risk (Check Lithium Level / FBC if Clozapine)" },
+        { id: "chemo", label: "Chemotherapy (last 6 weeks)", hint: "Systemic anti-cancer treatment", warning: "Chemotherapy in last 6 weeks - if unwell or febrile, treat as possible neutropenic sepsis: medical emergency, empiric antibiotics per local pathway (NICE NG151)" },
+        { id: "sickle", label: "Sickle cell disease", hint: "Painful crisis", warning: "Sickle cell - painful crisis: analgesia within 30 minutes of arrival (NICE CG143)" },
+        { id: "dialysis", label: "Renal dialysis / fistula", hint: "Haemo- or peritoneal dialysis", warning: "Dialysis - no BP cuff, cannula or bloods on the fistula arm; check potassium" },
+        { id: "neck_breather", label: "Neck breather", hint: "Laryngectomy or tracheostomy", warning: "Neck breather - give oxygen and manage airway via the stoma" }
     ],
 
     // --- 2d. PMHx KEYWORD PROMPTS ---
@@ -83,7 +163,11 @@ export const clinicalData = {
         "diabetic": "Diabetes noted - consider checking capillary glucose.",
         "epilepsy": "Epilepsy noted - consider the Anti-epileptic high-risk med tick-box if applicable.",
         "epileptic": "Epilepsy noted - consider the Anti-epileptic high-risk med tick-box if applicable.",
-        "copd": "COPD noted - consider Scale 2 (CO2 retainer) and target sats 88-92%."
+        "copd": "COPD noted - consider Scale 2 (CO2 retainer) and target sats 88-92%.",
+        "sickle": "Sickle cell noted - tick the Sickle cell high-risk group if this is a painful crisis.",
+        "chemotherapy": "Chemotherapy noted - tick the Chemotherapy high-risk group if within the last 6 weeks.",
+        "dialysis": "Dialysis noted - tick the Renal dialysis high-risk group.",
+        "laryngectomy": "Laryngectomy noted - tick Neck breather."
     },
 
     // --- 3. CALCULATORS (DYNAMIC) ---
@@ -123,42 +207,29 @@ export const clinicalData = {
                 { max: 4, text: "≤4: PE unlikely - consider D-dimer" },
                 { max: 999, text: ">4: PE likely - consider CTPA" }
             ]
-        },
-        "Head Injury": {
-            title: "Canadian CT Head Rule (High Risk)",
-            reference: "Stiell IG et al, 2001 (CMAJ) - any one high-risk criterion recommends CT head.",
-            criteria: [
-                { text: "GCS < 15 at 2h post injury", points: 1 },
-                { text: "Suspected open/depressed skull fracture", points: 1 },
-                { text: "Basal skull fracture signs", points: 1 },
-                { text: "Vomiting >= 2 episodes", points: 1 },
-                { text: "Age >= 65", points: 1 }
-            ],
-            interpret: [
-                { max: 0, text: "No high-risk criteria met - CT head not routinely required by this rule; use clinical judgement" },
-                { max: 999, text: "≥1 high-risk criterion met - CT head recommended" }
-            ]
         }
     },
 
     // --- 3b. SCORE REFERENCES (for ℹ️ info popovers on NEWS2/PEWS/MEOWS) ---
     references: {
-        news2: "National Early Warning Score 2 (NEWS2) - Royal College of Physicians, 2017. Adults 16+, not validated in pregnancy.",
-        pews: "Paediatric Early Warning Score - age-banded track & trigger tool for children under 16.",
-        meows: "Modified Early Obstetric Warning Score (MEOWS) - track & trigger tool for pregnant/postpartum patients."
+        news2: "National Early Warning Score 2 (NEWS2) - Royal College of Physicians, 2017. Adults 16+, not validated in pregnancy. Only a complete set of all 7 parameters gives a valid score.",
+        pews: "LOCAL paediatric early warning score built into this app - NOT the national PEWS (NHS England SPOT programme). Use your trust's PEWS chart where it differs.",
+        meows: "LOCAL MEOWS trigger chart built into this app - NOT the national Maternity Early Warning Score (MEWS), which NHS England expects every trust to use by March 2026. Use your trust's chart where it differs."
     },
 
     // --- 4. SCREENING RULES ---
     screening: {
-        hiv: { minAge: 16, maxAge: 65, label: "HIV Opt-Out (NICE/RCEM)", yesNo: true, info: "Opt-out HIV testing offered to all adults 16-65 having blood taken in EDs in areas of high/extremely high HIV prevalence, per NICE/BHIVA/RCEM guidance - normalise it as a routine part of the blood panel unless the patient declines." },
+        hiv: { minAge: 16, label: "HIV Opt-Out (NICE/RCEM)", yesNo: true, info: "Opt-out blood-borne virus testing for people having blood taken, where the ED is part of the NHS England opt-out testing programme. Follow local policy on age range; normalise it as a routine part of the blood panel unless the patient declines." },
         frailty: { minAge: 65, label: "Frailty (Silver Book II)", options: [ { val: "1", text: "1. Very Fit" }, { val: "2", text: "2. Well" }, { val: "3", text: "3. Managing Well" }, { val: "4", text: "4. Vulnerable" }, { val: "5", text: "5. Mildly Frail" }, { val: "6", text: "6. Moderately Frail" }, { val: "7", text: "7. Severely Frail" }, { val: "8", text: "8. Very Severely Frail" }, { val: "9", text: "9. Terminally Ill" } ], info: "Clinical Frailty Scale (CFS): 1 Very Fit - robust, active. 2 Well - no active disease symptoms. 3 Managing Well - controlled comorbidities. 4 Vulnerable - symptoms limit activity. 5 Mildly Frail - needs help with some IADLs. 6 Moderately Frail - needs help with all outdoor activities and housework. 7 Severely Frail - completely dependent for personal care. 8 Very Severely Frail - approaching end of life. 9 Terminally Ill - life expectancy <6 months. Score the patient's baseline ~2 weeks before this illness, not how they are today." },
         // Sepsis is now auto-calculated from obs + tick-boxes in the Physiology card (see calcSepsisScreen in app.js) - removed as a manual Yes/No here to avoid duplication.
-        alcohol: { label: "Alcohol AUDIT-C Screen", options: [ { val: "0", text: "0-4 (Low Risk)" }, { val: "5", text: "5-7 (Increasing Risk)" }, { val: "8", text: "8-10 (Higher Risk)" }, { val: "11", text: "11+ (Possible Dependence)" } ], info: "AUDIT-C - 3 questions, each scored 0-4 (max 12): 1) How often do you have a drink containing alcohol? 2) How many units/standard drinks on a typical drinking day? 3) How often do you have 6+ units (female) / 8+ units (male) on one occasion? Sum the three scores against the bands in the dropdown." },
-        smoking: { label: "Current Smoker? (Offer Cessation)", yesNo: true },
+        alcohol: { minAge: 16, label: "Alcohol AUDIT-C Screen", options: [ { val: "0", text: "0-4 (Low Risk)" }, { val: "5", text: "5-7 (Increasing Risk)" }, { val: "8", text: "8-10 (Higher Risk)" }, { val: "11", text: "11+ (Possible Dependence)" } ], info: "AUDIT-C - 3 questions, each scored 0-4 (max 12): 1) How often do you have a drink containing alcohol? 2) How many units/standard drinks on a typical drinking day? 3) How often do you have 6+ units (female) / 8+ units (male) on one occasion? Sum the three scores against the bands in the dropdown." },
+        smoking: { minAge: 12, label: "Current Smoker? (Offer Cessation)", yesNo: true },
         falls: { minAge: 65, label: "Falls History (Last 12m)", yesNo: true },
         mental_health: { label: "Mental Health / Capacity Concern", yesNo: true },
-        domestic_violence: { label: "Domestic Violence / Safeguarding", yesNo: true },
-        veteran: { label: "Military Veteran?", yesNo: true }
+        domestic_violence: { minAge: 16, label: "Domestic Abuse - routine enquiry", yesNo: true, info: "Ask privately, when the patient is alone. A 'Yes' needs the local domestic abuse pathway / IDVA referral." },
+        learning_disability: { label: "Learning disability / autism - reasonable adjustments needed", yesNo: true, info: "Ask about a hospital passport, communication needs and whether a carer should stay." },
+        homeless: { minAge: 16, label: "No fixed abode / homeless", yesNo: true, info: "Duty to refer to the local housing authority (Homelessness Reduction Act 2017) with consent." },
+        veteran: { minAge: 18, label: "Military Veteran?", yesNo: true }
     },
 
     // --- 5. SCORING ---
@@ -201,19 +272,19 @@ export const clinicalData = {
 
     // --- 6. MTS FLOWCHARTS (FULL 52 SET) ---
     mtsFlowcharts: {
-        "Abdominal Pain in Adults": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Significant history","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Altered GCS","priority":"Yellow"},{"text":"Haemodynamic instability","priority":"Yellow"},{"text":"New onset in elderly","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Urinary symptoms","priority":"Green"},{"text":"Recent problem","priority":"Blue"},{"text":"Old problem","priority":"Blue"}],
-        "Abdominal Pain in Children": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Bile-stained vomit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Abdominal distension","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
+        "Abdominal Pain in Adults": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Significant history","priority":"Yellow"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Altered GCS","priority":"Orange"},{"text":"Haemodynamic instability","priority":"Yellow"},{"text":"New onset in elderly","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Urinary symptoms","priority":"Green"},{"text":"Recent problem","priority":"Blue"},{"text":"Old problem","priority":"Blue"}],
+        "Abdominal Pain in Children": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Peritonism","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Testicular torsion","priority":"Orange"},{"text":"Bile-stained vomit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Vomiting blood","priority":"Yellow"},{"text":"Dehydration","priority":"Yellow"},{"text":"Abdominal distension","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Vomiting","priority":"Green"},{"text":"Recent problem","priority":"Blue"}],
         "Abscesses and Local Infections": [{"text":"Sepsis (Red Flag)","priority":"Orange"},{"text":"Spreading Cellulitis","priority":"Yellow"},{"text":"Localised","priority":"Green"}],
-        "Allergy": [{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"Wheeze","priority":"Orange"},{"text":"Oedema of tongue/throat","priority":"Orange"},{"text":"Widespread rash","priority":"Yellow"},{"text":"Facial oedema","priority":"Yellow"},{"text":"History of severe reaction","priority":"Yellow"},{"text":"Localised rash","priority":"Green"},{"text":"Itch","priority":"Green"}],
+        "Allergy": [{"text":"Airway compromise","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Stridor","priority":"Orange"},{"text":"Wheeze","priority":"Orange"},{"text":"Oedema of tongue/throat","priority":"Orange"},{"text":"Widespread rash","priority":"Yellow"},{"text":"Facial oedema","priority":"Yellow"},{"text":"History of severe reaction","priority":"Yellow"},{"text":"Localised rash","priority":"Green"},{"text":"Itch","priority":"Green"}],
         "Assault": [{"text":"Major trauma","priority":"Red"},{"text":"Airway compromise","priority":"Red"},{"text":"Severe pain","priority":"Orange"},{"text":"Head Injury signs","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"Minor injury","priority":"Green"}],
         "Asthma": [{"text":"Life Threatening","priority":"Red"},{"text":"Severe Distress","priority":"Orange"},{"text":"Moderate Distress","priority":"Yellow"},{"text":"Mild Distress","priority":"Green"}],
-        "Back Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New extensive neurological deficit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"New focal neurological deficit","priority":"Yellow"},{"text":"Cauda equina syndrome symptoms","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Mechanical back pain","priority":"Green"},{"text":"Old problem","priority":"Blue"}],
+        "Back Pain": [{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Severe pain","priority":"Orange"},{"text":"New extensive neurological deficit","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"New focal neurological deficit","priority":"Yellow"},{"text":"Cauda equina syndrome symptoms","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Mechanical back pain","priority":"Green"},{"text":"Old problem","priority":"Blue"}],
         "Behaving Strangely": [{"text":"Immediate Risk","priority":"Red"},{"text":"Active Psychosis","priority":"Orange"},{"text":"Distressed","priority":"Yellow"},{"text":"Low Risk","priority":"Green"}],
         "Bites and Stings": [{"text":"Anaphylaxis","priority":"Red"},{"text":"Severe Pain","priority":"Orange"},{"text":"Spreading Infection","priority":"Yellow"},{"text":"Local Reaction","priority":"Green"}],
         "Burns and Scalds": [{"text":"Airway Burns","priority":"Red"},{"text":">15% TBSA","priority":"Red"},{"text":"Severe Pain","priority":"Orange"},{"text":"Facial Burns","priority":"Yellow"},{"text":"Minor Burns","priority":"Green"}],
-        "Chest Pain": [{"text":"Airway compromise","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Cardiac-type chest pain at rest","priority":"Yellow"},{"text":"Pleuritic chest pain","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Recent non-cardiac pain","priority":"Green"},{"text":"Musculoskeletal pain","priority":"Green"}],
-        "Collapse": [{"text":"Cardiac Arrest","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"History of arrhythmia","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Vasovagal","priority":"Green"}],
-        "Confusion": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"New Confusion","priority":"Orange"},{"text":"Hypoglycaemia","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Yellow"}],
+        "Chest Pain": [{"text":"Airway compromise","priority":"Red"},{"text":"Catastrophic haemorrhage","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Cardiac-type chest pain at rest","priority":"Yellow"},{"text":"Pleuritic chest pain","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Recent non-cardiac pain","priority":"Green"},{"text":"Musculoskeletal pain","priority":"Green"}],
+        "Collapse": [{"text":"Cardiac Arrest","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"History of arrhythmia","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Vasovagal","priority":"Green"}],
+        "Confusion": [{"text":"Unresponsive","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"New Confusion","priority":"Orange"},{"text":"Hypoglycaemia","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Yellow"}],
         "Crying Baby": [{"text":"Unresponsive","priority":"Red"},{"text":"Non-blanching rash","priority":"Orange"},{"text":"Inconsolable","priority":"Orange"},{"text":"High Fever","priority":"Yellow"},{"text":"Settles with handling","priority":"Green"}],
         "Dental Problems": [{"text":"Airway risk","priority":"Red"},{"text":"Severe Pain","priority":"Orange"},{"text":"Facial Swelling","priority":"Yellow"},{"text":"Toothache","priority":"Green"}],
         "Diabetes": [{"text":"Unresponsive","priority":"Red"},{"text":"Hypoglycaemia (<3)","priority":"Orange"},{"text":"Hyperglycaemia w/ Ketones","priority":"Orange"},{"text":"Vomiting","priority":"Yellow"},{"text":"High sugar, well","priority":"Green"}],
@@ -222,9 +293,9 @@ export const clinicalData = {
         "Eye Problems": [{"text":"Penetrating Injury","priority":"Red"},{"text":"Chemical Injury","priority":"Red"},{"text":"Sudden Loss of Vision","priority":"Orange"},{"text":"Severe Pain","priority":"Orange"},{"text":"Red Eye","priority":"Green"}],
         "Fits and Seizures": [{"text":"Airway compromise","priority":"Red"},{"text":"Actively seizing now (status epilepticus)","priority":"Red"},{"text":"Seizure just terminated, GCS still reduced","priority":"Orange"},{"text":"First ever seizure","priority":"Orange"},{"text":"Repeated seizures (cluster)","priority":"Orange"},{"text":"Injury sustained during seizure","priority":"Yellow"},{"text":"Post-ictal, known epilepsy, improving","priority":"Yellow"},{"text":"Fully recovered, known epilepsy, at baseline","priority":"Green"},{"text":"Information/advice only","priority":"Blue"}],
         "Facial Problems": [{"text":"Airway Risk","priority":"Red"},{"text":"Severe Pain","priority":"Orange"},{"text":"Swelling","priority":"Yellow"},{"text":"Minor Injury","priority":"Green"}],
-        "Falls": [{"text":"Major trauma","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Head injury with anticoagulants","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"}],
+        "Falls": [{"text":"Major trauma","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Altered GCS","priority":"Orange"},{"text":"Severe pain","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Suspected neck of femur fracture","priority":"Orange"},{"text":"Moderate pain","priority":"Yellow"},{"text":"History of LOC","priority":"Yellow"},{"text":"Inability to weight bear","priority":"Yellow"},{"text":"Head injury with anticoagulants","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild pain","priority":"Green"},{"text":"Able to weight bear","priority":"Green"}],
         "Foreign Body": [{"text":"Airway Obstruction","priority":"Red"},{"text":"Inhaled","priority":"Orange"},{"text":"Swallowed (High Risk)","priority":"Yellow"},{"text":"Minor","priority":"Green"}],
-        "Gastrointestinal Bleeding": [{"text":"Exsanguinating","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Haematemesis","priority":"Orange"},{"text":"Melaena","priority":"Yellow"},{"text":"Small amounts","priority":"Green"}],
+        "Gastrointestinal Bleeding": [{"text":"Exsanguinating","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Haematemesis","priority":"Orange"},{"text":"Melaena","priority":"Yellow"},{"text":"Small amounts","priority":"Green"}],
         "Headache": [{"text":"GCS Reduced","priority":"Red"},{"text":"Sudden Onset (Thunderclap)","priority":"Orange"},{"text":"Meningism","priority":"Orange"},{"text":"History of Migraine","priority":"Green"}],
         "Head Injury": [{"text":"GCS < 9","priority":"Red"},{"text":"GCS 9-12","priority":"Orange"},{"text":"Penetrating injury","priority":"Orange"},{"text":"Seizing now","priority":"Orange"},{"text":"Focal neurological deficit","priority":"Orange"},{"text":"GCS 13-14","priority":"Yellow"},{"text":"Vomiting >1 episode","priority":"Yellow"},{"text":"History of LOC >5 mins","priority":"Yellow"},{"text":"Amnesia","priority":"Yellow"},{"text":"On anticoagulants","priority":"Yellow"},{"text":"GCS 15, no other factors","priority":"Green"}],
         "Irritable Child": [{"text":"Unresponsive","priority":"Red"},{"text":"Meningism","priority":"Orange"},{"text":"Fever","priority":"Yellow"},{"text":"Settles","priority":"Green"}],
@@ -234,7 +305,7 @@ export const clinicalData = {
         "Mental Illness": [{"text":"Immediate Risk","priority":"Red"},{"text":"Aggressive","priority":"Orange"},{"text":"Self Harm Risk","priority":"Yellow"},{"text":"Anxiety/Depression","priority":"Green"}],
         "Neck Pain": [{"text":"C-Spine Injury (High Risk)","priority":"Orange"},{"text":"Severe Pain","priority":"Orange"},{"text":"Neurology","priority":"Yellow"},{"text":"Muscular","priority":"Green"}],
         "Needlestick Injury": [{"text":"High Risk Source","priority":"Yellow"},{"text":"Low Risk","priority":"Green"}],
-        "Overdose and Poisoning": [{"text":"Unresponsive","priority":"Red"},{"text":"Seizing now","priority":"Red"},{"text":"Shock","priority":"Orange"},{"text":"Altered GCS","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Orange"},{"text":"High-risk substance","priority":"Orange"},{"text":"Deliberate self-harm intent","priority":"Yellow"},{"text":"Symptomatic but stable","priority":"Yellow"},{"text":"Asymptomatic, low-risk substance","priority":"Green"},{"text":"Information request","priority":"Blue"}],
+        "Overdose and Poisoning": [{"text":"Unresponsive","priority":"Red"},{"text":"Seizing now","priority":"Red"},{"text":"Shock","priority":"Red"},{"text":"Altered GCS","priority":"Orange"},{"text":"Abnormal vital signs","priority":"Orange"},{"text":"High-risk substance","priority":"Orange"},{"text":"Deliberate self-harm intent","priority":"Yellow"},{"text":"Symptomatic but stable","priority":"Yellow"},{"text":"Asymptomatic, low-risk substance","priority":"Green"},{"text":"Information request","priority":"Blue"}],
         "Palpitations": [{"text":"Shock","priority":"Red"},{"text":"Chest Pain","priority":"Orange"},{"text":"Rate > 150","priority":"Orange"},{"text":"History of AF","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Normal ECG","priority":"Green"}],
         "Pregnancy": [{"text":"Active Labour (Crowning)","priority":"Red"},{"text":"PV Bleeding (Heavy)","priority":"Orange"},{"text":"Abdo Pain","priority":"Yellow"},{"text":"Minor symptoms","priority":"Green"}],
         "PV Bleeding": [{"text":"Shock","priority":"Red"},{"text":"Heavy bleeding with clots","priority":"Orange"},{"text":"Pregnant with bleeding","priority":"Yellow"},{"text":"Period-like bleeding","priority":"Green"},{"text":"Spotting only","priority":"Blue"}],
@@ -242,7 +313,7 @@ export const clinicalData = {
         "Rash": [{"text":"Anaphylaxis","priority":"Red"},{"text":"Non-blanching","priority":"Orange"},{"text":"Widespread","priority":"Yellow"},{"text":"Itchy","priority":"Green"}],
         "Self Harm": [{"text":"Active Bleeding (Major)","priority":"Red"},{"text":"Deep Laceration","priority":"Orange"},{"text":"Ingestion","priority":"Orange"},{"text":"Superficial","priority":"Yellow"}],
         "Sexually Acquired Infection": [{"text":"Severe Pain","priority":"Orange"},{"text":"Discharge","priority":"Green"},{"text":"Advice","priority":"Blue"}],
-        "Shortness of Breath in Adults": [{"text":"Apnoeic","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Shock","priority":"Orange"},{"text":"Stridor","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Moderate respiratory distress","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild respiratory distress","priority":"Green"},{"text":"Cough","priority":"Green"},{"text":"Sore throat","priority":"Green"}],
+        "Shortness of Breath in Adults": [{"text":"Apnoeic","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Shock","priority":"Red"},{"text":"Stridor","priority":"Orange"},{"text":"New confusion","priority":"Orange"},{"text":"Moderate respiratory distress","priority":"Yellow"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Abnormal vital signs","priority":"Yellow"},{"text":"Mild respiratory distress","priority":"Green"},{"text":"Cough","priority":"Green"},{"text":"Sore throat","priority":"Green"}],
         "Shortness of Breath in Children": [{"text":"Apnoeic","priority":"Red"},{"text":"Silent Chest","priority":"Red"},{"text":"Stridor","priority":"Orange"},{"text":"Severe Recession","priority":"Orange"},{"text":"Moderate Recession","priority":"Yellow"},{"text":"Cough","priority":"Green"}],
         "Sore Throat": [{"text":"Airway Compromise","priority":"Red"},{"text":"Drooling","priority":"Orange"},{"text":"Difficulty Swallowing","priority":"Yellow"},{"text":"Pain only","priority":"Green"}],
         "Testicular Pain": [{"text":"Torsion suspected","priority":"Orange"},{"text":"Severe Pain","priority":"Orange"},{"text":"Swelling","priority":"Yellow"},{"text":"Ache","priority":"Green"}],
@@ -256,7 +327,7 @@ export const clinicalData = {
         "Suspected TIA": [{"text":"Ongoing/evolving focal deficit (possible stroke, not resolved)","priority":"Orange"},{"text":"Crescendo TIA (recurrent within 24h)","priority":"Orange"},{"text":"Single TIA, resolved, high-risk features","priority":"Yellow"},{"text":"Known AF, not anticoagulated","priority":"Yellow"},{"text":"Single TIA, resolved, low-risk","priority":"Green"},{"text":"Information/advice only","priority":"Blue"}],
         "Suspected DVT / PE": [{"text":"Shock / haemodynamic collapse","priority":"Red"},{"text":"Severe respiratory distress","priority":"Orange"},{"text":"Pleuritic chest pain with hypoxia","priority":"Orange"},{"text":"Haemoptysis","priority":"Yellow"},{"text":"Unilateral leg swelling/pain","priority":"Yellow"},{"text":"Tachycardia, recent immobility/surgery","priority":"Yellow"},{"text":"Mild leg swelling, well, ambulatory","priority":"Green"}],
         "Jaundice": [{"text":"Signs of liver failure/encephalopathy","priority":"Red"},{"text":"Fever with jaundice (cholangitis)","priority":"Orange"},{"text":"Severe abdominal pain with jaundice","priority":"Orange"},{"text":"New onset jaundice","priority":"Yellow"},{"text":"Pale stools / dark urine","priority":"Yellow"},{"text":"Known chronic liver disease, stable","priority":"Green"},{"text":"Mild, longstanding","priority":"Blue"}],
-        "Elderly Care / Off Legs": [{"text":"Shock / sepsis red flags","priority":"Orange"},{"text":"Acute confusion/delirium","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Unable to weight bear / off legs","priority":"Yellow"},{"text":"Recurrent falls","priority":"Yellow"},{"text":"Failure to cope at home","priority":"Yellow"},{"text":"Social concerns, medically well","priority":"Green"},{"text":"Chronic/longstanding decline","priority":"Blue"}],
+        "Elderly Care / Off Legs": [{"text":"Shock","priority":"Red"},{"text":"Sepsis suspected","priority":"Orange"},{"text":"Acute confusion/delirium","priority":"Orange"},{"text":"Long lie (>1 hour)","priority":"Orange"},{"text":"Unable to weight bear / off legs","priority":"Yellow"},{"text":"Recurrent falls","priority":"Yellow"},{"text":"Failure to cope at home","priority":"Yellow"},{"text":"Social concerns, medically well","priority":"Green"},{"text":"Chronic/longstanding decline","priority":"Blue"}],
         "Hypoglycaemia in Neonate / Child": [{"text":"Unresponsive / seizure","priority":"Red"},{"text":"BM \u22642.6, symptomatic","priority":"Orange"},{"text":"BM low, lethargic, poor feeding","priority":"Yellow"},{"text":"Borderline BM, well, tolerating feeds","priority":"Green"}]
     },
 
