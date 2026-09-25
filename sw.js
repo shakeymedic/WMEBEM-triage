@@ -1,14 +1,15 @@
-// sw.js - EMEvidence Triage v19.0
+// sw.js - EMEvidence Triage (bump CACHE_NAME on every release)
 // Basic offline app-shell caching for a device used at a triage desk with unreliable wifi.
 // Cache-first for the app shell, network-first fallback isn't needed since this app has no server calls.
 
-const CACHE_NAME = 'emevidence-triage-v19-13';
+const CACHE_NAME = 'emevidence-triage-v20-2';
 const ASSETS = [
     './',
     './index.html',
     './styles.css',
     './app.js',
     './protocols.js',
+    './clinical.js',
     './manifest.json',
     './icon-192.png',
     './icon-512.png'

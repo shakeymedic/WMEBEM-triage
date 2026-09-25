@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v19.13</title>
+    <title>EMEvidence Triage v20.2</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -11,93 +11,147 @@
 </head>
 <body>
 
-    <div id="toast-container"></div>
+    <div id="toast-container" role="status" aria-live="polite"></div>
 
-    <div id="modal-overlay" class="hidden" aria-hidden="true">
-        <div id="modal-box" role="dialog" aria-modal="true">
-            <h3 id="modal-title">Clinical Alert</h3>
-            <p id="modal-message">Message</p>
-            <div id="modal-actions">
-                <button id="modal-close" class="btn-primary">Acknowledge</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-sbar" class="hidden" aria-hidden="true">
-        <div id="modal-box-sbar" role="dialog" aria-modal="true">
-            <h3>📢 SBAR Handover Script</h3>
-            <div class="sbar-content">
-                <div class="sbar-section"><strong>S:</strong> <span id="sbar-s"></span></div>
-                <div class="sbar-section"><strong>B:</strong> <span id="sbar-b"></span></div>
-                <div class="sbar-section"><strong>A:</strong> <span id="sbar-a"></span></div>
-                <div class="sbar-section"><strong>R:</strong> <span id="sbar-r"></span></div>
-            </div>
-            <div id="modal-actions-sbar">
-                <button id="btn-close-sbar" class="btn-secondary">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-confirm" class="hidden" aria-hidden="true">
-        <div id="modal-box-confirm" role="dialog" aria-modal="true">
-            <h3 id="modal-confirm-title">Please Confirm</h3>
+    <!-- ===== Modals ===== -->
+    <div id="modal-confirm" class="modal hidden" aria-hidden="true">
+        <div class="modal-box modal-box-confirm" role="dialog" aria-modal="true" aria-labelledby="modal-confirm-title">
+            <h3 id="modal-confirm-title">Please confirm</h3>
             <p id="modal-confirm-message">Are you sure?</p>
-            <div id="modal-confirm-actions">
-                <button id="modal-confirm-cancel" class="btn-secondary">Cancel</button>
-                <button id="modal-confirm-ok" class="btn-primary">Confirm</button>
+            <div class="modal-actions">
+                <button type="button" id="modal-confirm-cancel" class="btn-secondary">Cancel</button>
+                <button type="button" id="modal-confirm-ok" class="btn-primary">Confirm</button>
             </div>
         </div>
     </div>
 
-    <div id="modal-bodymap" class="hidden" aria-hidden="true">
-        <div id="modal-box-bodymap">
-            <h3>Select Body Area</h3>
-            <div class="body-map-grid">
-                <button class="map-zone" data-val="Head Injury">Head / Face</button>
-                <button class="map-zone" data-val="Neck Pain">Neck</button>
-                <button class="map-zone" data-val="Chest Pain">Chest</button>
-                <button class="map-zone" data-val="Abdominal Pain in Adults">Abdomen</button>
-                <button class="map-zone" data-val="Back Pain">Back</button>
-                <button class="map-zone" data-val="Limb Problems">Arms / Legs</button>
-                <button class="map-zone" data-val="Urinary Problems">Pelvis / GU</button>
-                <button class="map-zone" data-val="Rash">Skin / Rash</button>
-                <button class="map-zone" data-val="Unwell Adult">General / Systemic</button>
+    <div id="modal-sbar" class="modal hidden" aria-hidden="true">
+        <div class="modal-box modal-box-sbar" role="dialog" aria-modal="true" aria-labelledby="sbar-heading">
+            <h3 id="sbar-heading">SBAR handover</h3>
+            <div class="sbar-content">
+                <div class="sbar-section"><strong>S</strong> <span id="sbar-s"></span></div>
+                <div class="sbar-section"><strong>B</strong> <span id="sbar-b"></span></div>
+                <div class="sbar-section"><strong>A</strong> <span id="sbar-a"></span></div>
+                <div class="sbar-section"><strong>R</strong> <span id="sbar-r"></span></div>
             </div>
-            <button id="btn-close-map" class="btn-secondary mt-15 w-full">Cancel</button>
+            <div class="modal-actions">
+                <button type="button" id="btn-copy-sbar" class="btn-secondary">Copy SBAR</button>
+                <button type="button" id="btn-close-sbar" class="btn-primary">Close</button>
+            </div>
         </div>
     </div>
 
-    <div class="container">
-        <header>
-            <div id="logo-container">
-                <div class="logo-text">EMEvidence</div>
-                <div>
-                    <h1>Advanced Triage Dashboard</h1>
-                    <span class="version-tag">v19.13 | MEOWS &amp; PEWS Gold</span>
-                </div>
+    <div id="modal-bodymap" class="modal hidden" aria-hidden="true">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="bodymap-heading">
+            <h3 id="bodymap-heading">Select body area</h3>
+            <div class="body-map-grid" id="body-map-grid"></div>
+            <div class="modal-actions">
+                <button type="button" id="btn-close-map" class="btn-secondary">Cancel</button>
             </div>
-            <div class="header-controls">
-                <button id="btn-quick-mode" class="btn-secondary" title="Hide non-essential screening for a faster triage">⚡ Quick Mode</button>
-                <button id="btn-history" class="btn-secondary" title="View Recent Patients">🕒 History</button>
-                <div class="theme-switch-wrapper" title="Toggle Dark Mode">
-                    <label class="theme-switch" for="checkbox-theme">
-                        <input type="checkbox" id="checkbox-theme" aria-label="Dark mode" />
-                        <div class="slider"></div>
-                    </label>
-                </div>
-                <button id="btn-reset" class="btn-warning">New Patient</button>
+        </div>
+    </div>
+
+    <div id="modal-help" class="modal hidden" aria-hidden="true">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="help-heading">
+            <h3 id="help-heading">Keyboard shortcuts</h3>
+            <table class="shortcut-table">
+                <tr><td><kbd>Alt</kbd>+<kbd>K</kbd></td><td>Jump to presenting complaint search</td></tr>
+                <tr><td><kbd>↑</kbd> <kbd>↓</kbd> then <kbd>Enter</kbd></td><td>Choose a complaint or discriminator</td></tr>
+                <tr><td><kbd>Enter</kbd> in an obs box</td><td>Move to the next observation</td></tr>
+                <tr><td><kbd>A</kbd> <kbd>C</kbd> <kbd>V</kbd> <kbd>P</kbd> <kbd>U</kbd></td><td>Set consciousness (when the ACVPU buttons are focused)</td></tr>
+                <tr><td><kbd>0</kbd>–<kbd>9</kbd>, <kbd>1</kbd><kbd>0</kbd></td><td>Set pain score (when the pain buttons are focused)</td></tr>
+                <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Set Clinical Frailty Scale (when the frailty buttons are focused)</td></tr>
+                <tr><td><kbd>Alt</kbd>+<kbd>C</kbd></td><td>Copy the EPR note</td></tr>
+                <tr><td><kbd>Alt</kbd>+<kbd>S</kbd></td><td>Open the SBAR handover</td></tr>
+                <tr><td><kbd>Alt</kbd>+<kbd>N</kbd></td><td>New patient (can be undone for 10 seconds)</td></tr>
+                <tr><td><kbd>Alt</kbd>+<kbd>H</kbd></td><td>Recent patients</td></tr>
+                <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+            </table>
+            <div class="modal-actions"><button type="button" class="btn-primary" data-close-modal>Close</button></div>
+        </div>
+    </div>
+
+    <div id="modal-settings" class="modal hidden" aria-hidden="true">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
+            <h3 id="settings-heading">Settings for this computer</h3>
+            <label class="check-row" for="set-shared"><input type="checkbox" id="set-shared"> <span>Shared / generic login computer <small class="text-muted">Recent Patients is switched off and cleared</small></span></label>
+            <label class="check-row mt-10" for="set-dictation"><input type="checkbox" id="set-dictation"> <span>Show dictation (microphone) buttons <small class="text-muted">Only if this computer has a microphone</small></span></label>
+            <label class="check-row mt-10" for="set-dark"><input type="checkbox" id="set-dark"> <span>Dark mode</span></label>
+            <button type="button" id="btn-clear-history" class="btn-secondary mt-15">Clear recent patients now</button>
+            <p class="hint mt-10">Recent patients are kept on this computer only and deleted automatically after 12 hours.</p>
+            <div class="modal-actions"><button type="button" class="btn-primary" data-close-modal>Done</button></div>
+        </div>
+    </div>
+
+    <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
+            <h3 id="whatsnew-heading">What's new in v20.2</h3>
+            <ul class="whatsnew-list">
+                <li><strong>Clinical Frailty Scale</strong> under the pain score (hidden for children). Press "Show criteria" for the full Rockwood CFS descriptions and click one to choose it. Flagged as missing for anyone 65 or over.</li>
+                <li><strong>Plan &amp; placement:</strong> each complaint now suggests nursing investigations (ECG, BM, urine dip, peak flow, VBG, ketones, bladder scan and more), cannula advice and the ED ICE blood bundles. Items are "Suggested" when your answers, obs or discriminator call for them, otherwise "Consider if…". No imaging. Placement is suggested from the category plus the complaint's pathways.</li>
+                <li><strong>Decision panel</strong> stays on screen: category, "see by" time, NEWS2, sepsis and anything still missing.</li>
+                <li><strong>Nothing is assumed.</strong> Pain, consciousness, oxygen and mobility start as "not recorded"; patients show NOT YET TRIAGED until you choose a discriminator.</li>
+                <li><strong>NEWS2 is only shown as a score when all 7 observations are recorded.</strong> SpO₂ Scale 2 now follows the RCP chart exactly, and ACVPU includes new confusion.</li>
+                <li><strong>Sepsis follows NICE NG253</strong>: answer "Could this be an infection?" first, then risk comes from NEWS2.</li>
+                <li><strong>Pain follows the MTS ruler</strong> (5–7 moderate = Yellow, 8–10 severe = Orange). Orange target is 10 minutes.</li>
+                <li><strong>New nurse tools:</strong> NICE head injury criteria (tells you when to tell the ED doctor), NICE fever traffic light (under 5s), ROSIER and time last known well, ECG-in-10-minutes, 4AT, mental health risk, infection control, corridor care, children's safeguarding.</li>
+                <li><strong>Keyboard:</strong> press <kbd>?</kbd> for shortcuts. Complaint search understands "cp", "sob", "dib", "od", "fall", etc.</li>
+            </ul>
+            <p class="hint">Local MEOWS and PEWS are still the app's own versions, not the national MEWS/PEWS charts - use your trust chart where they differ.</p>
+            <div class="modal-actions"><button type="button" class="btn-primary" data-close-modal>Got it</button></div>
+        </div>
+    </div>
+
+    <!-- ===== Header ===== -->
+    <header class="app-header">
+        <div class="brand">
+            <span class="logo-text">EMEvidence</span>
+            <div>
+                <h1>Triage Dashboard</h1>
+                <span class="version-tag">v20.2 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
-        </header>
+        </div>
+        <div class="header-controls">
+            <label class="initials" for="nurse-initials">Triage nurse <input type="text" id="nurse-initials" maxlength="6" placeholder="Initials" autocomplete="off"></label>
+            <button type="button" id="btn-quick-mode" class="btn-ghost" title="Hide the screening questions">⚡ Quick</button>
+            <button type="button" id="btn-history" class="btn-ghost" title="Recent patients (Alt+H)">🕒 Recent</button>
+            <button type="button" id="btn-settings" class="btn-ghost" title="Settings">⚙ Settings</button>
+            <button type="button" id="btn-help" class="btn-ghost" title="Keyboard shortcuts (?)">?</button>
+            <button type="button" id="btn-reset" class="btn-warning" title="New patient (Alt+N)">New patient</button>
+        </div>
+    </header>
 
-        <!-- Section numbers are generated by a CSS counter from the order the cards actually appear in,
-             so they stay sequential when History moves ahead of Physiology for ambulance arrivals or
-             Quick Mode hides Screening. -->
-        <main class="dashboard">
+    <div class="layout">
+        <!-- ===== Left: triage workflow (sections number themselves in on-screen order) ===== -->
+        <main class="workflow" id="workflow">
 
-            <section class="card" id="card-demographics">
-                <h2 class="section-title">Patient demographics</h2>
-
+            <section class="card" id="card-patient">
+                <h2 class="section-title">Arrival &amp; patient</h2>
                 <div class="form-grid cols-4">
+                    <div class="form-group">
+                        <label>Arrival</label>
+                        <div class="segmented-control" id="seg-arrival" data-keys="s,a">
+                            <button data-value="Self" class="active" type="button">Self</button>
+                            <button data-value="Ambulance" type="button">Ambulance</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="arrival-time">Arrival time</label>
+                        <input type="time" id="arrival-time">
+                    </div>
+                    <div class="form-group">
+                        <label for="patient-ref">Local ref <span class="text-muted">optional</span></label>
+                        <input type="text" id="patient-ref" maxlength="12" placeholder="Chair / cubicle" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="patient-mobility">Mobility</label>
+                        <select id="patient-mobility">
+                            <option value="">Not recorded</option>
+                            <option value="Walking">Walking / self-caring</option>
+                            <option value="Wheelchair">Wheelchair</option>
+                            <option value="Trolley">Trolley / bed bound</option>
+                        </select>
+                    </div>
                     <div class="form-group">
                         <label for="patient-age">Age</label>
                         <div class="input-with-unit">
@@ -111,44 +165,29 @@
                     <div class="form-group">
                         <label for="patient-sex">Sex</label>
                         <select id="patient-sex">
-                            <option value="">Select…</option>
+                            <option value="">Not recorded</option>
                             <option value="Male">Male</option>
                             <option value="Female">Female</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label for="patient-weight">Weight (kg)</label>
-                        <input type="number" id="patient-weight" inputmode="decimal" placeholder="Req. for paeds">
+                        <input type="number" id="patient-weight" inputmode="decimal" placeholder="Measured" step="0.1">
+                        <small class="hint" id="weight-estimate"></small>
                     </div>
-                    <div class="form-group">
-                        <label for="patient-mobility">Mobility (streaming)</label>
-                        <select id="patient-mobility">
-                            <option value="Walking">Walking / self-caring</option>
-                            <option value="Wheelchair">Wheelchair</option>
-                            <option value="Trolley">Trolley / bed bound</option>
-                        </select>
+                    <div class="form-group" id="female-health-section">
+                        <span class="label-text">Pregnancy</span>
+                        <label class="check-row" for="check-pregnant"><input type="checkbox" id="check-pregnant"> <span>Pregnant / &lt;6 wks postpartum</span></label>
                     </div>
                 </div>
-
-                <div id="female-health-section" class="form-grid hidden">
+                <div id="pregnancy-details" class="form-grid hidden">
                     <div class="form-group">
-                        <span class="label-spacer" aria-hidden="true">&nbsp;</span>
-                        <label class="check-row" for="check-pregnant">
-                            <input type="checkbox" id="check-pregnant">
-                            <span>Pregnant / postpartum (&lt; 6 weeks)</span>
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label for="date-lmp">LMP (last menstrual period)</label>
+                        <label for="date-lmp">LMP</label>
                         <input type="date" id="date-lmp">
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Arrival</label>
-                    <div class="segmented-control" id="seg-arrival">
-                        <button data-value="Self" class="active" type="button">🚶 Self-presented</button>
-                        <button data-value="Ambulance" type="button">🚑 Ambulance</button>
+                    <div class="form-group">
+                        <label>Gestation</label>
+                        <div class="readout" id="gestation-readout">Enter LMP</div>
                     </div>
                 </div>
                 <div id="amb-fields" class="form-grid hidden">
@@ -163,174 +202,116 @@
                 </div>
             </section>
 
+            <section class="card hidden" id="card-handover">
+                <h2 class="section-title">Crew handover</h2>
+                <div class="form-group">
+                    <div class="label-row">
+                        <label for="ph-hpc">HPC <span class="text-muted">history of presenting complaint</span></label>
+                        <div class="label-actions"><button type="button" class="mic-btn" data-target="ph-hpc" aria-label="Dictate HPC">🎤</button></div>
+                    </div>
+                    <textarea id="ph-hpc" rows="3" placeholder="Onset, associated symptoms, relevant context…"></textarea>
+                </div>
+                <button type="button" class="subsection-toggle" id="ph-obs-toggle" aria-expanded="false" aria-controls="ph-obs-collapsible"><span>Pre-hospital observations <span class="text-muted">only if not already in the EPR</span></span><span class="chevron" aria-hidden="true">▾</span></button>
+                <div id="ph-obs-collapsible" class="hidden">
+                    <div class="obs-grid">
+                        <div class="obs-item"><label for="ph-obs-rr">RR</label><input type="number" id="ph-obs-rr" inputmode="numeric"></div>
+                        <div class="obs-item"><label for="ph-obs-sats">SpO₂ %</label><input type="number" id="ph-obs-sats" inputmode="numeric"></div>
+                        <div class="obs-item"><label>O₂</label><div class="segmented-control" id="seg-ph-o2"><button data-value="Air" type="button">Air</button><button data-value="O2" type="button">O₂</button></div></div>
+                        <div class="obs-item"><label for="ph-obs-sbp">Systolic</label><input type="number" id="ph-obs-sbp" inputmode="numeric"></div>
+                        <div class="obs-item"><label for="ph-obs-dbp">Diastolic</label><input type="number" id="ph-obs-dbp" inputmode="numeric"></div>
+                        <div class="obs-item"><label for="ph-obs-hr">HR</label><input type="number" id="ph-obs-hr" inputmode="numeric"></div>
+                        <div class="obs-item"><label for="ph-obs-gcs">GCS</label><input type="number" id="ph-obs-gcs" inputmode="numeric" min="3" max="15"></div>
+                        <div class="obs-item"><label for="ph-obs-bm">BM</label><input type="number" id="ph-obs-bm" inputmode="decimal" step="0.1"></div>
+                        <div class="obs-item"><label for="ph-obs-ecg">ECG</label><input type="text" id="ph-obs-ecg" placeholder="Sinus, AF…" autocomplete="off"></div>
+                        <div class="obs-item"><label for="ph-obs-pupils">Pupils</label><input type="text" id="ph-obs-pupils" placeholder="PEARL" autocomplete="off"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="label-row">
+                        <label for="ph-tx">Pre-hospital medications / treatment</label>
+                        <div class="label-actions"><button type="button" class="mic-btn" data-target="ph-tx" aria-label="Dictate pre-hospital treatment">🎤</button></div>
+                    </div>
+                    <textarea id="ph-tx" rows="2" placeholder="e.g. IV paracetamol 1g, O₂ 2L via nasal cannula…"></textarea>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group"><label for="ph-tx-time">Time given <span class="text-muted">if known</span></label><input type="time" id="ph-tx-time"></div>
+                    <div class="form-group"><label for="ph-social">Social <span class="text-muted">optional</span></label><input type="text" id="ph-social" placeholder="e.g. Frame, PoC 3x daily" autocomplete="off"></div>
+                </div>
+            </section>
+
+            <section class="card" id="card-complaint">
+                <h2 class="section-title">Complaint &amp; discriminator</h2>
+                <div class="quick-actions-bar" id="quick-actions-bar"></div>
+                <div class="form-group combobox">
+                    <div class="label-row">
+                        <label for="input-complaint">Presenting complaint <span class="text-muted">type e.g. "cp", "sob", "fall", "od" – Alt+K</span></label>
+                        <div class="label-actions"><button type="button" class="mic-btn" data-target="input-complaint" aria-label="Dictate complaint">🎤</button></div>
+                    </div>
+                    <input type="text" id="input-complaint" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="complaint-list" placeholder="Search flowcharts…" autocomplete="off">
+                    <div id="complaint-list" class="combobox-list hidden" role="listbox" aria-label="Matching flowcharts"></div>
+                </div>
+                <div class="form-group">
+                    <label id="disc-label">Discriminators <span class="text-muted">highest priority first – choose the first that applies</span></label>
+                    <div id="discriminator-container" class="discriminator-list" role="listbox" aria-labelledby="disc-label">
+                        <p class="placeholder-text">Choose a presenting complaint to see its discriminators.</p>
+                    </div>
+                </div>
+                <div class="form-group" id="pain-section">
+                    <div class="label-row">
+                        <label id="pain-label">Pain score <span id="pain-readout" class="pain-readout">not assessed</span></label>
+                        <div class="label-actions"><button type="button" class="btn-tiny hidden" id="btn-flacc">Use FLACC</button></div>
+                    </div>
+                    <div class="pain-btn-group" id="pain-btn-container" role="radiogroup" aria-labelledby="pain-label"></div>
+                    <div id="flacc-panel" class="tool-panel hidden"></div>
+                </div>
+                <div class="form-group" id="frailty-section">
+                    <div class="label-row">
+                        <label id="cfs-label">Clinical Frailty Scale <span id="cfs-readout" class="pain-readout">not assessed</span></label>
+                        <div class="label-actions"><button type="button" class="btn-tiny" id="btn-cfs-guide" aria-expanded="false" aria-controls="cfs-guide">Show criteria</button></div>
+                    </div>
+                    <div class="pain-btn-group cfs-btn-group" id="cfs-btn-container" role="radiogroup" aria-labelledby="cfs-label"></div>
+                    <p class="tool-note" id="cfs-note">Score how they were about 2 weeks before this illness or injury, not how they are today.</p>
+                    <div id="cfs-guide" class="tool-panel hidden"></div>
+                </div>
+                <div id="complaint-tools"></div>
+            </section>
+
             <section class="card" id="card-obs">
-                <h2 class="section-title" id="obs-title">
+                <h2 class="section-title">
                     <button type="button" class="section-toggle" id="obs-section-toggle" aria-expanded="true" aria-controls="obs-collapsible-body">
-                        <span>Physiology <span class="section-sub">NEWS2 / MEOWS / PEWS</span></span>
+                        <span>Observations <span class="section-sub" id="ews-label">NEWS2</span></span>
                         <span class="chevron" aria-hidden="true">▴</span>
                     </button>
                 </h2>
-
                 <div id="obs-collapsible-body" class="stack">
                     <div id="obs-form" class="obs-grid">
-                        <div class="obs-item">
-                            <label for="obs-rr">Resp rate</label>
-                            <input type="number" id="obs-rr" inputmode="numeric" placeholder="/min" min="0" max="100">
-                        </div>
-                        <div class="obs-item">
-                            <label for="obs-sats">SpO₂</label>
-                            <input type="number" id="obs-sats" inputmode="numeric" placeholder="%" min="0" max="100">
-                        </div>
-                        <div class="obs-item">
-                            <label>Oxygen</label>
-                            <div class="segmented-control" id="seg-o2">
-                                <button data-value="Air" class="active" type="button">Air</button>
-                                <button data-value="O2" type="button">O₂</button>
+                        <div class="obs-item" data-param="rr"><label for="obs-rr">Resp rate</label><input type="number" id="obs-rr" class="obs-input" inputmode="numeric" placeholder="/min"></div>
+                        <div class="obs-item" data-param="sats"><label for="obs-sats">SpO₂</label><input type="number" id="obs-sats" class="obs-input" inputmode="numeric" placeholder="%"></div>
+                        <div class="obs-item" data-param="o2"><label>Air / O₂</label><div class="segmented-control obs-input" id="seg-o2" data-keys="a,o"><button data-value="Air" type="button">Air</button><button data-value="O2" type="button">O₂</button></div></div>
+                        <div class="obs-item" data-param="sbp"><label for="obs-sbp">Systolic BP</label><input type="number" id="obs-sbp" class="obs-input" inputmode="numeric" placeholder="mmHg"></div>
+                        <div class="obs-item" data-param="dbp"><label for="obs-dbp">Diastolic BP</label><input type="number" id="obs-dbp" class="obs-input" inputmode="numeric" placeholder="mmHg"></div>
+                        <div class="obs-item" data-param="hr"><label for="obs-hr">Heart rate</label><input type="number" id="obs-hr" class="obs-input" inputmode="numeric" placeholder="bpm"></div>
+                        <div class="obs-item" data-param="temp"><label for="obs-temp">Temp</label><input type="number" id="obs-temp" class="obs-input" inputmode="decimal" step="0.1" placeholder="°C"></div>
+                        <div class="obs-item obs-wide" data-param="avpu"><label>Consciousness (ACVPU)</label><div class="segmented-control obs-input" id="seg-avpu" data-keys="a,c,v,p,u"><button data-value="A" type="button" title="Alert">A</button><button data-value="C" type="button" title="New confusion">C</button><button data-value="V" type="button" title="Voice">V</button><button data-value="P" type="button" title="Pain">P</button><button data-value="U" type="button" title="Unresponsive">U</button></div></div>
+                        <div class="obs-item" data-param="crt"><label for="obs-crt">CRT</label><input type="number" id="obs-crt" class="obs-input" inputmode="decimal" placeholder="secs"></div>
+                        <div class="obs-item obs-wide" data-param="gcs"><label>GCS <span class="text-muted" id="gcs-total"></span></label>
+                            <div class="gcs-row">
+                                <select id="obs-gcs-e" class="obs-input" aria-label="GCS eyes"><option value="">E</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
+                                <select id="obs-gcs-v" class="obs-input" aria-label="GCS verbal"><option value="">V</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
+                                <select id="obs-gcs-m" class="obs-input" aria-label="GCS motor"><option value="">M</option><option>6</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
                             </div>
                         </div>
-                        <div class="obs-item">
-                            <label class="check-row check-row-plain" for="obs-scale2">
-                                <input type="checkbox" id="obs-scale2">
-                                <span>CO₂ retainer <small class="text-muted">SpO₂ scale 2</small></span>
-                            </label>
-                        </div>
-                        <div class="obs-item">
-                            <label for="obs-sbp">Systolic BP</label>
-                            <input type="number" id="obs-sbp" inputmode="numeric" placeholder="mmHg" min="0" max="300">
-                        </div>
-                        <div class="obs-item">
-                            <label for="obs-dbp">Diastolic BP</label>
-                            <input type="number" id="obs-dbp" inputmode="numeric" placeholder="mmHg" min="0" max="200">
-                        </div>
-                        <div class="obs-item">
-                            <label for="obs-hr">Heart rate</label>
-                            <input type="number" id="obs-hr" inputmode="numeric" placeholder="bpm" min="0" max="300">
-                        </div>
-                        <div class="obs-item">
-                            <label for="obs-crt">CRT</label>
-                            <input type="number" id="obs-crt" inputmode="decimal" placeholder="secs" min="0" max="15">
-                        </div>
-                        <div class="obs-item">
-                            <label>AVPU</label>
-                            <div class="segmented-control" id="seg-avpu">
-                                <button data-value="A" class="active" type="button">A</button>
-                                <button data-value="V" type="button">V</button>
-                                <button data-value="P" type="button">P</button>
-                                <button data-value="U" type="button">U</button>
-                            </div>
-                        </div>
-                        <div class="obs-item">
-                            <label for="obs-temp">Temp</label>
-                            <input type="number" id="obs-temp" inputmode="decimal" step="0.1" placeholder="°C" min="20" max="45">
-                        </div>
+                        <div class="obs-item" data-param="bm"><label for="obs-bm">BM</label><input type="number" id="obs-bm" class="obs-input" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
+                        <div class="obs-item" data-param="pupils"><label for="obs-pupils">Pupils</label><input type="text" id="obs-pupils" class="obs-input" placeholder="PEARL" autocomplete="off"></div>
+                        <div class="obs-item" data-param="scale2"><label class="check-row check-row-plain" for="obs-scale2"><input type="checkbox" id="obs-scale2"> <span>CO₂ retainer <small class="text-muted">SpO₂ scale 2</small></span></label></div>
                     </div>
-
-                    <div id="visual-ews-container" class="news-display-grid"></div>
-                    <div id="sepsis-screen-container" class="sepsis-widget"></div>
+                    <div id="visual-ews-container" class="ews-display"></div>
+                    <div id="sepsis-screen-container" class="tool-panel"></div>
                 </div>
             </section>
 
             <section class="card" id="card-history">
-                <h2 class="section-title" id="history-title">History &amp; complaint</h2>
-
-                <div class="quick-actions-bar">
-                    <button type="button" class="btn-chip btn-chip-accent" id="btn-body-map">👤 Body map</button>
-                    <button type="button" class="btn-chip" data-action="setComplaint" data-val="Chest Pain">Chest pain</button>
-                    <button type="button" class="btn-chip" data-action="setComplaint" data-val="Abdominal Pain in Adults">Abdo</button>
-                    <button type="button" class="btn-chip" data-action="setComplaint" data-val="Shortness of Breath in Adults">SOB</button>
-                    <button type="button" class="btn-chip" data-action="setComplaint" data-val="Falls">Fall</button>
-                    <button type="button" class="btn-chip" data-action="setComplaint" data-val="Head Injury">Head injury</button>
-                </div>
-
-                <div class="form-group">
-                    <div class="label-row">
-                        <label for="input-complaint">Presenting complaint</label>
-                        <div class="label-actions">
-                            <button type="button" class="mic-btn" data-target="input-complaint" aria-label="Dictate presenting complaint">🎤</button>
-                        </div>
-                    </div>
-                    <input list="flowcharts" id="input-complaint" placeholder="Type, dictate or use body map…" autocomplete="off">
-                    <datalist id="flowcharts"></datalist>
-                </div>
-
-                <div class="form-group">
-                    <label>Triage discriminator</label>
-                    <div id="discriminator-container" class="discriminator-list">
-                        <p class="placeholder-text">Select a complaint above to see its discriminators.</p>
-                    </div>
-                </div>
-
-                <div id="amb-handover-top" class="hidden ambulance-block stack">
-                    <button type="button" class="subsection-toggle" id="ph-obs-toggle" aria-expanded="false" aria-controls="ph-obs-collapsible"><span>Pre-hospital observations</span><span class="chevron" aria-hidden="true">▾</span></button>
-                    <div id="ph-obs-collapsible" class="hidden stack">
-                        <div class="obs-grid">
-                            <div class="obs-item">
-                                <label for="ph-obs-rr">Resp rate</label>
-                                <input type="number" id="ph-obs-rr" inputmode="numeric" placeholder="/min" min="0" max="100">
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-sats">SpO₂</label>
-                                <input type="number" id="ph-obs-sats" inputmode="numeric" placeholder="%" min="0" max="100">
-                            </div>
-                            <div class="obs-item">
-                                <label>Oxygen</label>
-                                <div class="segmented-control" id="seg-ph-o2">
-                                    <button data-value="Air" class="active" type="button">Air</button>
-                                    <button data-value="O2" type="button">O₂</button>
-                                </div>
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-sbp">Systolic BP</label>
-                                <input type="number" id="ph-obs-sbp" inputmode="numeric" placeholder="mmHg" min="0" max="300">
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-dbp">Diastolic BP</label>
-                                <input type="number" id="ph-obs-dbp" inputmode="numeric" placeholder="mmHg" min="0" max="200">
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-hr">Heart rate</label>
-                                <input type="number" id="ph-obs-hr" inputmode="numeric" placeholder="bpm" min="0" max="300">
-                            </div>
-                            <div class="obs-item">
-                                <label>AVPU</label>
-                                <div class="segmented-control" id="seg-ph-avpu">
-                                    <button data-value="A" class="active" type="button">A</button>
-                                    <button data-value="V" type="button">V</button>
-                                    <button data-value="P" type="button">P</button>
-                                    <button data-value="U" type="button">U</button>
-                                </div>
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-gcs">GCS <span class="text-muted">if known</span></label>
-                                <input type="number" id="ph-obs-gcs" inputmode="numeric" placeholder="3–15" min="3" max="15">
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-bm">BM</label>
-                                <input type="number" id="ph-obs-bm" inputmode="decimal" placeholder="mmol/L" min="0" max="40" step="0.1">
-                            </div>
-                            <div class="obs-item">
-                                <label for="ph-obs-ecg">ECG rhythm</label>
-                                <input type="text" id="ph-obs-ecg" placeholder="e.g. Sinus, AF" autocomplete="off">
-                            </div>
-                            <div class="obs-item obs-wide-sm">
-                                <label for="ph-obs-pupils">Pupils</label>
-                                <input type="text" id="ph-obs-pupils" placeholder="e.g. PEARL, 2+2+" autocomplete="off">
-                            </div>
-                        </div>
-                        <p class="hint">Usually already in the EPR from the crew – only fill in if not, or if different from your own obs.</p>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="label-row">
-                            <label for="ph-hpc">HPC <span class="text-muted">history of presenting complaint</span></label>
-                            <div class="label-actions">
-                                <button type="button" class="mic-btn" data-target="ph-hpc" aria-label="Dictate HPC">🎤</button>
-                            </div>
-                        </div>
-                        <textarea id="ph-hpc" rows="3" placeholder="Handover from crew: onset, associated symptoms, relevant context…"></textarea>
-                    </div>
-                </div>
-
+                <h2 class="section-title">History &amp; medicines</h2>
                 <div class="form-grid">
                     <div class="form-group">
                         <div class="label-row">
@@ -340,7 +321,8 @@
                                 <button type="button" class="mic-btn" data-target="allergies" aria-label="Dictate allergies">🎤</button>
                             </div>
                         </div>
-                        <textarea id="allergies" rows="2"></textarea>
+                        <textarea id="allergies" rows="2" placeholder="Drug / substance"></textarea>
+                        <input type="text" id="allergy-reaction" class="mt-6" placeholder="Reaction (e.g. rash, anaphylaxis, intolerance)" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <div class="label-row">
@@ -350,192 +332,140 @@
                                 <button type="button" class="mic-btn" data-target="pmh" aria-label="Dictate PMH">🎤</button>
                             </div>
                         </div>
-                        <textarea id="pmh" rows="2"></textarea>
+                        <textarea id="pmh" rows="3"></textarea>
                         <div id="pmh-prompts" class="hidden pmh-prompt-banner"></div>
                     </div>
                 </div>
-
                 <div class="form-group position-relative">
                     <div class="label-row">
-                        <label for="meds">Meds <span class="text-muted">RCEM 'MISSED' scan</span></label>
+                        <label for="meds">Medicines <span class="text-muted">RCEM 'MISSED' scan</span></label>
                         <div class="label-actions">
                             <button type="button" class="btn-tiny" data-action="quickText" data-target="meds" data-val="Nil known">Nil</button>
-                            <button type="button" class="mic-btn" data-target="meds" aria-label="Dictate medications">🎤</button>
+                            <button type="button" class="mic-btn" data-target="meds" aria-label="Dictate medicines">🎤</button>
                         </div>
                     </div>
                     <textarea id="meds" rows="2" placeholder="e.g. Warfarin, Sinemet, Insulin…"></textarea>
-                    <div id="meds-suggestions" class="suggestions-box hidden"></div>
+                    <div id="meds-suggestions" class="suggestions-box hidden" role="listbox"></div>
                     <div id="meds-alert" class="meds-status-bar"></div>
-                    <span class="label-small-title">High-risk classes <span class="text-muted">tick if applicable – not spelling dependent</span></span>
+                    <span class="label-small-title">High-risk groups <span class="text-muted">tick if applicable – not spelling dependent</span></span>
                     <div id="high-risk-meds-grid" class="high-risk-meds-grid"></div>
                 </div>
-
-                <div id="amb-handover-bottom" class="hidden ambulance-block stack">
-                    <div class="form-group">
-                        <div class="label-row">
-                            <label for="ph-tx">Pre-hospital medications / treatment</label>
-                            <div class="label-actions">
-                                <button type="button" class="mic-btn" data-target="ph-tx" aria-label="Dictate pre-hospital treatment">🎤</button>
-                            </div>
-                        </div>
-                        <textarea id="ph-tx" rows="2" placeholder="e.g. IV paracetamol 1g, O₂ 1L via nasal cannula for low sats…"></textarea>
-                    </div>
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="ph-tx-time">Time given <span class="text-muted">if known</span></label>
-                            <input type="time" id="ph-tx-time">
-                        </div>
-                        <div class="form-group">
-                            <label for="ph-social">Social <span class="text-muted">optional</span></label>
-                            <input type="text" id="ph-social" placeholder="e.g. Frame, PoC 3x daily" autocomplete="off">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="pain-section">
-                    <label>Pain score: <span id="pain-val">0</span>/10</label>
-                    <div class="pain-btn-group" id="pain-btn-container"></div>
-                </div>
-
                 <div class="form-group" id="card-treatment-given">
                     <div class="label-row">
-                        <label for="treatment-notes">Medications / treatment already given <span class="text-muted">pre-triage, not regular meds</span></label>
-                        <div class="label-actions">
-                            <button type="button" class="mic-btn" data-target="treatment-notes" aria-label="Dictate treatment given">🎤</button>
-                        </div>
+                        <label for="treatment-notes">Treatment already given <span class="text-muted">before triage, with times</span></label>
+                        <div class="label-actions"><button type="button" class="mic-btn" data-target="treatment-notes" aria-label="Dictate treatment given">🎤</button></div>
                     </div>
-                    <textarea id="treatment-notes" rows="2" placeholder="e.g. Paracetamol 1g PO given 14:20, own GTN x2 used prior to arrival…"></textarea>
+                    <textarea id="treatment-notes" rows="2" placeholder="e.g. Paracetamol 1g PO at 14:20 (by parent / self)…"></textarea>
                 </div>
+            </section>
+
+            <section class="card card-paeds hidden" id="card-paeds">
+                <h2 class="section-title">Child safety</h2>
+                <div id="paeds-content" class="stack"></div>
             </section>
 
             <section class="card" id="card-screening">
                 <h2 class="section-title">
-                    <button type="button" class="section-toggle" id="screening-section-toggle" aria-expanded="true" aria-controls="screening-container">
-                        <span>Mandatory &amp; opportunistic screening</span>
+                    <button type="button" class="section-toggle" id="screening-section-toggle" aria-expanded="true" aria-controls="screening-body">
+                        <span>Screening, safeguarding &amp; infection control</span>
                         <span class="chevron" aria-hidden="true">▴</span>
                     </button>
                 </h2>
-                <div id="screening-container" class="screening-grid"></div>
+                <div id="screening-body" class="stack">
+                    <div id="ipc-panel" class="tool-panel"></div>
+                    <div id="screening-container" class="screening-grid"></div>
+                </div>
             </section>
 
             <section class="card" id="card-plan">
-                <h2 class="section-title">Decision &amp; plan</h2>
-                <div class="plan-grid">
-                    <div class="priority-box">
-                        <div id="priority-display" class="priority-badge priority-Blue">WAITING</div>
-                        <dl class="priority-meta">
-                            <div><dt>Stream</dt><dd id="stream-display">Pending</dd></div>
-                            <div><dt>Target</dt><dd id="timer-display">--</dd></div>
-                        </dl>
-                        <div id="priority-reasons"></div>
-
-                        <div class="override-section">
-                            <button type="button" id="btn-override-toggle" class="btn-override-toggle">🔓 Clinical override</button>
-                            <div id="override-options" class="hidden override-panel">
-                                <label for="sel-override">Manual priority</label>
-                                <select id="sel-override">
-                                    <option value="Red">Red (immediate)</option>
-                                    <option value="Orange">Orange (15m)</option>
-                                    <option value="Yellow">Yellow (60m)</option>
-                                    <option value="Green">Green (120m)</option>
-                                    <option value="Blue">Blue (240m)</option>
-                                </select>
-                                <input type="text" id="txt-override" class="mt-10" placeholder="Reason (mandatory for audit)">
-                            </div>
-                        </div>
+                <h2 class="section-title">Plan &amp; placement</h2>
+                <div id="universal-checks-container" class="hidden universal-checks"></div>
+                <div id="protocol-actions"><p class="placeholder-text">Choose a complaint to see suggested investigations.</p></div>
+                <div class="form-grid">
+                    <div class="form-group" id="disposition-section">
+                        <label for="sel-disposition">Placement / disposition</label>
+                        <div id="placement-suggest" class="placement-suggest"></div>
+                        <select id="sel-disposition"><option value="">Not yet decided</option></select>
+                        <input type="text" id="txt-disposition-other" class="hidden mt-6" placeholder="Specify placement" autocomplete="off">
                     </div>
-
-                    <div class="protocol-box">
-                        <h3>Suggested plan</h3>
-                        <div id="universal-checks-container" class="hidden universal-checks"></div>
-                        <div id="calculator-container" class="hidden calc-box"></div>
-                        <div id="protocol-actions">
-                            <p class="placeholder-text">Select a complaint to view protocol.</p>
+                    <div class="form-group">
+                        <div class="label-row">
+                            <label for="plan-narrative">Triage narrative / plan</label>
+                            <div class="label-actions"><button type="button" class="mic-btn" data-target="plan-narrative" aria-label="Dictate narrative">🎤</button></div>
                         </div>
-                        <div id="sepsis-actions" class="hidden warning-box mt-10">
-                            <strong>⚡ SEPSIS 6 TRIGGERED:</strong>
-                            <ul>
-                                <li>Give Oxygen (target 94-98%)</li>
-                                <li>Take Blood Cultures</li>
-                                <li>Give IV Antibiotics</li>
-                                <li>Give Fluid Challenge</li>
-                                <li>Measure Lactate &amp; Hb</li>
-                                <li>Measure Urine Output</li>
-                            </ul>
-                        </div>
+                        <textarea id="plan-narrative" rows="3" placeholder="Instructions, escalation, social concerns…"></textarea>
                     </div>
                 </div>
-
-                <div class="form-group">
-                    <div class="label-row">
-                        <label for="plan-narrative">Triage narrative / additional plan</label>
-                        <div class="label-actions">
-                            <button type="button" class="mic-btn" data-target="plan-narrative" aria-label="Dictate triage narrative">🎤</button>
-                        </div>
-                    </div>
-                    <textarea id="plan-narrative" rows="3" placeholder="Specific instructions, escalation notes or social concerns…"></textarea>
-                </div>
-
-                <div class="form-group" id="disposition-section">
-                    <label for="sel-disposition">Placement / disposition</label>
-                    <select id="sel-disposition">
-                        <option value="">-- Not yet decided --</option>
-                        <optgroup label="In the Department">
-                            <option value="Cubicle">Offloaded to Cubicle</option>
-                            <option value="Escalation">Escalation Area (Overcrowding)</option>
-                            <option value="Held on Ambulance">Held on Ambulance (No Capacity)</option>
-                        </optgroup>
-                        <optgroup label="Direct to Unit">
-                            <option value="EDAA">EDAA (Ambulatory)</option>
-                            <option value="FSDEC">FSDEC (Frailty SDEC)</option>
-                            <option value="SDEC">SDEC (Same Day Emergency Care)</option>
-                            <option value="MAU">MAU (Medical Assessment Unit)</option>
-                            <option value="SAU">SAU (Surgical Assessment Unit)</option>
-                        </optgroup>
-                        <option value="Other">Other (specify)</option>
-                    </select>
-                    <input type="text" id="txt-disposition-other" class="hidden mt-10" placeholder="Specify placement/destination" autocomplete="off">
-                </div>
+                <div id="corridor-panel" class="tool-panel hidden"></div>
             </section>
-
-            <section id="paeds-panel" class="card card-paeds" style="display:none;">
-                <h2 class="section-title">Paediatric safety</h2>
-                <div class="split-view">
-                    <div id="paeds-content"></div>
-                    <div id="pews-content"></div>
-                </div>
-            </section>
-
-            <section class="card" id="card-note">
-                <h2 class="section-title">EPR note</h2>
-                <textarea id="epr-note" rows="12" readonly class="code-font"></textarea>
-                <div class="note-controls">
-                    <button type="button" id="btn-copy" class="btn-primary">Copy to clipboard</button>
-                    <button type="button" id="btn-sbar" class="btn-secondary">📢 Generate SBAR handover</button>
-                </div>
-            </section>
-
         </main>
 
-        <aside id="history-sidebar">
-            <h3>Recent Patients</h3>
-            <div id="history-list"></div>
-            <button id="btn-close-history" class="btn-secondary w-full mt-15">Close</button>
+        <!-- ===== Right: decision panel (always visible) ===== -->
+        <aside class="decision" id="decision-panel" aria-label="Triage decision">
+            <div id="priority-display" class="priority-badge priority-None" aria-live="polite">NOT YET TRIAGED</div>
+            <div class="seeby" id="seeby"></div>
+            <dl class="priority-meta">
+                <div><dt>Stream</dt><dd id="stream-display">–</dd></div>
+                <div><dt>Next obs due</dt><dd id="next-obs-display">–</dd></div>
+            </dl>
+            <div id="priority-reasons" class="reasons"></div>
+            <ul id="status-list" class="status-list"></ul>
+            <div id="missing-list" class="missing-list"></div>
+            <div class="decision-actions">
+                <button type="button" id="btn-copy" class="btn-primary" title="Alt+C">Copy EPR note</button>
+                <button type="button" id="btn-sbar" class="btn-secondary" title="Alt+S">SBAR</button>
+            </div>
+            <div class="override-section">
+                <button type="button" id="btn-override-toggle" class="btn-override-toggle" aria-expanded="false">🔓 Clinical override</button>
+                <div id="override-options" class="hidden override-panel">
+                    <label for="sel-override">Manual category</label>
+                    <select id="sel-override">
+                        <option value="Red">Red (immediate)</option>
+                        <option value="Orange">Orange (10 min)</option>
+                        <option value="Yellow">Yellow (60 min)</option>
+                        <option value="Green">Green (120 min)</option>
+                        <option value="Blue">Blue (240 min)</option>
+                    </select>
+                    <input type="text" id="txt-override" class="mt-6" placeholder="Reason (required, audited)">
+                </div>
+            </div>
+            <details class="note-preview">
+                <summary>Preview EPR note</summary>
+                <textarea id="epr-note" rows="16" readonly class="code-font" aria-label="EPR note"></textarea>
+            </details>
         </aside>
-
-        <footer>
-            <p>v19.13 | Educational Use Only | Adhere to local Trust Guidelines | <a href="#" onclick="localStorage.clear();location.reload()">Clear Cache</a></p>
-        </footer>
     </div>
+
+    <aside id="history-sidebar" aria-label="Recent patients">
+        <h3>Recent patients</h3>
+        <p class="hint">This computer only · deleted after 12 hours</p>
+        <div id="history-list"></div>
+        <button type="button" id="btn-close-history" class="btn-secondary w-full mt-15">Close</button>
+    </aside>
+
+    <footer>
+        <p>v20.2 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+    </footer>
 
     <script type="module" src="app.js"></script>
     <script>
         try {
             if ('serviceWorker' in navigator) {
+                const hadController = !!navigator.serviceWorker.controller;
                 navigator.serviceWorker.register('sw.js');
+                // A new version activated while this page was open: ask for a reload rather than
+                // reloading automatically, so an in-progress triage is never lost.
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!hadController) return;
+                    const el = document.createElement('div');
+                    el.className = 'toast toast-persistent';
+                    el.innerHTML = 'A new version is ready. <button type="button" class="btn-tiny">Reload when convenient</button>';
+                    el.querySelector('button').onclick = () => location.reload();
+                    document.getElementById('toast-container').appendChild(el);
+                });
             }
         } catch (err) {
-            console.warn('Service worker unavailable (sandboxed context) - offline support disabled this session.', err);
+            console.warn('Service worker unavailable - offline support disabled this session.', err);
         }
     </script>
 </body>
