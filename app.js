@@ -1,7 +1,7 @@
 import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 
-const VERSION = '20.0';
+const VERSION = '20.1';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -51,6 +51,10 @@ function freshState() {
         ui: { pmhPromptsDismissed: false, pmhSignature: '' }
     };
 }
+
+// NICE NG232 result phrased as the nurse's action (the CT decision is the clinician's).
+const NG232_ACTION = { '1h': 'Tell the ED doctor now', '8h': 'Tell the ED doctor', consider8h: 'Tell the ED doctor', observe4h: 'Tell the ED doctor' };
+const ng232Nurse = (ng) => NG232_ACTION[ng.level] ? `${NG232_ACTION[ng.level]} - meets NICE criteria: ${ng.text}` : ng.text;
 
 class TriageApp {
     constructor() {
@@ -508,7 +512,10 @@ class TriageApp {
         this.bindSectionToggle('screening-section-toggle', 'screening-body');
         this.bindSectionToggle('ph-obs-toggle', 'ph-obs-collapsible');
 
-        // Disposition
+        // Disposition: options come from clinicalData.placements (one source of truth with the plan suggestions)
+        this.$('sel-disposition').innerHTML = '<option value="">Not yet decided</option>' +
+            Object.entries(this.data.placements).map(([group, opts]) => `<optgroup label="${esc(group)}">${Object.entries(opts).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</optgroup>`).join('') +
+            '<option value="Other">Other (specify)</option>';
         this.$('sel-disposition').addEventListener('change', (e) => {
             this.$('txt-disposition-other').classList.toggle('hidden', e.target.value !== 'Other');
             if (e.target.value !== 'Other') this.state.triage.dispositionOther = '';
@@ -679,6 +686,13 @@ class TriageApp {
             case 'ecg-undo': this.set('assess.ecgDoneAt', null); break;
             case 'corridor-checked': this.set('assess.corridorCheckedAt', new Date().toISOString()); break;
             case 'dismiss-pmh': this.state.ui.pmhPromptsDismissed = true; this.update(); break;
+            case 'use-placement': {
+                this.state.triage.dispositionOther = '';
+                this.$('sel-disposition').value = el.dataset.value;
+                this.$('txt-disposition-other').classList.add('hidden');
+                this.set('triage.disposition', el.dataset.value);
+                break;
+            }
             default: break;
         }
     }
@@ -743,7 +757,6 @@ class TriageApp {
         c.name = ''; c.discriminator = null; c.noneApply = false;
         this.state.assess.headache = { trauma: null, sudden: null };
         this.state.plan = this.state.plan.filter(i => i.category === 'Universal');
-        this.renderProtocol('');
         this.update();
     }
 
@@ -759,7 +772,6 @@ class TriageApp {
             this.state.plan = this.state.plan.filter(i => i.category === 'Universal');
             if (!this.state.meta.startedAt) this.state.meta.startedAt = new Date().toISOString();
         }
-        this.renderProtocol(name);
         this.update();
         if (!opts.keepFocus && changed) this.$('input-complaint').setAttribute('aria-expanded', 'false');
     }
@@ -795,6 +807,8 @@ class TriageApp {
         this.renderMedsAlert();
         this.renderPmhPrompts();
         this.renderUniversalChecks();
+        this.renderProtocol();
+        this.renderPlacement();
         this.renderCorridor();
         this.renderDecision();
         this.renderTimers();
@@ -925,8 +939,8 @@ class TriageApp {
             if (t.stroke) html += this.strokePanelHTML();
             if (t.ecg) html += `<div class="tool-panel" id="ecg-panel"></div>`;
             if (t.nof) html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Suspected fractured neck of femur</span></div>${this.checksHTML([
-                ['analgesia', 'Analgesia given or offered (record in plan)'], ['block', 'Fascia iliaca block considered per local pathway'], ['xray', 'Hip and chest X-ray requested per local pathway'],
-                ['pressure', 'Pressure areas checked; pressure-relieving mattress'], ['fourat', '4AT delirium screen completed'], ['bloods', 'Bloods incl. group & save']], 'assess.nof', s.assess.nof)}</div>`;
+                ['analgesia', 'Analgesia given or offered (record in plan)'], ['block', 'Fascia iliaca block considered per local pathway'],
+                ['pressure', 'Pressure areas checked; pressure-relieving mattress'], ['fourat', '4AT delirium screen completed'], ['bloods', 'AE Fractured Neck of Femur bloods (includes G&S)']], 'assess.nof', s.assess.nof)}</div>`;
             if (t.fourAT) html += this.fourATPanelHTML();
             if (t.mh) html += this.mhPanelHTML();
             box.innerHTML = html;
@@ -998,7 +1012,7 @@ class TriageApp {
         const res = (id, text, cls) => { const el = this.$(id); if (el) { el.textContent = text; el.className = `tool-result ${cls}`; } };
         if (d.ng232) {
             const cls = d.ng232.level === '1h' ? 'res-red' : (d.ng232.level === 'none' ? 'res-green' : 'res-amber');
-            res('ng232-result', d.ng232.text, cls);
+            res('ng232-result', ng232Nurse(d.ng232), cls);
             const g = this.$('ng232-gcs');
             if (g) g.textContent = d.gcsTotal !== null ? `Current GCS ${d.gcsTotal} (from obs).` : '';
         }
@@ -1207,14 +1221,16 @@ class TriageApp {
 
     renderUniversalChecks() {
         const p = this.state.patient, c = this.$('universal-checks-container');
-        const show = p.sex === 'Female' && p.age !== null && p.age >= 12 && p.age <= 55;
+        // Anyone who could be pregnant: not male, not already known pregnant, age 12-55 or not yet recorded.
+        const show = p.sex !== 'Male' && !p.pregnant && (p.age === null || (p.age >= 12 && p.age <= 55));
         c.classList.toggle('hidden', !show);
-        const key = show ? JSON.stringify(this.state.plan.filter(i => i.category === 'Universal')) : 'off';
+        const key = show ? JSON.stringify([p.sex, p.age === null, this.state.plan.filter(i => i.category === 'Universal')]) : 'off';
         if (this.built.univ === key) return;
         this.built.univ = key;
         if (!show) { c.innerHTML = ''; return; }
         c.innerHTML = '<h4>Universal safety check</h4>';
-        c.appendChild(this.planCheck({ name: 'Pregnancy Test', why: 'Female aged 12-55 - exclude pregnancy whatever the complaint' }, 'Universal'));
+        const why = p.sex === 'Female' && p.age !== null ? 'Female aged 12-55 - exclude pregnancy whatever the complaint' : 'Age or sex not recorded yet - offer if the patient could be pregnant';
+        c.appendChild(this.planCheck({ name: 'Pregnancy test (urine hCG)', why }, 'Universal', '', { tag: 'suggested' }));
     }
 
     renderDecision() {
@@ -1246,7 +1262,7 @@ class TriageApp {
         rows.push(['Allergies', al ? [al + (s.history.allergyReaction ? ` (${s.history.allergyReaction})` : ''), /nkda|nil/i.test(al) ? '' : 'st-red'] : ['Not recorded', 'st-grey']]);
         if (d.risks.length) rows.push(['Alerts', [`${d.risks.length} high-risk medicine / group alert${d.risks.length > 1 ? 's' : ''}`, 'st-red']]);
         if (d.feverRelevant) rows.push(['Fever <5', [d.feverTL.level ? `NICE traffic light ${d.feverTL.level}` : 'Traffic light incomplete', d.feverTL.level === 'Red' ? 'st-red' : (d.feverTL.level === 'Amber' ? 'st-amber' : '')]]);
-        if (d.ng232) rows.push(['CT head', [d.ng232.text, d.ng232.level === '1h' ? 'st-red' : (d.ng232.level === 'none' ? '' : 'st-amber')]]);
+        if (d.ng232) rows.push(['Head injury', [ng232Nurse(d.ng232), d.ng232.level === '1h' ? 'st-red' : (d.ng232.level === 'none' ? '' : 'st-amber')]]);
         if (d.tools.ecg) rows.push(['ECG', s.assess.ecgDoneAt ? [`Done ${hhmm(s.assess.ecgDoneAt)}`, ''] : [`Due by ${hhmm(new Date(new Date(s.meta.arrivalAt).getTime() + 600000))}`, 'st-amber']]);
         if (d.rosier) rows.push(['Stroke', [d.rosier.text, d.rosier.likely ? 'st-red' : '']]);
         if (d.ipcFlag) rows.push(['IPC', ['Isolation / side room needed', 'st-amber']]);
@@ -1256,69 +1272,124 @@ class TriageApp {
     }
 
     // ------------------------------------------------------------------ plan / protocols
-    renderProtocol(complaint) {
+    // What the plan's `auto` conditions are evaluated against (see protocols.js section 7b).
+    planContext() {
+        const s = this.state, d = this.derived, o = s.obs;
+        return {
+            age: s.patient.age, pregnant: s.patient.pregnant, bm: o.bm, discriminator: s.complaint.discriminator,
+            // Sepsis bloods: NG253 moderate/high risk (adults), NG143 amber/red (under 5s) or a sepsis discriminator.
+            sepsis: (d.sepsis.status === 'assessed' && (d.sepsis.risk === 'High' || d.sepsis.risk === 'Moderate')) ||
+                (d.feverRelevant && (d.feverTL.level === 'Red' || d.feverTL.level === 'Amber')) || /sepsis/i.test(s.complaint.discriminator || ''),
+            anticoag: s.assess.ng232Anticoag === null ? d.anticoagDetected : s.assess.ng232Anticoag
+        };
+    }
+
+    placementLabel(value) {
+        for (const opts of Object.values(this.data.placements)) if (opts[value]) return opts[value];
+        return value;
+    }
+
+    // Cannula "consider" becomes "suggested now" when the patient is sick enough to need IV access.
+    cannulaNow() {
+        const d = this.derived;
+        if (d.level === 'Red' || d.level === 'Orange') return `${d.level} category`;
+        if (d.ews && d.ews.type === 'NEWS2' && d.ews.score >= 5) return `NEWS2 ${d.ews.score}`;
+        if (d.sepsis && d.sepsis.status === 'assessed' && (d.sepsis.risk === 'High' || d.sepsis.risk === 'Moderate')) return `${d.sepsis.risk.toLowerCase()} sepsis risk`;
+        return '';
+    }
+
+    // Nursing plan: cannula, bedside tests and samples, ED ICE blood bundles. No imaging (nursing scope).
+    renderProtocol() {
+        const complaint = this.state.complaint.name;
         const proto = this.data.protocols[complaint];
         const container = this.$('protocol-actions');
+        const ctx = this.planContext();
+        const mark = (list) => list.map(it => ({ ...it, on: C.planAutoMet(it.auto, ctx) }));
+        const bedside = proto ? mark(proto.bedside) : [], bloods = proto ? mark(proto.bloods) : [];
+        const now = proto && proto.cannula.status === 'consider' ? this.cannulaNow() : '';
+        const key = JSON.stringify([complaint, bedside.map(x => x.on), bloods.map(x => x.on), now]);
+        if (this.built.protocolKey === key) return;
+        this.built.protocolKey = key;
         container.innerHTML = '';
-        const calc = this.data.calculators[complaint];
-        this.$('clinician-tools').classList.toggle('hidden', !calc);
-        if (calc) this.renderCalculator(calc);
         if (!complaint) { container.innerHTML = '<p class="placeholder-text">Choose a complaint to see suggested investigations.</p>'; return; }
-        if (!proto || !proto.tests) { container.innerHTML = `<p class="placeholder-text">No suggested investigations for "${esc(complaint)}".</p>`; return; }
-        if (proto.cannula) {
-            const cd = document.createElement('div');
-            cd.className = `cannula-badge cannula-${proto.cannula.color}`;
-            cd.innerHTML = `<span aria-hidden="true">💉</span><div><strong>Cannula: ${esc(proto.cannula.status)}</strong> - ${esc(proto.cannula.reason)} (${esc(proto.cannula.size)})</div>`;
-            container.appendChild(cd);
+        if (!proto) { container.innerHTML = `<p class="placeholder-text">No suggested investigations for "${esc(complaint)}".</p>`; return; }
+
+        const intro = document.createElement('p');
+        intro.className = 'plan-intro';
+        intro.textContent = 'Suggested = indicated now from the complaint, discriminator, obs or history. "Consider if" = only when that applies. Nursing investigations only - use clinical judgement and local policy.';
+        container.appendChild(intro);
+
+        const cn = proto.cannula;
+        const label = { recommended: 'Recommended', consider: now ? 'Suggested now' : 'Consider', 'not-routine': 'Not routinely needed' }[cn.status];
+        const tone = cn.status === 'recommended' || now ? 'red' : (cn.status === 'consider' ? 'amber' : 'green');
+        const cd = document.createElement('div');
+        cd.className = `cannula-badge cannula-${tone}`;
+        cd.innerHTML = `<span aria-hidden="true">💉</span><div><strong>Cannula: ${label}</strong>${cn.size ? ` (${esc(cn.size)})` : ''} - ${esc(cn.reason)}${now ? ` <em>(${esc(now)})</em>` : ''}</div>`;
+        container.appendChild(cd);
+        if (cn.status !== 'not-routine') {
+            const tag = cn.status === 'recommended' || now ? 'suggested' : 'consider';
+            container.appendChild(this.planCheck({ name: `IV cannula ${cn.size}`, why: '' }, 'Cannula', '', { tag }));
         }
+
+        const order = (list) => [...list.filter(x => x.on), ...list.filter(x => !x.on)];
+        const opts = (it) => it.on ? { tag: 'suggested', hint: it.when && it.auto !== 'always' ? `Because: ${it.when}` : '' } : { tag: 'consider', hint: `Consider if ${it.when}` };
         const grid = document.createElement('div');
         grid.className = 'tests-grid';
-        if (proto.tests.bedside && proto.tests.bedside.length) {
-            const sec = document.createElement('div');
-            sec.className = 'test-category';
-            sec.innerHTML = '<h4>Bedside</h4>';
-            proto.tests.bedside.forEach(t => sec.appendChild(this.planCheck(t, 'Bedside')));
-            grid.appendChild(sec);
-        }
-        const bloods = document.createElement('div');
-        bloods.className = 'test-category';
-        let has = false;
-        if (proto.tests.labProfile) {
-            has = true;
-            const name = proto.tests.labProfile;
-            const tests = this.data.bloodProfiles[name] || [];
-            bloods.innerHTML = '<h4>Bloods</h4>';
-            const el = this.planCheck({ name, why: '' }, 'Bloods', `Includes: ${tests.map(t => t.name).join(', ')}`);
+        const sec = document.createElement('div');
+        sec.className = 'test-category';
+        sec.innerHTML = '<h4>Bedside tests &amp; samples</h4>';
+        if (bedside.length) order(bedside).forEach(t => sec.appendChild(this.planCheck(t, 'Bedside', '', opts(t))));
+        else sec.insertAdjacentHTML('beforeend', '<p class="plan-note">No routine bedside tests for this presentation beyond full obs.</p>');
+        grid.appendChild(sec);
+
+        const bl = document.createElement('div');
+        bl.className = 'test-category';
+        bl.innerHTML = '<h4>Bloods - ED ICE bundles</h4>';
+        order(bloods).forEach(b => {
+            const tests = (this.data.bloodProfiles[b.profile] || []).map(t => t.name).join(', ');
+            const el = this.planCheck({ name: b.profile, why: `Includes: ${tests}` }, 'Bloods', '', opts(b));
             el.classList.add('profile-check');
-            bloods.appendChild(el);
-            const bbv = document.createElement('div');
-            bbv.className = 'bbv-note';
-            bbv.textContent = 'Trust policy: ICE adds a BBV screen (Hep B, Hep C, HIV) to this request if not done in the past 12 months.';
-            bloods.appendChild(bbv);
-        } else if (proto.tests.lab && proto.tests.lab.length) {
-            has = true;
-            bloods.innerHTML = '<h4>Bloods</h4>';
-            proto.tests.lab.forEach(t => bloods.appendChild(this.planCheck(t, 'Bloods')));
-        }
-        if (proto.tests.labExtra && proto.tests.labExtra.length) {
-            has = true;
-            const wrap = document.createElement('div');
-            wrap.className = 'lab-extra-wrap';
-            wrap.innerHTML = '<div class="lab-extra-label">Consider also:</div>';
-            proto.tests.labExtra.forEach(t => wrap.appendChild(this.planCheck(t, 'Bloods')));
-            bloods.appendChild(wrap);
-        }
-        if (has) grid.appendChild(bloods);
+            bl.appendChild(el);
+        });
+        if (proto.bloodsNote) bl.insertAdjacentHTML('beforeend', `<p class="plan-note">${esc(proto.bloodsNote)}</p>`);
+        else if (!bloods.length) bl.insertAdjacentHTML('beforeend', '<p class="plan-note">No ED blood bundle for this presentation - bloods only if a clinician requests them.</p>');
+        if (bloods.length) bl.insertAdjacentHTML('beforeend', '<div class="bbv-note">Trust policy: ICE adds a BBV screen (Hep B, Hep C, HIV) to these requests if not done in the past 12 months.</div>');
+        grid.appendChild(bl);
         container.appendChild(grid);
     }
 
+    // Suggested placement: category-based default plus the complaint's pathways (subject to local criteria).
+    renderPlacement() {
+        const s = this.state, d = this.derived, box = this.$('placement-suggest');
+        const base = C.basePlacement({ level: d.level, isPaeds: d.isPaeds, mobility: s.patient.mobility });
+        const proto = this.data.protocols[s.complaint.name];
+        const ctx = this.planContext();
+        // Once a discriminator is chosen, pathways that depend only on a different discriminator are irrelevant.
+        const chosen = !!s.complaint.discriminator || s.complaint.noneApply;
+        const paths = proto ? proto.pathways.map(p => ({ ...p, on: C.planAutoMet(p.auto, ctx) }))
+            .filter(p => !(chosen && !p.on && p.auto && /^disc:/.test(p.auto)))
+            .filter(p => !base || p.to !== base.to || !p.on) : [];
+        const key = JSON.stringify([base, paths.map(p => [p.to, p.on]), s.complaint.name, s.triage.disposition]);
+        if (this.built.placementKey === key) return;
+        this.built.placementKey = key;
+        const row = (to, text, cls) => `<div class="place-row ${cls}"><div><strong>${esc(this.placementLabel(to))}</strong><small>${esc(text)}</small></div>` +
+            (s.triage.disposition === to ? '<span class="place-chosen">✓ Selected</span>' : `<button type="button" class="btn-tiny" data-action="use-placement" data-value="${esc(to)}">Use</button>`) + '</div>';
+        let html = '';
+        if (base) html += row(base.to, base.why, 'suggested');
+        paths.filter(p => p.on).forEach(p => { html += row(p.to, `Complaint pathway: ${p.when}`, 'suggested'); });
+        paths.filter(p => !p.on).forEach(p => { html += row(p.to, `Consider if ${p.when}`, 'consider'); });
+        box.innerHTML = html ? `<h4>Suggested placement</h4>${html}<p class="plan-note">Direct-to-unit pathways apply only if the patient meets local referral criteria.</p>` : '<p class="plan-note">Placement suggestions appear once the patient is triaged.</p>';
+    }
+
     // One tickable plan item with a Planned/Requested/Done status once ticked.
-    planCheck(test, category, info = '') {
+    // opts.tag: 'suggested' | 'consider'; opts.hint: small line under the rationale.
+    planCheck(test, category, info = '', opts = {}) {
         const name = typeof test === 'string' ? test : test.name;
         const why = typeof test === 'string' ? '' : (test.why || '');
         const div = document.createElement('div');
-        div.className = 'protocol-check';
-        div.innerHTML = `<input type="checkbox" aria-label="${esc(name)}"> <div class="protocol-check-text"><span>${category === 'Bloods' && info ? `<strong>${esc(name)}</strong>` : esc(name)}</span>${why ? `<small class="protocol-why">${esc(why)}</small>` : ''}</div>${info ? this.infoPopoverHTML(info) : ''}` +
+        div.className = `protocol-check${opts.tag ? ` plan-${opts.tag}` : ''}`;
+        const tag = opts.tag === 'suggested' ? '<span class="plan-tag">Suggested</span>' : '';
+        div.innerHTML = `<input type="checkbox" aria-label="${esc(name)}"> <div class="protocol-check-text"><span>${category === 'Bloods' ? `<strong>${esc(name)}</strong>` : esc(name)}${tag}</span>${opts.hint ? `<small class="protocol-when">${esc(opts.hint)}</small>` : ''}${why ? `<small class="protocol-why">${esc(why)}</small>` : ''}</div>${info ? this.infoPopoverHTML(info) : ''}` +
             `<div class="status-control" role="group" aria-label="${esc(name)} status">${['Planned', 'Requested', 'Done'].map(o => `<button type="button" class="status-btn" data-status="${o}">${o}</button>`).join('')}</div>`;
         const input = div.querySelector('input');
         const statusBox = div.querySelector('.status-control');
@@ -1346,22 +1417,6 @@ class TriageApp {
         });
         sync();
         return div;
-    }
-
-    renderCalculator(calc) {
-        const box = this.$('calculator-container');
-        box.innerHTML = `<div class="calc-header"><span class="calc-title">🧮 ${esc(calc.title)}</span>${calc.reference ? this.infoPopoverHTML(calc.reference) : ''}</div>
-            <div class="calc-summary"><strong>Score: <span id="calc-score-val">0</span></strong></div><div id="calc-interpretation" class="calc-interpretation"></div>
-            <div class="calc-criteria">${calc.criteria.map(c => `<div class="calc-item"><label>${esc(c.text)}</label><input type="checkbox" data-score="${c.points}" class="calc-trigger"></div>`).join('')}</div>`;
-        const upd = () => {
-            let sc = 0;
-            box.querySelectorAll('.calc-trigger').forEach(x => { if (x.checked) sc += parseFloat(x.dataset.score); });
-            this.$('calc-score-val').textContent = sc;
-            const band = (calc.interpret || []).find(b => sc <= b.max);
-            this.$('calc-interpretation').textContent = band ? band.text : '';
-        };
-        box.querySelectorAll('.calc-trigger').forEach(t => t.addEventListener('change', upd));
-        upd();
     }
 
     // ------------------------------------------------------------------ meds autocomplete
@@ -1456,7 +1511,7 @@ class TriageApp {
             const tl = d.feverTL;
             lines.push(`Fever in under 5s (NICE NG143): ${tl.level ? tl.level.toUpperCase() : 'incomplete'}${tl.red.length ? `; red: ${tl.red.join('; ')}` : ''}${tl.amber.length ? `; amber: ${tl.amber.join('; ')}` : ''}`);
         }
-        if (d.ng232) lines.push(`Head injury (NICE NG232): ${d.ng232.text}${d.ng232.because.length ? ` - ${d.ng232.because.join('; ')}` : ''}`);
+        if (d.ng232) lines.push(`Head injury (NICE NG232): ${ng232Nurse(d.ng232)}${d.ng232.because.length ? ` - ${d.ng232.because.join('; ')}` : ''}`);
         if (d.tools.stroke) lines.push(`Stroke: last known well ${s.assess.stroke.lkw ? new Date(s.assess.stroke.lkw).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : 'not recorded'}; ${d.rosier.text}`);
         if (d.tools.ecg) lines.push(`ECG: ${s.assess.ecgDoneAt ? `done ${hhmm(s.assess.ecgDoneAt)}` : 'not yet done'}`);
         if (d.fourAT && d.fourAT.complete) lines.push(d.fourAT.text);
@@ -1481,10 +1536,10 @@ class TriageApp {
             const g = {};
             s.plan.forEach(i => { (g[i.category] = g[i.category] || []).push(`${i.name} (${i.status})`); });
             lines.push('PLAN:');
-            Object.entries(g).forEach(([cat, n]) => lines.push(`${cat}: ${n.join(', ')}`));
+            ['Universal', 'Cannula', 'Bedside', 'Bloods'].filter(c => g[c]).forEach(cat => lines.push(`${cat}: ${g[cat].join(', ')}`));
         }
         if (h.planNarrative) lines.push(`Narrative: ${h.planNarrative}`);
-        if (s.triage.disposition) lines.push(`Placement: ${s.triage.disposition === 'Other' ? (s.triage.dispositionOther || 'Other') : s.triage.disposition}`);
+        if (s.triage.disposition) lines.push(`Placement: ${s.triage.disposition === 'Other' ? (s.triage.dispositionOther || 'Other') : this.placementLabel(s.triage.disposition)}`);
         if (s.triage.disposition === 'Escalation' || s.triage.disposition === 'Held on Ambulance') {
             const done = Object.entries(s.assess.corridor).filter(([, v]) => v).map(([k]) => k);
             lines.push(`Corridor care: ${done.length ? done.join(', ') : 'no checks recorded'}${s.assess.corridorCheckedAt ? ` - last check ${hhmm(s.assess.corridorCheckedAt)}` : ''}`);
@@ -1514,7 +1569,7 @@ class TriageApp {
         let A = e.recorded === 0 ? 'Obs not yet taken.' : `${e.type === 'NEWS2' ? 'NEWS2' : `Local ${e.type}`} ${e.complete ? e.score : `incomplete (partial ${e.score}, missing ${e.missing.join(', ')})`}.`;
         if (d.sepsis.status === 'assessed') A += ` Suspected infection - NG253 ${d.sepsis.risk} risk.`;
         if (C.has(s.complaint.pain)) A += ` Pain ${s.complaint.pain}/10.`;
-        if (d.ng232) A += ` Head injury: ${d.ng232.text}.`;
+        if (d.ng232) A += ` Head injury: ${ng232Nurse(d.ng232)}.`;
         if (d.feverRelevant && d.feverTL.level) A += ` NICE fever traffic light ${d.feverTL.level}.`;
         let R = `Stream: ${d.stream}. Next obs due: ${d.nextObs}.`;
         if (s.plan.length) R += ` Plan: ${s.plan.map(x => `${x.name} (${x.status})`).join(', ')}.`;
@@ -1691,7 +1746,6 @@ class TriageApp {
         this.$('flacc-panel').classList.add('hidden');
         this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', false);
         this.built = {};
-        this.renderProtocol(s.complaint.name);
         this.compute();
         this.render();
     }

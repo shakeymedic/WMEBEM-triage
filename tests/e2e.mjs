@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '20.0');
+                localStorage.setItem('seenVersion', '20.1');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -222,14 +222,61 @@ await p.click('#btn-close-sbar');
 check('Chest pain: ECG due shown', (await p.textContent('#ecg-panel')).includes('Due by'));
 await p.click('[data-action="ecg-done"]');
 check('ECG done recorded in note', (await note(p)).includes('ECG: done'));
-await p.locator('.profile-check input').check();
-await p.locator('.profile-check .status-btn[data-status="Requested"]').click();
+const acs = p.locator('.profile-check', { hasText: 'AE Acute Coronary Syndrome' });
+check('Chest pain adult: ACS bundle suggested', (await acs.getAttribute('class')).includes('plan-suggested'));
+await acs.locator('input').check();
+await acs.locator('.status-btn[data-status="Requested"]').click();
 check('Bloods profile with status in note', (await note(p)).includes('AE Acute Coronary Syndrome (Requested)'));
 await p.click('#btn-override-toggle'); await p.selectOption('#sel-override', 'Orange'); await p.fill('#txt-override', 'Looks unwell');
 check('Override applies with reason', (await badge(p)).startsWith('ORANGE') && (await note(p)).includes('OVERRIDE: Looks unwell'));
 await p.selectOption('#sel-disposition', 'Held on Ambulance');
 check('Corridor care checklist appears', await p.isVisible('#corridor-panel'));
 check('Pregnancy test universal check for 12-55 female (not 72)', !(await p.isVisible('#universal-checks-container')));
+allErrors.push(...p.errors); await p.context().close();
+
+// 13b. Nursing plan: bundles, triggers, cannula, placement, no imaging, pregnancy test.
+p = await fresh();
+check('Pregnancy test offered while age and sex are unknown', await p.isVisible('#universal-checks-container') && (await p.textContent('#universal-checks-container')).includes('Pregnancy test'));
+await p.selectOption('#patient-sex', 'Male');
+check('No pregnancy test for a male patient', !(await p.isVisible('#universal-checks-container')));
+await p.fill('#patient-age', '82'); await p.fill('#meds', 'Apixaban 5mg BD');
+await pick(p, 'Head Injury');
+const warf = p.locator('.profile-check', { hasText: 'AE Head Injury on Warfarin' });
+check('Head injury on anticoagulant: Warfarin bundle suggested', (await warf.getAttribute('class')).includes('plan-suggested'));
+check('Bundle shows its ICE contents', (await warf.textContent()).includes('Clotting Screen (INR)'));
+await pick(p, 'Falls');
+const nof = p.locator('.profile-check', { hasText: 'AE Fractured Neck of Femur' });
+check('Falls: NOF bundle only "consider" before the discriminator', (await nof.getAttribute('class')).includes('plan-consider'));
+await disc(p, 'Suspected neck of femur fracture');
+check('Falls + suspected #NOF: NOF bundle suggested', (await nof.getAttribute('class')).includes('plan-suggested'));
+check('Orange: cannula suggested now', (await p.textContent('#protocol-actions')).includes('Cannula: Suggested now'));
+check('Orange adult: Majors suggested', (await p.textContent('#placement-suggest')).includes('Majors cubicle'));
+let planText = '';
+for (const c of ['Chest Pain', 'Major Trauma', 'Abdominal Pain in Adults', 'Suspected DVT / PE']) { await pick(p, c); planText += await p.textContent('#card-plan'); }
+check('Plan section has no imaging', !/x-?ray|\bCT\b|CTPA|FAST scan|ultrasound|MRI/i.test(planText));
+await disc(p, 'Shock / haemodynamic collapse');
+check('Red: Resus suggested', (await p.textContent('#placement-suggest')).includes('Resus'));
+await p.locator('#placement-suggest .place-row', { hasText: 'Resus' }).first().locator('button').click();
+check('"Use" sets the placement and the note', (await p.inputValue('#sel-disposition')) === 'Resus' && (await note(p)).includes('Placement: Resus'));
+await pick(p, 'Abdominal Pain in Children');
+await p.fill('#patient-age', '9'); await p.fill('#obs-bm', '16');
+const ket = p.locator('#protocol-actions .protocol-check', { hasText: 'Capillary blood ketones' });
+check('Child abdominal pain + high BM: ketones suggested', (await ket.getAttribute('class')).includes('plan-suggested'));
+check('Child: cannula not routinely needed', (await p.textContent('#protocol-actions')).includes('Not routinely needed'));
+await pick(p, 'Rash');
+const psep = p.locator('.profile-check', { hasText: 'AE - Sepsis (Paediatric)' });
+check('Child rash: sepsis bloods not suggested for a blanching rash', (await psep.getAttribute('class')).includes('plan-consider'));
+await disc(p, 'Non-blanching');
+check('Child non-blanching rash: paediatric sepsis bloods suggested', (await psep.getAttribute('class')).includes('plan-suggested'));
+allErrors.push(...p.errors); await p.context().close();
+p = await fresh();
+await p.fill('#patient-age', '60'); await p.selectOption('#patient-sex', 'Male');
+await pick(p, 'Sore Throat');
+await p.click('#yn-assess-infection button[data-value="yes"]');
+const sep = p.locator('.profile-check', { hasText: 'AE - Sepsis' });
+check('Sore throat, infection yes, normal obs: sepsis bloods only "consider"', (await sep.getAttribute('class')).includes('plan-consider'));
+await setObs(p, { rr: 24, sats: 95, sbp: 105, hr: 115, temp: 38.6 }); await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+check('Sore throat with NEWS2 5+: sepsis bloods suggested', (await sep.getAttribute('class')).includes('plan-suggested'));
 allErrors.push(...p.errors); await p.context().close();
 
 // 14. Stroke & MEOWS.

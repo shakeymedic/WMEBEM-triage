@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v20.0</title>
+    <title>EMEvidence Triage v20.1</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -84,14 +84,15 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v20.0</h3>
+            <h3 id="whatsnew-heading">What's new in v20.1</h3>
             <ul class="whatsnew-list">
+                <li><strong>Plan &amp; placement:</strong> each complaint now suggests nursing investigations (ECG, BM, urine dip, peak flow, VBG, ketones, bladder scan and more), cannula advice and the ED ICE blood bundles. Items are "Suggested" when your answers, obs or discriminator call for them, otherwise "Consider if…". No imaging. Placement is suggested from the category plus the complaint's pathways.</li>
                 <li><strong>Decision panel</strong> stays on screen: category, "see by" time, NEWS2, sepsis and anything still missing.</li>
                 <li><strong>Nothing is assumed.</strong> Pain, consciousness, oxygen and mobility start as "not recorded"; patients show NOT YET TRIAGED until you choose a discriminator.</li>
                 <li><strong>NEWS2 is only shown as a score when all 7 observations are recorded.</strong> SpO₂ Scale 2 now follows the RCP chart exactly, and ACVPU includes new confusion.</li>
                 <li><strong>Sepsis follows NICE NG253</strong>: answer "Could this be an infection?" first, then risk comes from NEWS2.</li>
                 <li><strong>Pain follows the MTS ruler</strong> (5–7 moderate = Yellow, 8–10 severe = Orange). Orange target is 10 minutes.</li>
-                <li><strong>New nurse tools:</strong> NICE head injury CT criteria, NICE fever traffic light (under 5s), ROSIER and time last known well, ECG-in-10-minutes, 4AT, mental health risk, infection control, corridor care, children's safeguarding.</li>
+                <li><strong>New nurse tools:</strong> NICE head injury criteria (tells you when to tell the ED doctor), NICE fever traffic light (under 5s), ROSIER and time last known well, ECG-in-10-minutes, 4AT, mental health risk, infection control, corridor care, children's safeguarding.</li>
                 <li><strong>Keyboard:</strong> press <kbd>?</kbd> for shortcuts. Complaint search understands "cp", "sob", "dib", "od", "fall", etc.</li>
             </ul>
             <p class="hint">Local MEOWS and PEWS are still the app's own versions, not the national MEWS/PEWS charts - use your trust chart where they differ.</p>
@@ -105,12 +106,12 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v20.0 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v20.1 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
             <label class="initials" for="nurse-initials">Triage nurse <input type="text" id="nurse-initials" maxlength="6" placeholder="Initials" autocomplete="off"></label>
-            <button type="button" id="btn-quick-mode" class="btn-ghost" title="Hide screening and clinician tools">⚡ Quick</button>
+            <button type="button" id="btn-quick-mode" class="btn-ghost" title="Hide the screening questions">⚡ Quick</button>
             <button type="button" id="btn-history" class="btn-ghost" title="Recent patients (Alt+H)">🕒 Recent</button>
             <button type="button" id="btn-settings" class="btn-ghost" title="Settings">⚙ Settings</button>
             <button type="button" id="btn-help" class="btn-ghost" title="Keyboard shortcuts (?)">?</button>
@@ -369,30 +370,11 @@
                 <h2 class="section-title">Plan &amp; placement</h2>
                 <div id="universal-checks-container" class="hidden universal-checks"></div>
                 <div id="protocol-actions"><p class="placeholder-text">Choose a complaint to see suggested investigations.</p></div>
-                <details id="clinician-tools" class="clinician-tools hidden">
-                    <summary>Clinician tools</summary>
-                    <div id="calculator-container" class="calc-box"></div>
-                </details>
                 <div class="form-grid">
                     <div class="form-group" id="disposition-section">
                         <label for="sel-disposition">Placement / disposition</label>
-                        <select id="sel-disposition">
-                            <option value="">Not yet decided</option>
-                            <optgroup label="In the department">
-                                <option value="Cubicle">Offloaded to cubicle</option>
-                                <option value="Escalation">Escalation area (overcrowding)</option>
-                                <option value="Held on Ambulance">Held on ambulance (no capacity)</option>
-                                <option value="Waiting Room">Waiting room</option>
-                            </optgroup>
-                            <optgroup label="Direct to unit">
-                                <option value="EDAA">EDAA (ambulatory)</option>
-                                <option value="FSDEC">FSDEC (frailty SDEC)</option>
-                                <option value="SDEC">SDEC</option>
-                                <option value="MAU">MAU</option>
-                                <option value="SAU">SAU</option>
-                            </optgroup>
-                            <option value="Other">Other (specify)</option>
-                        </select>
+                        <div id="placement-suggest" class="placement-suggest"></div>
+                        <select id="sel-disposition"><option value="">Not yet decided</option></select>
                         <input type="text" id="txt-disposition-other" class="hidden mt-6" placeholder="Specify placement" autocomplete="off">
                     </div>
                     <div class="form-group">
@@ -451,7 +433,7 @@
     </aside>
 
     <footer>
-        <p>v20.0 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v20.1 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>

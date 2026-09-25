@@ -249,7 +249,7 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 .cannula-amber { background: rgba(237, 135, 45, 0.1); border-color: var(--orange); color: #9a5a00; }
 .cannula-red { background: rgba(213, 40, 27, 0.08); border-color: var(--red); color: var(--red); }
 [data-theme="dark"] .cannula-amber { color: var(--orange); }
-.tests-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 14px; }
+.tests-grid { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 14px; }
 .test-category h4 { margin-top: 0; }
 .protocol-check { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 5px 7px; border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent; font-size: 0.85rem; }
 .protocol-check:hover { background: var(--surface-2); }
@@ -257,24 +257,26 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 .protocol-check-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .protocol-why { color: var(--secondary); font-weight: normal; font-size: 0.72rem; }
 .profile-check { border-style: dashed; border-color: var(--border-strong); }
-.profile-check .protocol-check-text { flex-direction: row; align-items: center; gap: 4px; }
+.plan-intro { font-size: 0.75rem; color: var(--secondary); margin: 0 0 8px; }
+.plan-note { font-size: 0.75rem; color: var(--secondary); margin: 4px 8px; }
+.plan-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--green); color: #fff; font-size: 0.65rem; font-weight: 700; vertical-align: middle; }
+.protocol-when { font-size: 0.72rem; font-weight: 600; color: var(--primary); }
+.plan-consider .protocol-check-text > span { color: var(--secondary); }
+.plan-suggested { border-left: 3px solid var(--green); }
+.placement-suggest h4 { margin: 0 0 4px; }
+.place-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 0.82rem; }
+.place-row > div { display: flex; flex-direction: column; min-width: 0; }
+.place-row small { color: var(--secondary); font-size: 0.72rem; }
+.place-row.suggested { border-left: 3px solid var(--green); background: var(--surface-2); }
+.place-row.consider strong { font-weight: 600; color: var(--secondary); }
+.place-chosen { font-size: 0.75rem; font-weight: 700; color: var(--green); white-space: nowrap; }
+#placement-suggest { margin-bottom: 6px; }
 .bbv-note { font-size: 0.72rem; color: var(--secondary); padding: 3px 8px 6px; font-style: italic; }
 .status-control { display: flex; gap: 4px; margin-left: 25px; flex-basis: 100%; flex-wrap: wrap; }
 .status-btn { font-size: 0.68rem; padding: 2px 9px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 600; opacity: 0.75; }
 .status-btn.active { opacity: 1; border-color: var(--primary); background: var(--primary); color: #fff; }
 .status-btn[data-status="Done"].active { background: var(--green); border-color: var(--green); }
 .status-btn[data-status="Requested"].active { background: var(--orange); border-color: var(--orange); }
-.lab-extra-wrap { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
-.lab-extra-label { font-size: 0.72rem; font-weight: 600; color: var(--secondary); padding: 2px 8px; }
-.clinician-tools summary { cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--primary); }
-.calc-box { background: var(--primary-soft); border: 1px solid var(--primary); padding: 10px; border-radius: 6px; margin-top: 6px; }
-.calc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.calc-title { font-weight: bold; color: var(--primary); }
-.calc-item { margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.85rem; }
-.calc-item label { margin: 0; color: var(--text-main); font-weight: 500; }
-.calc-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.calc-interpretation { font-size: 0.82rem; font-weight: 600; color: var(--primary); margin-top: 4px; }
-.calc-criteria { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 
 /* ---------- Decision panel ---------- */
 .priority-badge { text-align: center; padding: 12px 8px; font-size: 1.45rem; font-weight: 800; color: #fff; border-radius: 6px; letter-spacing: 0.5px; text-shadow: 0 1px 2px rgba(0,0,0,0.25); }
@@ -339,7 +341,7 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 .info-pop.open .info-bubble { display: block; }
 
 /* ---------- Quick mode ---------- */
-body.quick-mode #card-screening .screening-grid, body.quick-mode .clinician-tools { display: none !important; }
+body.quick-mode #card-screening .screening-grid { display: none !important; }
 
 /* ---------- Modals, toasts, sidebar ---------- */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 4000; display: flex; justify-content: center; align-items: center; padding: 16px; }

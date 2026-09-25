@@ -208,3 +208,63 @@ test('Every quick chip, body-map zone and synonym points at a real flowchart', (
     ];
     for (const t of targets) assert.ok(charts[t], `missing flowchart "${t}"`);
 });
+
+test('Nursing plan: one plan per flowchart, bundles real, triggers match real discriminators', () => {
+    const { protocols, mtsFlowcharts, bloodProfiles, placements } = clinicalData;
+    const places = Object.assign({}, ...Object.values(placements));
+    assert.deepEqual(Object.keys(protocols).sort(), Object.keys(mtsFlowcharts).sort());
+    for (const [name, p] of Object.entries(protocols)) {
+        const discs = mtsFlowcharts[name].map(d => d.text);
+        const items = [...p.bedside, ...p.bloods, ...p.pathways];
+        for (const b of p.bloods) assert.ok(bloodProfiles[b.profile], `${name}: unknown ICE bundle "${b.profile}"`);
+        for (const w of p.pathways) assert.ok(places[w.to], `${name}: unknown placement "${w.to}"`);
+        for (const it of items) {
+            if (!it.auto) {
+                assert.ok(it.when, `${name}: item with neither auto nor when`);
+                assert.ok(!/^disc:/.test(it.when) && !C.PLAN_AUTO_KEYS.includes(it.when), `${name}: "${it.when}" looks like an auto key passed as "when"`);
+                continue;
+            }
+            assert.ok(!/^(if|when) /i.test(it.why || ''), `${name}: rationale "${it.why}" reads like a condition - pass it as "when"`);
+            for (const part of it.auto.split('+')) {
+                if (part.startsWith('disc:')) {
+                    for (const t of part.slice(5).split('|')) assert.ok(discs.includes(t), `${name}: "${t}" is not a discriminator on this flowchart`);
+                } else assert.ok(C.PLAN_AUTO_KEYS.includes(part), `${name}: unknown auto key "${part}"`);
+            }
+        }
+        assert.ok(['recommended', 'consider', 'not-routine'].includes(p.cannula.status), `${name}: cannula status`);
+    }
+});
+
+test('Nursing plan has no imaging and no stand-alone pregnancy test', () => {
+    const text = JSON.stringify(clinicalData.protocols).replace(/Bladder scan/g, '');
+    for (const w of [/x-?ray/i, /\bCT\b/, /CTPA/, /\bFAST\b/, /ultrasound/i, /\bMRI\b/, /\bscan\b/i, /imaging/i]) {
+        assert.ok(!w.test(text), `imaging word ${w} found in protocols`);
+    }
+    // The pregnancy test is offered once, by the universal check, not per complaint.
+    for (const p of Object.values(clinicalData.protocols)) assert.ok(!p.bedside.some(b => /pregnancy test/i.test(b.name)));
+    assert.equal(clinicalData.calculators, undefined);
+});
+
+test('Plan auto conditions and base placement', () => {
+    const ctx = { age: 70, pregnant: false, sepsis: false, anticoag: true, bm: '12.5', discriminator: 'Shock' };
+    assert.equal(C.planAutoMet('always', ctx), true);
+    assert.equal(C.planAutoMet(null, ctx), false);
+    assert.equal(C.planAutoMet('age65', ctx), true);
+    assert.equal(C.planAutoMet('age65', { ...ctx, age: null }), false);
+    assert.equal(C.planAutoMet('child', { ...ctx, age: null }), false);
+    assert.equal(C.planAutoMet('anticoag', ctx), true);
+    assert.equal(C.planAutoMet('bmHigh', ctx), true);
+    assert.equal(C.planAutoMet('bmLow', { ...ctx, bm: '' }), false);
+    assert.equal(C.planAutoMet('disc:Catastrophic haemorrhage|Shock', ctx), true);
+    assert.equal(C.planAutoMet('disc:Shock or something', ctx), false);
+    assert.equal(C.planAutoMet('anticoag+disc:Shock', ctx), true);
+    assert.equal(C.planAutoMet('child+disc:Shock', ctx), false);
+    assert.equal(C.planAutoMet('sepsis', ctx), false);
+    assert.equal(C.planAutoMet('sepsis', { ...ctx, sepsis: true }), true);
+    assert.equal(C.basePlacement({ level: null }), null);
+    assert.equal(C.basePlacement({ level: 'Red', isPaeds: true }).to, 'Resus');
+    assert.equal(C.basePlacement({ level: 'Green', isPaeds: true }).to, 'PaedsED');
+    assert.equal(C.basePlacement({ level: 'Yellow', mobility: 'Walking' }).to, 'Majors');
+    assert.equal(C.basePlacement({ level: 'Green', mobility: 'Walking' }).to, 'Minors');
+    assert.equal(C.basePlacement({ level: 'Blue', mobility: 'Stretcher' }).to, 'Majors');
+});

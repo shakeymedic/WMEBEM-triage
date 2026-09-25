@@ -436,3 +436,37 @@ export function gestationFromLmp(lmp, now = new Date()) {
     const edd = new Date(start.getTime() + 280 * 86400000);
     return { valid: true, weeks: Math.floor(days / 7), days: days % 7, edd };
 }
+
+// Nursing plan: is an item's `auto` condition met? (see protocols.js section 7b)
+// ctx: { age, pregnant, sepsis, anticoag, bm, discriminator }. Parts joined with + must all be met.
+export const PLAN_AUTO_KEYS = ['always', 'adult', 'child', 'sepsis', 'anticoag', 'pregnant', 'age50', 'age65', 'age5plus', 'bmLow', 'bmHigh'];
+export function planAutoMet(auto, ctx) {
+    if (!auto) return false;
+    if (auto.includes('+')) return auto.split('+').every(part => planAutoMet(part, ctx));
+    if (auto.startsWith('disc:')) return !!ctx.discriminator && auto.slice(5).split('|').includes(ctx.discriminator);
+    const age = has(ctx.age) ? Number(ctx.age) : null, bm = toNumber(ctx.bm);
+    switch (auto) {
+        case 'always': return true;
+        case 'adult': return age !== null && age >= 16;
+        case 'child': return age !== null && age < 16;
+        case 'sepsis': return !!ctx.sepsis;
+        case 'anticoag': return !!ctx.anticoag;
+        case 'pregnant': return !!ctx.pregnant;
+        case 'age50': return age !== null && age >= 50;
+        case 'age65': return age !== null && age >= 65;
+        case 'age5plus': return age !== null && age >= 5;
+        case 'bmLow': return bm !== null && bm < 4;
+        case 'bmHigh': return bm !== null && bm > 11;
+        default: return false;
+    }
+}
+
+// Default placement from the triage category (complaint pathways are added on top by the UI).
+export function basePlacement({ level, isPaeds, mobility }) {
+    if (!level) return null;
+    if (level === 'Red') return { to: 'Resus', why: 'Red category' };
+    if (isPaeds) return { to: 'PaedsED', why: 'Under 16' };
+    if (level === 'Orange' || level === 'Yellow') return { to: 'Majors', why: `${level} category` };
+    if (mobility === 'Walking') return { to: 'Minors', why: `${level} category, walking` };
+    return { to: 'Majors', why: mobility ? `${level} category, not walking` : `${level} category - record mobility` };
+}
