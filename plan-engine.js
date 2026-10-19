@@ -40,6 +40,7 @@ export const SOURCES = {
     bspedDka: { label: 'BSPED Paediatric DKA guideline', url: 'https://www.bsped.org.uk/clinical-resources/bsped-dka-guidelines/' },
     pregnancyEnquiry: { label: 'Society of Radiographers: inclusive pregnancy status guidelines for ionising radiation (ages 12-55, local ranges vary)', url: 'https://sor.org/getmedia/82ab6464-552e-456e-83cf-89a0663c90e2/Inclusive-Pregnancy-Status-Guidelines-for-Ionising-Radiation_LLv4' },
     rcukAnaphylaxis: { label: 'Resuscitation Council UK Emergency treatment of anaphylaxis (2021)', url: 'https://www.resus.org.uk/library/additional-guidance/guidance-anaphylaxis/emergency-treatment' },
+    sign158: { label: 'SIGN 158 British guideline on the management of asthma (acute asthma: IV magnesium sulphate in acute severe / life-threatening asthma)', url: 'https://www.sign.ac.uk/sign-158-british-guideline-on-the-management-of-asthma' },
     epic3: { label: 'epic3 national evidence-based guidelines for preventing healthcare-associated infections (2014), IVAD28', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7114876/' },
     local: { label: 'App default - not a national rule: adopt or change locally', url: '' }
 };
@@ -395,17 +396,29 @@ export function cannulaDecision(input, pre = null) {
     if (disc(f, /neck of femur/i)) fire('recommended', 'Suspected hip fracture - fluids and bloods', 'local', '18G');
     if (f.headInjury && f.flags.anticoag && f.ng232 && f.ng232 !== 'none') fire('recommended', 'Anticoagulated head injury meeting NICE CT criteria - reversal may be needed', 'local', '18G');
     if (disc(f, /severe dehydration/i)) fire('recommended', 'Severe dehydration - IV fluids likely', 'local');
+    if (complaint(f, /^Asthma$/) && disc(f, /life threatening|severe distress/i)) fire('recommended', 'Acute severe or life-threatening asthma - IV magnesium sulphate (and IV steroid if unable to swallow) may follow nebulisers', 'sign158', big);
+    if (complaint(f, /Shortness of Breath in Adults/) && (disc(f, /severe respiratory distress|moderate respiratory distress|stridor|new confusion/i) || (has(f.obs.sats) && Number(f.obs.sats) < 92))) fire('recommended', 'Hypoxic or in respiratory distress - IV treatment (diuretic, antibiotics, magnesium) is likely', 'local', big);
+    if (complaint(f, /^Palpitations$/) && (disc(f, /rate\s*>\s*150/i) || (has(f.obs.hr) && Number(f.obs.hr) > 150))) fire('recommended', 'Tachyarrhythmia over 150 - IV adenosine or rate control is likely once the ECG is seen', 'local', big);
+    if (complaint(f, /Overdose and Poisoning|Self Harm/) && disc(f, /high-risk substance|altered gcs|abnormal vital signs/i)) fire('recommended', 'Overdose with a high-risk substance or physiological effect - antidote or IV treatment is likely', 'local', big);
+    if (complaint(f, /Gastrointestinal Bleeding/) && disc(f, /haematemesis|melaena/i)) fire('recommended', 'Active upper GI bleeding - can decompensate quickly; access while the veins are easy', 'local', big);
+    if (complaint(f, /Torso Injury/) && disc(f, /stab|gunshot|flail/i)) fire('now', 'Penetrating torso injury or flail chest - trauma team, blood products possible', 'local', child ? null : '16G x2');
 
     // Consider
     if (f.level === 'Yellow') fire('consider', 'Yellow category', 'local');
     if (f.painOnlyOrange || (has(f.pain) && Number(f.pain) >= 8)) fire('consider', `Severe pain${has(f.pain) ? ` ${f.pain}/10` : ''} - only if IV analgesia is likely (offer oral, inhaled or intranasal first)`, 'local');
     if (f.flags.sickle && (has(f.pain) ? Number(f.pain) >= 1 : true)) fire('consider', 'Sickle cell painful episode - analgesia within 30 minutes of presentation; route per the patient\'s care plan', 'cg143');
 
-    // A complaint default of "recommended" is only a default: a Green or Blue patient with nothing
-    // else firing does not need IV access yet.
-    if (decision === 'recommended' && (f.level === 'Green' || f.level === 'Blue') && reasons.every(r => r.level !== 'now' && (r.level !== 'recommended' || r.text.startsWith(`${f.complaint}:`)))) {
-        decision = 'consider';
-        reasons.push({ level: 'consider', text: `${f.level} category with no other trigger - the ${f.complaint.toLowerCase()} default is lowered to "consider"`, source: 'local' });
+    // A complaint default is only a default: a Green or Blue patient with nothing else firing does
+    // not need IV access yet. "Recommended" drops to "consider"; "consider" drops to "not needed now".
+    const onlyDefault = reasons.every(r => r.text.startsWith(`${f.complaint}:`));
+    if ((f.level === 'Green' || f.level === 'Blue') && onlyDefault && reasons.length) {
+        if (decision === 'recommended') {
+            decision = 'consider';
+            reasons.push({ level: 'consider', text: `${f.level} category with no other trigger - the ${f.complaint.toLowerCase()} default is lowered to "consider"`, source: 'local' });
+        } else if (decision === 'consider') {
+            decision = 'not-needed';
+            reasons.push({ level: 'not-needed', text: `${f.level} category with no other trigger - no IV need is expected; bloods (if any) by venepuncture`, source: 'local' });
+        }
     }
 
     // Sizes for children: the complaint default (smaller) wins over adult sizes.

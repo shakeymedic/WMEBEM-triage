@@ -42,13 +42,17 @@ test('The engine never invents a blood bundle and never suggests imaging', () =>
     }
 });
 
-test('Chest pain: ECG is "do now" with the 10-minute timing; low-risk Green lowers the cannula to consider', () => {
+test('Chest pain: ECG is "do now" with the 10-minute timing; bloods by venepuncture unless unstable', () => {
     const r = run({ age: 45, sex: 'Male', complaint: 'Chest Pain', discriminator: 'Musculoskeletal pain', level: 'Green' });
     assert.equal(status(r, T.ecg), 'now');
     assert.match(item(r, T.ecg).timing, /10 minutes/);
-    assert.equal(r.cannula.decision, 'consider');
-    const y = run({ age: 45, sex: 'Male', complaint: 'Chest Pain', discriminator: 'Cardiac-type chest pain at rest', level: 'Yellow' });
-    assert.equal(y.cannula.decision, 'recommended');
+    assert.equal(r.cannula.decision, 'not-needed');
+    const y = run({ age: 45, sex: 'Male', complaint: 'Chest Pain', discriminator: 'Cardiac-type chest pain at rest', level: 'Yellow', ews: news(1) });
+    assert.equal(status(y, 'AE Acute Coronary Syndrome', 'Bloods'), 'suggested');
+    assert.equal(y.cannula.decision, 'consider');
+    assert.equal(y.cannula.venepuncture, true, 'stable cardiac chest pain: troponin by venepuncture, no idle cannula');
+    const o = run({ age: 45, sex: 'Male', complaint: 'Chest Pain', discriminator: 'Severe respiratory distress', level: 'Orange' });
+    assert.equal(o.cannula.decision, 'recommended');
 });
 
 test('NICE NG253 high risk: cultures, gas and sepsis bundle now; cannula now', () => {
@@ -70,7 +74,7 @@ test('NICE NG253 medium risk: cultures, VBG and bloods now, cannula recommended;
     const l = run({ age: 40, sex: 'Male', complaint: 'Sore Throat', discriminator: 'Pain only', level: 'Green', sepsisRisk: 'Low', infection: 'yes', ews: news(2) });
     assert.equal(item(l, T.cultures), undefined);
     assert.equal(status(l, 'AE - Sepsis', 'Bloods'), 'consider');
-    assert.equal(l.cannula.decision, 'consider'); // the sore throat default (if unable to swallow)
+    assert.equal(l.cannula.decision, 'not-needed'); // Green with only the sore throat default: no IV need expected
 });
 
 test('Over 65: no urine dipstick to diagnose UTI - replaced by "culture only if UTI suspected"', () => {
@@ -131,7 +135,7 @@ test('Stroke: cannula now within 24 hours of last known well (or unknown); other
     assert.equal(run({ age: 70, complaint: 'Suspected Stroke', lkwHours: 2 }).cannula.decision, 'now');
     assert.equal(run({ age: 70, complaint: 'Suspected Stroke', lkwHours: null }).cannula.decision, 'now');
     const late = run({ age: 70, complaint: 'Suspected Stroke', lkwHours: 40, level: 'Yellow' });
-    assert.equal(late.cannula.decision, 'recommended');
+    assert.equal(late.cannula.decision, 'consider');
     assert.ok(late.cannula.cautions.some(c => /unaffected arm/.test(c)));
     assert.equal(status(late, T.bm), 'now');
 });
@@ -219,9 +223,12 @@ test('Pregnant with raised BP: urine dip for protein is suggested', () => {
 });
 
 test('Bloods without IV need: venepuncture advised; dialysis and stroke limb cautions', () => {
-    const r = run({ age: 40, complaint: 'Abdominal Pain in Adults', discriminator: 'Mild pain', level: 'Green' });
+    const r = run({ age: 40, complaint: 'Abdominal Pain in Adults', discriminator: 'Moderate pain', level: 'Yellow' });
     assert.equal(r.cannula.decision, 'consider');
     assert.equal(r.cannula.venepuncture, true);
+    const g = run({ age: 40, complaint: 'Abdominal Pain in Adults', discriminator: 'Mild pain', level: 'Green' });
+    assert.equal(g.cannula.decision, 'not-needed');
+    assert.equal(g.cannula.venepuncture, true);
     assert.match(r.cannula.notes[0], /venepuncture/);
     const d = cannulaDecision({ age: 60, complaint: 'Limb Problems', flags: { dialysis: true } });
     assert.ok(d.cautions.some(c => /fistula/.test(c)));
@@ -239,4 +246,42 @@ test('Sample timing notes are attached to the bundles that need them', () => {
     assert.match(item(od, 'AE DSH Overdose').timing, /from 4 hours after ingestion/);
     const ana = run({ age: 20, complaint: 'Allergy', discriminator: 'Wheeze' });
     assert.match(item(ana, 'AE Anaphylaxis').timing, /tryptase/i);
+});
+
+test('Three tiers: bloods without a cannula, a cannula, or nothing', () => {
+    const bloods = (r) => r.items.some(i => i.category === 'Bloods' && i.status !== 'consider');
+    // Bloods by venepuncture, no cannula: stable chest pain, delirium screen, timed paracetamol level, GCA headache, DVT
+    for (const f of [
+        { age: 55, complaint: 'Chest Pain', discriminator: 'Cardiac-type chest pain at rest', level: 'Yellow', ews: news(1) },
+        { age: 82, complaint: 'Confusion', discriminator: 'Abnormal vital signs', level: 'Yellow', ews: news(3) },
+        { age: 70, complaint: 'Headache', discriminator: 'History of Migraine', level: 'Green' },
+        { age: 60, complaint: 'Suspected DVT / PE', discriminator: 'Unilateral leg swelling/pain', level: 'Yellow', ews: news(0) }
+    ]) {
+        const r = run(f);
+        assert.notEqual(r.cannula.decision, 'now', f.complaint);
+        assert.notEqual(r.cannula.decision, 'recommended', `${f.complaint}: ${r.cannula.reasons.map(x => x.text).join('; ')}`);
+    }
+    const od = run({ age: 30, complaint: 'Overdose and Poisoning', discriminator: 'Symptomatic but stable', level: 'Yellow', ews: news(0) });
+    assert.equal(status(od, 'AE DSH Overdose', 'Bloods'), 'suggested');
+    assert.equal(od.cannula.decision, 'consider');
+    assert.equal(od.cannula.venepuncture, true);
+    // Cannula: IV treatment is likely soon
+    assert.equal(run({ age: 30, complaint: 'Asthma', discriminator: 'Severe Distress', level: 'Orange' }).cannula.decision, 'recommended');
+    assert.equal(run({ age: 70, complaint: 'Shortness of Breath in Adults', discriminator: 'Moderate respiratory distress', level: 'Yellow', obs: { sats: 89 } }).cannula.decision, 'recommended');
+    assert.equal(run({ age: 40, complaint: 'Palpitations', discriminator: 'Rate > 150', level: 'Orange', obs: { hr: 170 } }).cannula.decision, 'recommended');
+    assert.equal(run({ age: 60, complaint: 'Gastrointestinal Bleeding', discriminator: 'Haematemesis', level: 'Orange' }).cannula.decision, 'recommended');
+    assert.equal(run({ age: 30, complaint: 'Overdose and Poisoning', discriminator: 'High-risk substance', level: 'Orange' }).cannula.decision, 'recommended');
+    assert.equal(run({ age: 30, complaint: 'Torso Injury', discriminator: 'Stab/Gunshot', level: 'Red' }).cannula.decision, 'now');
+    assert.equal(run({ age: 80, complaint: 'Falls', discriminator: 'Suspected neck of femur fracture', level: 'Orange' }).cannula.decision, 'recommended');
+    // Nothing: no bloods and no cannula
+    for (const f of [
+        { age: 30, complaint: 'Wounds', discriminator: 'Graze/Glue', level: 'Green' },
+        { age: 25, complaint: 'Sore Throat', discriminator: 'Pain only', level: 'Green', ews: news(0) },
+        { age: 40, complaint: 'Back Pain', discriminator: 'Moderate pain', level: 'Yellow' },
+        { age: 6, complaint: 'Limping Child', discriminator: 'Minor trauma', level: 'Green' }
+    ]) {
+        const r = run({ ...f, sex: 'Male' });
+        assert.equal(bloods(r), false, `${f.complaint} should have no suggested bloods`);
+        assert.ok(['not-needed', 'consider'].includes(r.cannula.decision), f.complaint);
+    }
 });
