@@ -61,10 +61,11 @@ test('NICE NG253 high risk: cultures, gas and sepsis bundle now; cannula now', (
     assert.ok(r.cannula.reasons.some(x => x.source === 'ng253' && x.level === 'now'));
 });
 
-test('NICE NG253 moderate risk: suggested, cannula recommended; low risk adds nothing', () => {
-    const m = run({ age: 40, sex: 'Male', complaint: 'Sore Throat', level: 'Orange', sepsisRisk: 'Moderate', infection: 'yes', ews: news(5) });
-    assert.equal(status(m, T.cultures), 'suggested');
-    assert.equal(status(m, 'AE - Sepsis', 'Bloods'), 'suggested');
+test('NICE NG253 medium risk: cultures, VBG and bloods now, cannula recommended; low risk adds nothing', () => {
+    const m = run({ age: 40, sex: 'Male', complaint: 'Sore Throat', level: 'Orange', sepsisRisk: 'Medium', infection: 'yes', ews: news(5) });
+    assert.equal(status(m, T.cultures), 'now');
+    assert.equal(status(m, T.vbg), 'now');
+    assert.equal(status(m, 'AE - Sepsis', 'Bloods'), 'now');
     assert.equal(m.cannula.decision, 'recommended');
     const l = run({ age: 40, sex: 'Male', complaint: 'Sore Throat', discriminator: 'Pain only', level: 'Green', sepsisRisk: 'Low', infection: 'yes', ews: news(2) });
     assert.equal(item(l, T.cultures), undefined);
@@ -135,7 +136,7 @@ test('Stroke: cannula now within 24 hours of last known well (or unknown); other
     assert.equal(status(late, T.bm), 'now');
 });
 
-test('Diabetes: ketones when BM 11+; DKA (ketones 3+) makes gas, ketones and cannula "now"', () => {
+test('Diabetes: ketones when BM above 11; DKA (ketones above 3.0, JBDS) makes gas, ketones and cannula "now"', () => {
     const hi = run({ age: 30, complaint: 'Diarrhoea and Vomiting', level: 'Yellow', diabetes: true, obs: { bm: 18 } });
     assert.equal(status(hi, T.ketones), 'suggested');
     assert.equal(hi.cannula.decision === 'now', false);
@@ -146,6 +147,10 @@ test('Diabetes: ketones when BM 11+; DKA (ketones 3+) makes gas, ketones and can
     assert.equal(dka.cannula.decision, 'now');
     const k29 = run({ age: 30, complaint: 'Diarrhoea and Vomiting', diabetes: true, obs: { bm: 18, ketones: 2.9 } });
     assert.notEqual(k29.cannula.decision, 'now');
+    const k30 = run({ age: 30, complaint: 'Diarrhoea and Vomiting', diabetes: true, obs: { bm: 18, ketones: 3.0 } });
+    assert.notEqual(k30.cannula.decision, 'now', 'JBDS: ketones must be above 3.0, not equal');
+    const bm11 = run({ age: 30, complaint: 'Limb Problems', diabetes: true, obs: { bm: 11 } });
+    assert.equal(item(bm11, T.ketones), undefined, 'BM must be above 11.0');
     const noDm = run({ age: 30, complaint: 'Limb Problems', obs: { bm: 12 } });
     assert.equal(item(noDm, T.ketones), undefined, 'adult without diabetes: no ketone prompt from BM alone');
     const child = run({ age: 8, complaint: 'Unwell Child', obs: { bm: 15 } });
@@ -174,12 +179,12 @@ test('Hypoglycaemia and reduced consciousness', () => {
     assert.equal(run({ age: 50, complaint: 'Limb Problems', prehospitalBm: 2.1 }).items.find(i => i.name === T.bm).status, 'now');
 });
 
-test('Chemotherapy with fever or infection: possible neutropenic sepsis (NICE NG151)', () => {
+test('Chemotherapy with fever or infection: possible neutropenic sepsis (NICE CG151)', () => {
     const r = run({ age: 55, complaint: 'Unwell Adult', flags: { chemo: true }, obs: { temp: 38.1 } });
     assert.equal(status(r, T.cultures), 'now');
     assert.equal(status(r, 'AE - Sepsis', 'Bloods'), 'now');
     assert.equal(r.cannula.decision, 'now');
-    assert.ok(r.cannula.reasons.some(x => x.source === 'ng151'));
+    assert.ok(r.cannula.reasons.some(x => x.source === 'cg151'));
     const afebrile = run({ age: 55, complaint: 'Limb Problems', flags: { chemo: true }, obs: { temp: 37.2 } });
     assert.equal(item(afebrile, T.cultures), undefined);
 });
@@ -231,7 +236,7 @@ test('NEWS2 escalation: 5-6 recommended, 7+ now, partial scores count as a minim
 
 test('Sample timing notes are attached to the bundles that need them', () => {
     const od = run({ age: 20, complaint: 'Overdose and Poisoning' });
-    assert.match(item(od, 'AE DSH Overdose').timing, /4 hours or more/);
+    assert.match(item(od, 'AE DSH Overdose').timing, /from 4 hours after ingestion/);
     const ana = run({ age: 20, complaint: 'Allergy', discriminator: 'Wheeze' });
     assert.match(item(ana, 'AE Anaphylaxis').timing, /tryptase/i);
 });

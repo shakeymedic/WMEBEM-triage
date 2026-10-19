@@ -19,24 +19,28 @@ import { has, toNumber, planAutoMet } from './clinical.js';
 // Sources. Only national documents that were checked on their live pages are cited (October 2026).
 // ------------------------------------------------------------------------------------------------
 export const SOURCES = {
-    ng253: { label: 'NICE NG253 Suspected sepsis in people aged 16 or over', url: 'https://www.nice.org.uk/guidance/ng253' },
+    ng253: { label: 'NICE NG253 Suspected sepsis in people aged 16 or over (1.8)', url: 'https://www.nice.org.uk/guidance/ng253/chapter/Managing-suspected-sepsis' },
     ng254: { label: 'NICE NG254 Suspected sepsis in under 16s', url: 'https://www.nice.org.uk/guidance/ng254' },
-    ng151: { label: 'NICE NG151 Neutropenic sepsis', url: 'https://www.nice.org.uk/guidance/ng151' },
-    ng143: { label: 'NICE NG143 Fever in under 5s', url: 'https://www.nice.org.uk/guidance/ng143' },
-    ng232: { label: 'NICE NG232 Head injury', url: 'https://www.nice.org.uk/guidance/ng232' },
-    ng128: { label: 'NICE NG128 Stroke and TIA in over 16s', url: 'https://www.nice.org.uk/guidance/ng128' },
-    cg109: { label: 'NICE CG109 Transient loss of consciousness in over 16s', url: 'https://www.nice.org.uk/guidance/cg109' },
+    cg151: { label: 'NICE CG151 Neutropenic sepsis (1.4.1.1)', url: 'https://www.nice.org.uk/guidance/cg151/chapter/Recommendations' },
+    cg95: { label: 'NICE CG95 Recent-onset chest pain of suspected cardiac origin (1.2.2.1)', url: 'https://www.nice.org.uk/guidance/cg95/chapter/Recommendations' },
+    ng258: { label: 'NICE NG258 Anaphylaxis: assessment and referral (timing of blood samples)', url: 'https://www.nice.org.uk/guidance/ng258/chapter/Timing-of-blood-samples' },
+    mhraParacetamol: { label: 'MHRA Drug Safety Update: treating paracetamol overdose with IV acetylcysteine (2012)', url: 'https://www.gov.uk/drug-safety-update/treating-paracetamol-overdose-with-intravenous-acetylcysteine-new-guidance' },
+    qs61: { label: 'NICE QS61 Infection prevention and control (statement 5: vascular access devices)', url: 'https://www.nice.org.uk/guidance/qs61/chapter/Quality-statement-5-Vascular-access-devices' },
+    ng143: { label: 'NICE NG143 Fever in under 5s (1.5)', url: 'https://www.nice.org.uk/guidance/ng143/chapter/Recommendations' },
+    ng232: { label: 'NICE NG232 Head injury (1.9.11 observations)', url: 'https://www.nice.org.uk/guidance/ng232/chapter/Recommendations' },
+    ng128: { label: 'NICE NG128 Stroke and TIA in over 16s', url: 'https://www.nice.org.uk/guidance/ng128/chapter/Recommendations' },
+    cg109: { label: 'NICE CG109 Transient loss of consciousness in over 16s (1.1.2.2)', url: 'https://www.nice.org.uk/guidance/cg109/chapter/Recommendations' },
     ng126: { label: 'NICE NG126 Ectopic pregnancy and miscarriage (1.4.3, 1.4.5)', url: 'https://www.nice.org.uk/guidance/ng126/chapter/Symptoms-and-signs-of-ectopic-pregnancy-and-initial-assessment' },
     mhraSglt2: { label: 'MHRA Drug Safety Update: SGLT2 inhibitors and diabetic ketoacidosis (2016)', url: 'https://www.gov.uk/drug-safety-update/sglt2-inhibitors-updated-advice-on-the-risk-of-diabetic-ketoacidosis' },
     ng133: { label: 'NICE NG133 Hypertension in pregnancy (1.2)', url: 'https://www.nice.org.uk/guidance/ng133/chapter/Recommendations' },
-    cg143: { label: 'NICE CG143 Sickle cell disease: acute painful episode', url: 'https://www.nice.org.uk/guidance/cg143' },
+    cg143: { label: 'NICE CG143 Sickle cell disease: acute painful episodes', url: 'https://www.nice.org.uk/guidance/cg143/chapter/Recommendations' },
     ng217: { label: 'NICE NG217 Epilepsies (7.1 status epilepticus)', url: 'https://www.nice.org.uk/guidance/ng217/chapter/7-Treating-status-epilepticus-repeated-or-cluster-seizures-and-prolonged-seizures' },
-    ukhsaUti: { label: 'UKHSA Diagnosis of urinary tract infections (quick reference tool)', url: 'https://www.gov.uk/government/publications/urinary-tract-infection-diagnosis' },
-    jbdsDka: { label: 'JBDS-IP Management of diabetic ketoacidosis in adults', url: 'https://abcd.care/joint-british-diabetes-societies-jbds-inpatient-care-group' },
+    ukhsaUti: { label: 'UKHSA Diagnosis of urinary tract infections: quick reference tools (updated July 2025)', url: 'https://www.gov.uk/government/publications/urinary-tract-infection-diagnosis/diagnosis-of-urinary-tract-infections-quick-reference-tools-for-primary-care' },
+    jbdsDka: { label: 'JBDS-IP 02 Management of diabetic ketoacidosis in adults (March 2023)', url: 'https://abcd.care/resource/current/jbds-02-management-diabetic-ketoacidosis-adults' },
     bspedDka: { label: 'BSPED Paediatric DKA guideline', url: 'https://www.bsped.org.uk/clinical-resources/bsped-dka-guidelines/' },
-    pregnancyEnquiry: { label: 'SoR / RCR / BIR guidance on pregnancy enquiry before ionising radiation (12-55)', url: 'https://www.sor.org/learning-advice/professional-body-guidance-and-publications/documents-and-publications/policy-guidance-document-library/inquiries-into-pregnancy-status' },
+    pregnancyEnquiry: { label: 'Society of Radiographers: inclusive pregnancy status guidelines for ionising radiation (ages 12-55, local ranges vary)', url: 'https://sor.org/getmedia/82ab6464-552e-456e-83cf-89a0663c90e2/Inclusive-Pregnancy-Status-Guidelines-for-Ionising-Radiation_LLv4' },
     rcukAnaphylaxis: { label: 'Resuscitation Council UK Emergency treatment of anaphylaxis (2021)', url: 'https://www.resus.org.uk/library/additional-guidance/guidance-anaphylaxis/emergency-treatment' },
-    epic3: { label: 'epic3 national guidelines for preventing healthcare-associated infections (2014)', url: 'https://doi.org/10.1016/S0195-6701(13)60012-2' },
+    epic3: { label: 'epic3 national evidence-based guidelines for preventing healthcare-associated infections (2014), IVAD28', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7114876/' },
     local: { label: 'App default - not a national rule: adopt or change locally', url: '' }
 };
 
@@ -49,7 +53,7 @@ export const FACT_DEFAULTS = {
     ews: { type: 'NEWS2', score: 0, complete: false, recorded: 0, redParam: false },
     obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, temp: null, avpu: null, gcs: null, bm: null, ketones: null },
     prehospitalBm: null,
-    sepsisRisk: null,          // NG253: 'High' | 'Moderate' | 'Low' | 'Very low' | null (not assessed)
+    sepsisRisk: null,          // NG253: 'High' | 'Medium' | 'Low' | 'Very low' | null (not assessed)
     infection: null,           // 'yes' | 'no' | null
     feverTL: null,             // NG143 under 5s, only when fever is relevant: 'Red' | 'Amber' | 'Green' | null
     ng232: null,               // NG232 level: '1h' | '8h' | 'consider8h' | 'observe4h' | 'none' | null
@@ -124,7 +128,7 @@ export function majorBleed(f) {
 }
 
 // Fever is 38C or more measured, or a sepsis/fever discriminator. Chemotherapy in the last 6 weeks
-// with fever or suspected infection is treated as possible neutropenic sepsis (NICE NG151).
+// with fever or suspected infection is treated as possible neutropenic sepsis (NICE CG151).
 export function neutropenicSepsis(f) {
     if (!f.flags.chemo) return '';
     const fever = has(f.obs.temp) && Number(f.obs.temp) >= 38;
@@ -142,20 +146,21 @@ export function possibleDiabetes(f) {
     return '';
 }
 
-// Hyperglycaemia that needs a ketone check: BM 11 or more in someone with diabetes or any child.
+// Hyperglycaemia that needs a ketone check: BM above 11 in someone with diabetes or any child.
 export function ketoneCheckNeeded(f) {
     const bm = bmValue(f);
-    if (bm !== null && bm >= 11 && (possibleDiabetes(f) || isChild(f))) return `BM ${bm} mmol/L (11 or more)${isChild(f) ? ' in a child' : ` - ${possibleDiabetes(f).toLowerCase()}`}`;
+    if (bm !== null && bm > 11 && (possibleDiabetes(f) || isChild(f))) return `BM ${bm} mmol/L (above 11)${isChild(f) ? ' in a child' : ` - ${possibleDiabetes(f).toLowerCase()}`}`;
     // Euglycaemic DKA: SGLT2 inhibitors can cause DKA with a normal glucose.
     if (f.flags.sglt2 && (f.ews.score >= 3 || complaint(f, /Abdominal|Diarrhoea and Vomiting|Diabetes|Unwell/) || disc(f, /vomit/i))) return 'On an SGLT2 inhibitor and unwell, vomiting or abdominal pain - DKA can occur with a normal glucose';
     return '';
 }
 
-// DKA is likely when ketones are 3.0 or more with BM 11 or more (or known diabetes) - JBDS / BSPED.
+// DKA is likely when ketones are above 3.0 with BM above 11.0 (or known diabetes) - JBDS-IP 2023 / BSPED.
+// Acidosis (pH < 7.3 or bicarbonate < 15) confirms it; that needs the blood gas.
 export function dkaLikely(f) {
     const k = toNumber(f.obs.ketones), bm = bmValue(f);
-    if (k === null || k < 3) return '';
-    if ((bm !== null && bm >= 11) || possibleDiabetes(f)) return `Ketones ${k} mmol/L${bm !== null ? ` with BM ${bm}` : ''}`;
+    if (k === null || k <= 3) return '';
+    if ((bm !== null && bm > 11) || possibleDiabetes(f)) return `Ketones ${k} mmol/L${bm !== null ? ` with BM ${bm}` : ''}`;
     return '';
 }
 
@@ -171,7 +176,7 @@ export function couldBePregnant(f) {
 }
 
 const sepsisHigh = (f) => f.sepsisRisk === 'High';
-const sepsisModerate = (f) => f.sepsisRisk === 'Moderate';
+const sepsisMedium = (f) => f.sepsisRisk === 'Medium';
 const news = (f) => (f.ews.type === 'NEWS2' ? f.ews.score : null);
 const ewsLabel = (f) => `${f.ews.complete ? '' : 'partial '}${f.ews.type === 'NEWS2' ? 'NEWS2' : `local ${f.ews.type}`} ${f.ews.score}`;
 
@@ -180,7 +185,7 @@ export function autoContext(input) {
     const f = normaliseFacts(input);
     return {
         age: f.age, pregnant: f.pregnant, bm: bmValue(f), discriminator: f.discriminator, anticoag: !!f.flags.anticoag,
-        sepsis: sepsisHigh(f) || sepsisModerate(f) || f.feverTL === 'Red' || f.feverTL === 'Amber' || /sepsis/i.test(f.discriminator || '') || !!neutropenicSepsis(f)
+        sepsis: sepsisHigh(f) || sepsisMedium(f) || f.feverTL === 'Red' || f.feverTL === 'Amber' || /sepsis/i.test(f.discriminator || '') || !!neutropenicSepsis(f)
     };
 }
 
@@ -234,7 +239,7 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (complaint(f, /Fits and Seizures/) || disc(f, /seiz/i)) bed(T.bm, 'now', 'Seizure - hypoglycaemia is a possible underlying cause', 'ng217');
     if (complaint(f, /Suspected Stroke|Suspected TIA/) || f.rosierLikely) bed(T.bm, 'now', 'Sudden neurological symptoms - exclude hypoglycaemia', 'ng128');
     if (diab) bed(T.bm, 'suggested', diab, 'local');
-    if (sepsisHigh(f) || sepsisModerate(f)) bed(T.bm, 'suggested', `NG253 ${f.sepsisRisk.toLowerCase()} risk sepsis - glucose is part of the blood tests`, 'ng253');
+    if (sepsisHigh(f) || sepsisMedium(f)) bed(T.bm, 'suggested', `NG253 ${f.sepsisRisk.toLowerCase()} risk sepsis - glucose is part of the blood tests`, 'ng253');
     if (hypo) bed(T.bm, 'now', `${hypo} - treat per hypoglycaemia protocol and recheck`, 'local', { timing: 'Recheck 10-15 minutes after treatment' });
 
     // Ketones
@@ -242,7 +247,7 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (dka) bed(T.ketones, 'now', `${dka} - possible DKA`, isChild(f) ? 'bspedDka' : 'jbdsDka');
 
     // ECG
-    if (complaint(f, /^Chest Pain$/)) bed(T.ecg, 'now', 'Chest pain - ECG on arrival to look for STEMI', 'local', { timing: 'Within 10 minutes of arrival' });
+    if (complaint(f, /^Chest Pain$/)) bed(T.ecg, 'now', 'Chest pain - resting 12-lead ECG as soon as possible to look for STEMI', 'cg95', { timing: 'Within 10 minutes of arrival (ESC standard; NICE CG95 says as soon as possible)' });
     if (complaint(f, /^Collapse$/) || disc(f, LOC_RE)) bed(T.ecg, 'suggested', 'Transient loss of consciousness - 12-lead ECG for everyone', isAdult(f) ? 'cg109' : 'local');
     if (complaint(f, /^Palpitations$/)) bed(T.ecg, 'now', 'Palpitations - capture the rhythm, ideally while symptomatic', 'local');
     if (has(f.obs.hr) && (Number(f.obs.hr) <= 40 || Number(f.obs.hr) >= 131)) bed(T.ecg, 'suggested', `Heart rate ${f.obs.hr} (NEWS2 3 points)`, 'local');
@@ -253,18 +258,18 @@ export function evaluatePlan(input, bloodProfiles = {}) {
 
     // Blood gas (lactate, glucose, potassium, pH)
     if (sepsisHigh(f)) bed(T.vbg, 'now', 'NG253 high risk sepsis - blood gas including glucose and lactate', 'ng253');
-    else if (sepsisModerate(f)) bed(T.vbg, 'suggested', 'NG253 moderate risk sepsis - blood gas including glucose and lactate', 'ng253');
-    if (n2 !== null && n2 >= 5 && !sepsisHigh(f) && !sepsisModerate(f)) bed(T.vbg, 'suggested', `${ewsLabel(f)} (5 or more) - lactate and gas for the clinician`, 'local');
+    else if (sepsisMedium(f)) bed(T.vbg, 'now', 'NG253 medium risk sepsis - blood gas including glucose and lactate (lactate reviewed within 1 hour)', 'ng253');
+    if (n2 !== null && n2 >= 5 && !sepsisHigh(f) && !sepsisMedium(f)) bed(T.vbg, 'suggested', `${ewsLabel(f)} (5 or more) - lactate and gas for the clinician`, 'local');
     if (shock) bed(T.vbg, 'now', `Shocked (${shock}) - lactate`, 'local');
     if (dka) bed(T.vbg, 'now', `${dka} - pH and bicarbonate grade DKA`, isChild(f) ? 'bspedDka' : 'jbdsDka');
-    else if (ketoNeed && toNumber(f.obs.ketones) === null) bed(T.vbg, 'consider', '', 'local', { when: 'ketones are 3.0 or more (DKA - pH and bicarbonate)' });
-    if (neut) bed(T.vbg, 'suggested', `${neut} - possible neutropenic sepsis`, 'ng151');
+    else if (ketoNeed && toNumber(f.obs.ketones) === null) bed(T.vbg, 'consider', '', 'local', { when: 'ketones are above 3.0 (DKA - pH and bicarbonate)' });
+    if (neut) bed(T.vbg, 'suggested', `${neut} - possible neutropenic sepsis`, 'cg151');
 
     // Blood cultures
     const cultureTiming = 'Take before antibiotics - but never delay antibiotics to get them';
     if (sepsisHigh(f)) bed(T.cultures, 'now', 'NG253 high risk sepsis', 'ng253', { timing: cultureTiming });
-    else if (sepsisModerate(f)) bed(T.cultures, 'suggested', 'NG253 moderate risk sepsis', 'ng253', { timing: cultureTiming });
-    if (neut) bed(T.cultures, 'now', `${neut} - possible neutropenic sepsis`, 'ng151', { timing: cultureTiming });
+    else if (sepsisMedium(f)) bed(T.cultures, 'now', 'NG253 medium risk sepsis', 'ng253', { timing: cultureTiming });
+    if (neut) bed(T.cultures, 'now', `${neut} - possible neutropenic sepsis`, 'cg151', { timing: cultureTiming });
     if (f.feverTL === 'Red') bed(T.cultures, 'suggested', 'NICE fever traffic light RED (under 5) - for the clinician', 'ng143', { timing: cultureTiming });
 
     // Urine
@@ -291,17 +296,17 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (isChild(f)) bed(T.weight, 'suggested', 'Child - measured weight for doses and fluids', 'local');
 
     // ---- 3. Bloods: cross-cutting bundles ----
-    if (isAdult(f) && (sepsisHigh(f) || sepsisModerate(f))) blood('AE - Sepsis', sepsisHigh(f) ? 'now' : 'suggested', `NG253 ${f.sepsisRisk.toLowerCase()} risk sepsis`, 'ng253');
-    if (isAdult(f) && neut) blood('AE - Sepsis', 'now', `${neut} - possible neutropenic sepsis (add FBC differential per local pathway)`, 'ng151');
-    if (isChild(f) && (f.feverTL === 'Red' || neut)) blood('AE - Sepsis (Paediatric)', 'suggested', f.feverTL === 'Red' ? 'NICE fever traffic light RED (under 5)' : `${neut} - possible neutropenic sepsis`, f.feverTL === 'Red' ? 'ng143' : 'ng151');
+    if (isAdult(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis', 'now', `NG253 ${f.sepsisRisk.toLowerCase()} risk sepsis - NICE also lists LFTs and "consider procalcitonin"`, 'ng253');
+    if (isAdult(f) && neut) blood('AE - Sepsis', 'now', `${neut} - possible neutropenic sepsis (add FBC differential per local pathway)`, 'cg151');
+    if (isChild(f) && (f.feverTL === 'Red' || neut)) blood('AE - Sepsis (Paediatric)', 'suggested', f.feverTL === 'Red' ? 'NICE fever traffic light RED (under 5)' : `${neut} - possible neutropenic sepsis`, f.feverTL === 'Red' ? 'ng143' : 'cg151');
     if (bleed) blood('Major Bleed Procedure', 'now', bleed, 'local', { timing: 'Major haemorrhage: follow the local major haemorrhage protocol' });
-    if (f.headInjury && f.flags.anticoag) blood('AE Head Injury on Warfarin', 'suggested', 'Head injury while on an anticoagulant (any, not only warfarin)', 'ng232');
+    if (f.headInjury && f.flags.anticoag) blood('AE Head Injury on Warfarin', 'suggested', 'Head injury while on an anticoagulant (any, not only warfarin)', 'local');
     if (dka || (ketoNeed && isAdult(f))) blood('AE - Hypoglycaemia - Hyperglycaemia', dka ? 'now' : 'suggested', dka ? `${dka} - possible DKA` : ketoNeed, dka ? (isChild(f) ? 'bspedDka' : 'jbdsDka') : (/SGLT2/.test(ketoNeed) ? 'mhraSglt2' : 'jbdsDka'));
 
     // Sample timing notes for bundles the complaint plan may already offer.
     const timingFor = {
-        'AE DSH Overdose': 'Paracetamol level at 4 hours or more after ingestion (staggered or unknown-time overdose: tell the clinician - treatment may not wait for a level)',
-        'AE Anaphylaxis': 'Mast cell tryptase: first sample as soon as possible after treatment starts, second ideally 1-2 hours (no later than 4 hours) after symptoms began',
+        'AE DSH Overdose': 'Paracetamol level from 4 hours after ingestion (the treatment nomogram starts at 4 hours). Staggered or unknown-time overdose: tell the clinician now - acetylcysteine is given without waiting for a level (MHRA)',
+        'AE Anaphylaxis': 'Mast cell tryptase (NICE NG258): first sample as soon as possible after emergency treatment starts, second ideally within 1-2 hours (no later than 4 hours) of symptom onset. Under 16s: only consider (venom, drug or unknown cause)',
         'AE Acute Coronary Syndrome': 'Troponin: repeat per the local high-sensitivity troponin pathway'
     };
     items.forEach(it => { if (it.category === 'Bloods' && timingFor[it.name] && !it.timing) it.timing = timingFor[it.name]; });
@@ -372,7 +377,7 @@ export function cannulaDecision(input, pre = null) {
     if (news(f) !== null && news(f) >= 7) fire('now', `${ewsLabel(f)} (7 or more) - emergency response`, 'local', big);
     if (f.ews.type === 'PEWS' && f.ews.score >= 7) fire('now', `${ewsLabel(f)} (high)`, 'local');
     if (sepsisHigh(f)) fire('now', 'NG253 high risk sepsis - antibiotics within 1 hour', 'ng253', big);
-    if (p.neut) fire('now', `${p.neut} - possible neutropenic sepsis: antibiotics are a medical emergency`, 'ng151', big);
+    if (p.neut) fire('now', `${p.neut} - possible neutropenic sepsis: empiric antibiotics immediately (medical emergency)`, 'cg151', big);
     if (f.feverTL === 'Red' && child) fire('recommended', 'NICE fever traffic light RED (under 5) - senior review; IV access likely', 'ng143');
     if (disc(f, /actively seizing|status epilepticus/i)) fire('now', 'Actively seizing - IV lorazepam if access is immediately available; otherwise do not delay buccal midazolam or rectal diazepam to get it', 'ng217', big);
     if (complaint(f, /Suspected Stroke/) && (f.lkwHours === null || f.lkwHours <= 24)) fire('now', f.lkwHours === null ? 'Suspected stroke - time last known well not yet recorded' : `Suspected stroke, last known well ${Math.round(f.lkwHours * 10) / 10} h ago - possible thrombolysis or thrombectomy (contrast scan)`, 'ng128', '18G');
@@ -386,7 +391,7 @@ export function cannulaDecision(input, pre = null) {
     if (news(f) !== null && news(f) >= 5 && news(f) < 7) fire('recommended', `${ewsLabel(f)} (5-6) - urgent response`, 'local', big);
     if (f.ews.type === 'PEWS' && f.ews.score >= 5 && f.ews.score < 7) fire('recommended', `${ewsLabel(f)}`, 'local');
     if (f.ews.type === 'MEOWS' && f.ews.score >= 3) fire('recommended', `${ewsLabel(f)} - maternity review`, 'local');
-    if (sepsisModerate(f)) fire('recommended', 'NG253 moderate risk sepsis - antibiotics may be needed within 3 hours', 'ng253', big);
+    if (sepsisMedium(f)) fire('recommended', 'NG253 medium risk sepsis - antibiotics may be deferred for up to 3 hours, but may be needed sooner', 'ng253', big);
     if (disc(f, /neck of femur/i)) fire('recommended', 'Suspected hip fracture - fluids and bloods', 'local', '18G');
     if (f.headInjury && f.flags.anticoag && f.ng232 && f.ng232 !== 'none') fire('recommended', 'Anticoagulated head injury meeting NICE CT criteria - reversal may be needed', 'local', '18G');
     if (disc(f, /severe dehydration/i)) fire('recommended', 'Severe dehydration - IV fluids likely', 'local');
@@ -394,7 +399,7 @@ export function cannulaDecision(input, pre = null) {
     // Consider
     if (f.level === 'Yellow') fire('consider', 'Yellow category', 'local');
     if (f.painOnlyOrange || (has(f.pain) && Number(f.pain) >= 8)) fire('consider', `Severe pain${has(f.pain) ? ` ${f.pain}/10` : ''} - only if IV analgesia is likely (offer oral, inhaled or intranasal first)`, 'local');
-    if (f.flags.sickle && (has(f.pain) ? Number(f.pain) >= 1 : true)) fire('consider', 'Sickle cell painful episode - analgesia within 30 minutes of arrival; route per the patient\'s care plan', 'cg143');
+    if (f.flags.sickle && (has(f.pain) ? Number(f.pain) >= 1 : true)) fire('consider', 'Sickle cell painful episode - analgesia within 30 minutes of presentation; route per the patient\'s care plan', 'cg143');
 
     // A complaint default of "recommended" is only a default: a Green or Blue patient with nothing
     // else firing does not need IV access yet.
@@ -414,8 +419,8 @@ export function cannulaDecision(input, pre = null) {
     if (decision === 'now' && /anaphylaxis|seizing/i.test(reasons.map(r => r.text).join(' '))) cautions.push('Do not delay first-line IM or buccal treatment to get IV access');
 
     const venepuncture = decision !== 'now' && decision !== 'recommended' && p.bloodsSuggested;
-    const notes = ['Insert a cannula only when IV treatment, IV contrast or another expected need is likely soon. Remove it when it is no longer needed.'];
+    const notes = ['App default: cannulate only when IV treatment, IV contrast or another IV need is likely soon. National guidance: remove a cannula as soon as it is no longer needed (epic3, NICE QS61).'];
     if (venepuncture) notes.unshift('Bloods are suggested but IV access is not yet needed: take them by venepuncture.');
 
-    return { decision, label: CANNULA_LABELS[decision], size: decision === 'not-needed' ? null : size, reasons, cautions, venepuncture, notes, notesSource: 'epic3' };
+    return { decision, label: CANNULA_LABELS[decision], size: decision === 'not-needed' ? null : size, reasons, cautions, venepuncture, notes, notesSources: ['epic3', 'qs61'] };
 }

@@ -1153,7 +1153,7 @@ class TriageApp {
         if (r) {
             if (sp.status === 'assessed') {
                 r.textContent = `${sp.risk} risk${sp.provisional ? ' (provisional - obs incomplete)' : ''}`;
-                r.className = `tool-result ${sp.risk === 'High' ? 'res-red' : (sp.risk === 'Moderate' ? 'res-amber' : 'res-grey')}`;
+                r.className = `tool-result ${sp.risk === 'High' ? 'res-red' : (sp.risk === 'Medium' ? 'res-amber' : 'res-grey')}`;
             } else { r.textContent = sp.status === 'not-suspected' ? 'Not applied' : 'Not assessed'; r.className = 'tool-result res-grey'; }
             this.$('sepsis-actions').textContent = sp.status === 'assessed' ? sp.actions : '';
             this.$('sepsis-judgement').textContent = sp.judgement || '';
@@ -1305,7 +1305,7 @@ class TriageApp {
         const e = d.ews;
         rows.push(['Obs', e.recorded === 0 ? ['Not taken', 'st-grey'] : (!e.complete ? [`${e.type} incomplete (${e.missing.length} missing), partial ${e.score}`, 'st-amber'] : [`${e.type} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk}` : ''}`, e.score >= 5 ? 'st-red' : ''])]);
         const sp = d.sepsis;
-        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Moderate' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
+        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Medium' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
         rows.push(['Pain', C.has(s.complaint.pain) ? [`${s.complaint.pain}/10 ${d.pain.band.toLowerCase()}`, s.complaint.pain >= 8 ? 'st-red' : ''] : ['Not assessed', 'st-grey']]);
         if (d.frailty) rows.push(['Frailty', [d.frailty.label, d.frailty.frail ? 'st-amber' : '']]);
         const al = s.history.allergies.trim();
@@ -1403,7 +1403,7 @@ class TriageApp {
         cd.innerHTML = `<span aria-hidden="true">💉</span><div><strong>Cannula: ${esc(cn.label)}</strong>${cn.size ? ` (${esc(cn.size)})` : ''}` +
             (reasons.length ? `<ul class="cannula-reasons">${reasons.map(r => `<li>${esc(r.text)}</li>`).join('')}</ul>` : '<div class="cannula-reasons">No IV access trigger from what is recorded so far.</div>') +
             (cn.cautions.length ? `<div class="cannula-cautions">${cn.cautions.map(c => `<div>⚠ ${esc(c)}</div>`).join('')}</div>` : '') +
-            `<div class="cannula-notes">${cn.notes.map(n => esc(n)).join(' ')}</div>${this.sourceHTML([...reasons, { source: cn.notesSource }])}</div>`;
+            `<div class="cannula-notes">${cn.notes.map(n => esc(n)).join(' ')}</div>${this.sourceHTML([...reasons, ...cn.notesSources.map(source => ({ source }))])}</div>`;
         container.appendChild(cd);
         if (cn.decision !== 'not-needed') {
             container.appendChild(this.planCheck({ name: 'IV cannula', why: cn.size ? `Size: ${cn.size}` : '' }, 'Cannula', '', { tag: cn.decision === 'now' ? 'now' : (cn.decision === 'recommended' ? 'suggested' : 'consider') }));
