@@ -274,6 +274,16 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 .protocol-when { font-size: 0.72rem; font-weight: 600; color: var(--primary); }
 .plan-consider .protocol-check-text > span { color: var(--secondary); }
 .plan-suggested { border-left: 3px solid var(--green); }
+.plan-now { border-left: 3px solid var(--red); }
+.plan-tag-now { background: var(--red); }
+.protocol-timing, .protocol-caution, .protocol-source { display: block; font-size: 0.7rem; font-weight: normal; }
+.protocol-timing { color: var(--primary); }
+.protocol-caution { color: var(--red); }
+.protocol-source { color: var(--secondary); }
+.protocol-source a { color: inherit; }
+.cannula-reasons { margin: 4px 0 0; padding-left: 18px; font-size: 0.8rem; }
+.cannula-cautions { margin-top: 4px; font-size: 0.8rem; font-weight: 600; }
+.cannula-notes { margin-top: 4px; font-size: 0.75rem; color: var(--secondary); }
 .placement-suggest h4 { margin: 0 0 4px; }
 .place-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 0.82rem; }
 .place-row > div { display: flex; flex-direction: column; min-width: 0; }

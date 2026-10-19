@@ -83,7 +83,7 @@ test('NG253 sepsis: only with suspected infection, 16+, not pregnant; NEWS2 band
     assert.equal(C.sepsisNG253({ age: 10, infection: 'yes', news: n(9) }).applicable, false);
     assert.equal(C.sepsisNG253({ age: 30, pregnant: true, infection: 'yes', news: n(9) }).applicable, false);
     assert.equal(C.sepsisNG253({ age: 40, infection: 'yes', news: n(7) }).risk, 'High');
-    assert.equal(C.sepsisNG253({ age: 40, infection: 'yes', news: n(5) }).risk, 'Moderate');
+    assert.equal(C.sepsisNG253({ age: 40, infection: 'yes', news: n(5) }).risk, 'Medium');
     assert.equal(C.sepsisNG253({ age: 40, infection: 'yes', news: n(1) }).risk, 'Low');
     assert.equal(C.sepsisNG253({ age: 40, infection: 'yes', news: n(0) }).risk, 'Very low');
     assert.match(C.sepsisNG253({ age: 40, infection: 'yes', news: n(3, { redParam: true }) }).judgement, /single parameter/);

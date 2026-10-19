@@ -162,8 +162,8 @@ export function localMeows(obs) {
 // ---------------------------------------------------------------------------------------------
 export function sepsisNG253({ age, pregnant, infection, news }) {
     if (age === null || age === undefined) return { applicable: false, status: 'no-age', text: 'Record age to use the NG253 sepsis tool.' };
-    if (age < 16) return { applicable: false, status: 'paeds', text: 'NG253 covers people 16 or over - use the paediatric sepsis pathway and PEWS/traffic light.' };
-    if (pregnant) return { applicable: false, status: 'pregnant', text: 'NG253 excludes pregnant or recently pregnant people - use the maternity sepsis pathway.' };
+    if (age < 16) return { applicable: false, status: 'paeds', text: 'NG253 covers people 16 or over - use the paediatric sepsis pathway (NICE NG254) and PEWS/traffic light.' };
+    if (pregnant) return { applicable: false, status: 'pregnant', text: 'NG253 excludes pregnant or recently pregnant people - use the maternity sepsis pathway (NICE NG255).' };
     if (infection !== 'yes') {
         return infection === 'no'
             ? { applicable: true, status: 'not-suspected', text: 'Infection not suspected - NG253 sepsis risk not applied.' }
@@ -173,15 +173,15 @@ export function sepsisNG253({ age, pregnant, infection, news }) {
     let risk, actions, reassessMins;
     if (s >= 7) {
         risk = 'High';
-        actions = 'Senior review. Broad-spectrum IV antibiotics within 1 hour of calculating NEWS2. Re-check NEWS2 every 30 minutes.';
+        actions = 'Urgent assessment by a clinician FY2 or above. Venous bloods (gas with glucose and lactate, cultures, FBC, CRP, U&E, creatinine, LFTs, clotting). Broad-spectrum IV antibiotics within 1 hour of calculating NEWS2; IV fluid bolus within 1 hour unless contraindicated. App default: re-check NEWS2 every 30 minutes.';
         reassessMins = 30;
     } else if (s >= 5) {
-        risk = 'Moderate';
-        actions = 'Review by a clinician (FY2 or above). Antibiotics may be deferred for up to 3 hours after the first NEWS2 while the cause is clarified. Re-check NEWS2 hourly.';
+        risk = 'Medium';
+        actions = 'Same venous bloods as high risk; a clinician FY2 or above reviews the patient and the venous lactate within 1 hour. Antibiotics may be deferred for up to 3 hours after the first NEWS2 while the cause is clarified. App default: re-check NEWS2 hourly.';
         reassessMins = 60;
     } else if (s >= 1) {
         risk = 'Low';
-        actions = 'Clinician assessment. If infection is confirmed, infection tests (e.g. 2 sets of blood cultures) and antibiotics within 6 hours. Re-check NEWS2 every 4-6 hours.';
+        actions = 'Review by a registered practitioner within 1 hour; blood tests if indicated. A clinician FY2 or above may defer antibiotics for up to 6 hours. Re-check NEWS2 at least every 4-6 hours (RCP).';
         reassessMins = 240;
     } else {
         risk = 'Very low';
@@ -189,7 +189,7 @@ export function sepsisNG253({ age, pregnant, infection, news }) {
         reassessMins = 720;
     }
     const judgement = news.redParam && s >= 3 && s <= 4
-        ? 'A single parameter scores 3: if that is caused by the infection, manage as moderate or high risk.'
+        ? 'A single parameter scores 3: if that is caused by the infection, manage as medium or high risk.'
         : '';
     const incomplete = !news.complete;
     // A partial NEWS2 of 7+ is already high risk; anything lower can only be provisional.
@@ -439,7 +439,7 @@ export function gestationFromLmp(lmp, now = new Date()) {
 
 // Nursing plan: is an item's `auto` condition met? (see protocols.js section 7b)
 // ctx: { age, pregnant, sepsis, anticoag, bm, discriminator }. Parts joined with + must all be met.
-export const PLAN_AUTO_KEYS = ['always', 'adult', 'child', 'sepsis', 'anticoag', 'pregnant', 'age50', 'age65', 'age5plus', 'bmLow', 'bmHigh'];
+export const PLAN_AUTO_KEYS = ['always', 'adult', 'child', 'sepsis', 'anticoag', 'pregnant', 'age50', 'age65', 'over5', 'bmLow', 'bmHigh'];
 export function planAutoMet(auto, ctx) {
     if (!auto) return false;
     if (auto.includes('+')) return auto.split('+').every(part => planAutoMet(part, ctx));
@@ -454,7 +454,7 @@ export function planAutoMet(auto, ctx) {
         case 'pregnant': return !!ctx.pregnant;
         case 'age50': return age !== null && age >= 50;
         case 'age65': return age !== null && age >= 65;
-        case 'age5plus': return age !== null && age >= 5;
+        case 'over5': return age !== null && age > 5; // SIGN 158 acute asthma: PEF criteria for age over 5
         case 'bmLow': return bm !== null && bm < 4;
         case 'bmHigh': return bm !== null && bm > 11;
         default: return false;

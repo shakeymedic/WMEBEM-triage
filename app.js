@@ -1,7 +1,8 @@
 import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
+import { evaluatePlan, autoContext, SOURCES } from './plan-engine.js';
 
-const VERSION = '20.2';
+const VERSION = '21.0';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -32,7 +33,7 @@ function freshState() {
         meta: { sessionId: newSessionId(), arrivalAt: new Date().toISOString(), startedAt: null, categorySetAt: null, lastCategory: null, obsAt: null, noteCopiedAt: null },
         patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, lmp: '', mobility: '', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '', localRef: '' },
         prehospital: { obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
-        obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, crt: null, avpu: null, gcsE: null, gcsV: null, gcsM: null, bm: null, pupils: '' },
+        obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, crt: null, avpu: null, gcsE: null, gcsV: null, gcsM: null, bm: null, ketones: null, pupils: '' },
         complaint: { name: '', raw: '', discriminator: null, noneApply: false, pain: null, painMethod: 'NRS', flacc: {} },
         history: { allergies: '', allergyReaction: '', pmh: '', meds: '', manualRiskFlags: {}, treatmentNotes: '', planNarrative: '' },
         assess: {
@@ -210,6 +211,7 @@ class TriageApp {
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
         this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
+        this.derived.plan = evaluatePlan(this.planFacts(), d.bloodProfiles);
     }
 
     activeTools(flowchart, disc, age) {
@@ -380,7 +382,7 @@ class TriageApp {
         ['ecg', 'pupils'].forEach(k => bindInput(`ph-obs-${k}`, `prehospital.obs.${k}`));
 
         // Obs
-        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm'].forEach(k => bindInput(`obs-${k}`, `obs.${k}`, num, (v) => this.validateObsField(`obs-${k}`, v)));
+        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm', 'ketones'].forEach(k => bindInput(`obs-${k}`, `obs.${k}`, num, (v) => this.validateObsField(`obs-${k}`, v)));
         bindInput('obs-pupils', 'obs.pupils');
         bindInput('obs-scale2', 'obs.scale2');
         ['e', 'v', 'm'].forEach(k => bindInput(`obs-gcs-${k}`, `obs.gcs${k.toUpperCase()}`, num));
@@ -1069,7 +1071,7 @@ class TriageApp {
         if (d.rosier) {
             res('rosier-result', d.rosier.text, d.rosier.likely ? 'res-red' : 'res-grey');
             const bm = this.$('rosier-bm');
-            if (bm) bm.textContent = C.has(s.obs.bm) ? `BM ${s.obs.bm} mmol/L${s.obs.bm < 3.5 ? ' - LOW: treat hypoglycaemia and reassess' : ''}` : 'Check BM first - hypoglycaemia can mimic stroke.';
+            if (bm) bm.textContent = C.has(s.obs.bm) ? `BM ${s.obs.bm} mmol/L${s.obs.bm < 4 ? ' - LOW: treat hypoglycaemia and reassess' : ''}` : 'Check BM first - hypoglycaemia can mimic stroke.';
         }
         if (d.fourAT) res('fourat-result', d.fourAT.text, d.fourAT.complete ? (d.fourAT.score >= 4 ? 'res-red' : (d.fourAT.score >= 1 ? 'res-amber' : 'res-green')) : 'res-grey');
     }
@@ -1151,7 +1153,7 @@ class TriageApp {
         if (r) {
             if (sp.status === 'assessed') {
                 r.textContent = `${sp.risk} risk${sp.provisional ? ' (provisional - obs incomplete)' : ''}`;
-                r.className = `tool-result ${sp.risk === 'High' ? 'res-red' : (sp.risk === 'Moderate' ? 'res-amber' : 'res-grey')}`;
+                r.className = `tool-result ${sp.risk === 'High' ? 'res-red' : (sp.risk === 'Medium' ? 'res-amber' : 'res-grey')}`;
             } else { r.textContent = sp.status === 'not-suspected' ? 'Not applied' : 'Not assessed'; r.className = 'tool-result res-grey'; }
             this.$('sepsis-actions').textContent = sp.status === 'assessed' ? sp.actions : '';
             this.$('sepsis-judgement').textContent = sp.judgement || '';
@@ -1270,17 +1272,14 @@ class TriageApp {
     }
 
     renderUniversalChecks() {
-        const p = this.state.patient, c = this.$('universal-checks-container');
-        // Anyone who could be pregnant: not male, not already known pregnant, age 12-55 or not yet recorded.
-        const show = p.sex !== 'Male' && !p.pregnant && (p.age === null || (p.age >= 12 && p.age <= 55));
-        c.classList.toggle('hidden', !show);
-        const key = show ? JSON.stringify([p.sex, p.age === null, this.state.plan.filter(i => i.category === 'Universal')]) : 'off';
+        const c = this.$('universal-checks-container');
+        const items = this.derived.plan.items.filter(i => i.category === 'Universal');
+        c.classList.toggle('hidden', !items.length);
+        const key = JSON.stringify(items.map(i => [i.name, i.status, i.reasons]));
         if (this.built.univ === key) return;
         this.built.univ = key;
-        if (!show) { c.innerHTML = ''; return; }
-        c.innerHTML = '<h4>Universal safety check</h4>';
-        const why = p.sex === 'Female' && p.age !== null ? 'Female aged 12-55 - exclude pregnancy whatever the complaint' : 'Age or sex not recorded yet - offer if the patient could be pregnant';
-        c.appendChild(this.planCheck({ name: 'Pregnancy test (urine hCG)', why }, 'Universal', '', { tag: 'suggested' }));
+        c.innerHTML = items.length ? '<h4>Universal safety check</h4>' : '';
+        items.forEach(it => c.appendChild(this.planItemEl(it)));
     }
 
     renderDecision() {
@@ -1306,7 +1305,7 @@ class TriageApp {
         const e = d.ews;
         rows.push(['Obs', e.recorded === 0 ? ['Not taken', 'st-grey'] : (!e.complete ? [`${e.type} incomplete (${e.missing.length} missing), partial ${e.score}`, 'st-amber'] : [`${e.type} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk}` : ''}`, e.score >= 5 ? 'st-red' : ''])]);
         const sp = d.sepsis;
-        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Moderate' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
+        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Medium' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
         rows.push(['Pain', C.has(s.complaint.pain) ? [`${s.complaint.pain}/10 ${d.pain.band.toLowerCase()}`, s.complaint.pain >= 8 ? 'st-red' : ''] : ['Not assessed', 'st-grey']]);
         if (d.frailty) rows.push(['Frailty', [d.frailty.label, d.frailty.frail ? 'st-amber' : '']]);
         const al = s.history.allergies.trim();
@@ -1323,15 +1322,38 @@ class TriageApp {
     }
 
     // ------------------------------------------------------------------ plan / protocols
-    // What the plan's `auto` conditions are evaluated against (see protocols.js section 7b).
-    planContext() {
-        const s = this.state, d = this.derived, o = s.obs;
+    // Facts for the investigations and cannula engine (plan-engine.js) - everything recorded so far.
+    planFacts() {
+        const s = this.state, d = this.derived, p = s.patient, h = s.history, mf = h.manualRiskFlags;
+        const risks = d.risks.join(' | ');
+        const meds = (h.meds || '').toLowerCase(), pmh = (h.pmh || '').toLowerCase();
+        const lkw = s.assess.stroke.lkw ? new Date(s.assess.stroke.lkw) : null;
+        const lkwHours = lkw && !Number.isNaN(lkw.getTime()) && lkw <= new Date() ? (Date.now() - lkw.getTime()) / 3600000 : null;
+        // Is the Orange category there only because of pain? (Severe pain alone does not need IV access.)
+        const orangeFrom = [];
+        if (d.disc && d.disc.priority === 'Orange') orangeFrom.push(/severe pain/i.test(d.disc.text) ? 'pain' : 'other');
+        d.floors.filter(f => f.level === 'Orange').forEach(f => orangeFrom.push(/pain ruler/.test(f.reason) ? 'pain' : 'other'));
+        if (s.triage.override && s.triage.override.level === 'Orange') orangeFrom.push('other');
         return {
-            age: s.patient.age, pregnant: s.patient.pregnant, bm: o.bm, discriminator: s.complaint.discriminator,
-            // Sepsis bloods: NG253 moderate/high risk (adults), NG143 amber/red (under 5s) or a sepsis discriminator.
-            sepsis: (d.sepsis.status === 'assessed' && (d.sepsis.risk === 'High' || d.sepsis.risk === 'Moderate')) ||
-                (d.feverRelevant && (d.feverTL.level === 'Red' || d.feverTL.level === 'Amber')) || /sepsis/i.test(s.complaint.discriminator || ''),
-            anticoag: s.assess.ng232Anticoag === null ? d.anticoagDetected : s.assess.ng232Anticoag
+            age: p.age, sex: p.sex, pregnant: p.pregnant,
+            complaint: s.complaint.name, discriminator: s.complaint.discriminator, level: d.level,
+            painOnlyOrange: d.level === 'Orange' && orangeFrom.length > 0 && orangeFrom.every(x => x === 'pain'),
+            ews: d.ews, obs: { ...s.obs, gcs: d.gcsTotal }, prehospitalBm: s.prehospital.obs.bm,
+            sepsisRisk: d.sepsis.status === 'assessed' ? d.sepsis.risk : null, infection: s.assess.infection,
+            feverTL: d.feverRelevant ? d.feverTL.level : null,
+            ng232: d.ng232 ? d.ng232.level : null, headInjury: !!d.ng232,
+            rosierLikely: !!(d.rosier && d.rosier.likely), lkwHours,
+            flags: {
+                anticoag: s.assess.ng232Anticoag === null ? d.anticoagDetected : s.assess.ng232Anticoag,
+                antiplatelet: !!mf.antiplatelet || /Antiplatelet/.test(risks),
+                insulin: /Insulin/.test(risks), sulphonylurea: /Sulphonylurea/.test(risks), sglt2: /SGLT2/.test(risks),
+                steroid: /Steroid/.test(risks), immunosuppressant: /Immunosuppressant|Biologic/.test(risks),
+                chemo: !!mf.chemo, sickle: !!mf.sickle, dialysis: !!mf.dialysis || /dialysis/.test(pmh),
+                lithium: /lithium|priadel|camcolit/.test(meds), digoxin: /digoxin/.test(meds)
+            },
+            diabetes: /diabet|\bt[12]dm\b|\biddm\b|\bniddm\b/.test(pmh),
+            pain: s.complaint.pain,
+            protocol: this.data.protocols[s.complaint.name] || null
         };
     }
 
@@ -1340,73 +1362,73 @@ class TriageApp {
         return value;
     }
 
-    // Cannula "consider" becomes "suggested now" when the patient is sick enough to need IV access.
-    cannulaNow() {
-        const d = this.derived;
-        if (d.level === 'Red' || d.level === 'Orange') return `${d.level} category`;
-        if (d.ews && d.ews.type === 'NEWS2' && d.ews.score >= 5) return `NEWS2 ${d.ews.score}`;
-        if (d.sepsis && d.sepsis.status === 'assessed' && (d.sepsis.risk === 'High' || d.sepsis.risk === 'Moderate')) return `${d.sepsis.risk.toLowerCase()} sepsis risk`;
-        return '';
+    sourceHTML(reasons) {
+        const keys = [...new Set(reasons.map(r => r.source).filter(k => k && k !== 'local' && SOURCES[k]))];
+        if (!keys.length) return reasons.some(r => r.source === 'local') ? '<small class="protocol-source">Source: app default - adopt or change locally</small>' : '';
+        return `<small class="protocol-source">Source: ${keys.map(k => SOURCES[k].url ? `<a href="${esc(SOURCES[k].url)}" target="_blank" rel="noopener">${esc(SOURCES[k].label)}</a>` : esc(SOURCES[k].label)).join('; ')}</small>`;
     }
 
-    // Nursing plan: cannula, bedside tests and samples, ED ICE blood bundles. No imaging (nursing scope).
+    planItemEl(it) {
+        const tag = it.status === 'now' ? 'now' : (it.status === 'suggested' ? 'suggested' : 'consider');
+        const because = it.reasons.length ? `Because: ${it.reasons.map(r => r.text).join('; ')}` : (it.when ? `Consider if ${it.when}` : '');
+        const extra = `${it.timing ? `<small class="protocol-timing">⏱ ${esc(it.timing)}</small>` : ''}${it.caution ? `<small class="protocol-caution">${esc(it.caution)}</small>` : ''}${it.reasons.length ? this.sourceHTML(it.reasons) : ''}`;
+        let why = it.why;
+        if (it.category === 'Bloods') why = `Includes: ${(this.data.bloodProfiles[it.name] || []).map(t => t.name).join(', ')}`;
+        const el = this.planCheck({ name: it.name, why }, it.category, '', { tag, hint: because, extraHTML: extra });
+        if (it.category === 'Bloods') el.classList.add('profile-check');
+        return el;
+    }
+
+    // Nursing plan from the engine: cannula decision, bedside tests and samples, ED ICE blood bundles.
+    // No imaging (nursing scope).
     renderProtocol() {
-        const complaint = this.state.complaint.name;
-        const proto = this.data.protocols[complaint];
-        const container = this.$('protocol-actions');
-        const ctx = this.planContext();
-        const mark = (list) => list.map(it => ({ ...it, on: C.planAutoMet(it.auto, ctx) }));
-        const bedside = proto ? mark(proto.bedside) : [], bloods = proto ? mark(proto.bloods) : [];
-        const now = proto && proto.cannula.status === 'consider' ? this.cannulaNow() : '';
-        const key = JSON.stringify([complaint, bedside.map(x => x.on), bloods.map(x => x.on), now]);
+        const s = this.state, plan = this.derived.plan, container = this.$('protocol-actions');
+        const cn = plan.cannula;
+        const body = plan.items.filter(i => i.category !== 'Universal');
+        const key = JSON.stringify([s.complaint.name, cn, body.map(i => [i.name, i.status, i.reasons, i.when, i.timing]), plan.notes]);
         if (this.built.protocolKey === key) return;
         this.built.protocolKey = key;
         container.innerHTML = '';
-        if (!complaint) { container.innerHTML = '<p class="placeholder-text">Choose a complaint to see suggested investigations.</p>'; return; }
-        if (!proto) { container.innerHTML = `<p class="placeholder-text">No suggested investigations for "${esc(complaint)}".</p>`; return; }
+        if (!s.complaint.name && !body.length && cn.decision === 'not-needed') { container.innerHTML = '<p class="placeholder-text">Choose a complaint to see suggested investigations.</p>'; return; }
 
         const intro = document.createElement('p');
         intro.className = 'plan-intro';
-        intro.textContent = 'Suggested = indicated now from the complaint, discriminator, obs or history. "Consider if" = only when that applies. Nursing investigations only - use clinical judgement and local policy.';
+        intro.textContent = 'Do now = time-critical. Suggested = indicated by the complaint, discriminator, obs or history (reasons shown). "Consider if" = only when that applies. Nursing investigations only - use clinical judgement and local policy.';
         container.appendChild(intro);
 
-        const cn = proto.cannula;
-        const label = { recommended: 'Recommended', consider: now ? 'Suggested now' : 'Consider', 'not-routine': 'Not routinely needed' }[cn.status];
-        const tone = cn.status === 'recommended' || now ? 'red' : (cn.status === 'consider' ? 'amber' : 'green');
+        const tone = { now: 'red', recommended: 'red', consider: 'amber', 'not-needed': 'green' }[cn.decision];
         const cd = document.createElement('div');
         cd.className = `cannula-badge cannula-${tone}`;
-        cd.innerHTML = `<span aria-hidden="true">💉</span><div><strong>Cannula: ${label}</strong>${cn.size ? ` (${esc(cn.size)})` : ''} - ${esc(cn.reason)}${now ? ` <em>(${esc(now)})</em>` : ''}</div>`;
+        const reasons = cn.reasons.filter(r => r.level === cn.decision || cn.decision === 'consider');
+        cd.innerHTML = `<span aria-hidden="true">💉</span><div><strong>Cannula: ${esc(cn.label)}</strong>${cn.size ? ` (${esc(cn.size)})` : ''}` +
+            (reasons.length ? `<ul class="cannula-reasons">${reasons.map(r => `<li>${esc(r.text)}</li>`).join('')}</ul>` : '<div class="cannula-reasons">No IV access trigger from what is recorded so far.</div>') +
+            (cn.cautions.length ? `<div class="cannula-cautions">${cn.cautions.map(c => `<div>⚠ ${esc(c)}</div>`).join('')}</div>` : '') +
+            `<div class="cannula-notes">${cn.notes.map(n => esc(n)).join(' ')}</div>${this.sourceHTML([...reasons, ...cn.notesSources.map(source => ({ source }))])}</div>`;
         container.appendChild(cd);
-        if (cn.status !== 'not-routine') {
-            const tag = cn.status === 'recommended' || now ? 'suggested' : 'consider';
-            container.appendChild(this.planCheck({ name: `IV cannula ${cn.size}`, why: '' }, 'Cannula', '', { tag }));
+        if (cn.decision !== 'not-needed') {
+            container.appendChild(this.planCheck({ name: 'IV cannula', why: cn.size ? `Size: ${cn.size}` : '' }, 'Cannula', '', { tag: cn.decision === 'now' ? 'now' : (cn.decision === 'recommended' ? 'suggested' : 'consider') }));
         }
 
-        const order = (list) => [...list.filter(x => x.on), ...list.filter(x => !x.on)];
-        const opts = (it) => it.on ? { tag: 'suggested', hint: it.when && it.auto !== 'always' ? `Because: ${it.when}` : '' } : { tag: 'consider', hint: `Consider if ${it.when}` };
         const grid = document.createElement('div');
         grid.className = 'tests-grid';
         const sec = document.createElement('div');
         sec.className = 'test-category';
         sec.innerHTML = '<h4>Bedside tests &amp; samples</h4>';
-        if (bedside.length) order(bedside).forEach(t => sec.appendChild(this.planCheck(t, 'Bedside', '', opts(t))));
+        const bedside = body.filter(i => i.category === 'Bedside');
+        if (bedside.length) bedside.forEach(t => sec.appendChild(this.planItemEl(t)));
         else sec.insertAdjacentHTML('beforeend', '<p class="plan-note">No routine bedside tests for this presentation beyond full obs.</p>');
         grid.appendChild(sec);
 
         const bl = document.createElement('div');
         bl.className = 'test-category';
         bl.innerHTML = '<h4>Bloods - ED ICE bundles</h4>';
-        order(bloods).forEach(b => {
-            const tests = (this.data.bloodProfiles[b.profile] || []).map(t => t.name).join(', ');
-            const el = this.planCheck({ name: b.profile, why: `Includes: ${tests}` }, 'Bloods', '', opts(b));
-            el.classList.add('profile-check');
-            bl.appendChild(el);
-        });
-        if (proto.bloodsNote) bl.insertAdjacentHTML('beforeend', `<p class="plan-note">${esc(proto.bloodsNote)}</p>`);
-        else if (!bloods.length) bl.insertAdjacentHTML('beforeend', '<p class="plan-note">No ED blood bundle for this presentation - bloods only if a clinician requests them.</p>');
+        const bloods = body.filter(i => i.category === 'Bloods');
+        bloods.forEach(b => bl.appendChild(this.planItemEl(b)));
+        if (!bloods.length && !plan.notes.some(n => n.source === 'local')) bl.insertAdjacentHTML('beforeend', '<p class="plan-note">No ED blood bundle for this presentation - bloods only if a clinician requests them.</p>');
         if (bloods.length) bl.insertAdjacentHTML('beforeend', '<div class="bbv-note">Trust policy: ICE adds a BBV screen (Hep B, Hep C, HIV) to these requests if not done in the past 12 months.</div>');
         grid.appendChild(bl);
         container.appendChild(grid);
+        plan.notes.forEach(n => container.insertAdjacentHTML('beforeend', `<p class="plan-note">${esc(n.text)} ${n.source !== 'local' ? this.sourceHTML([n]) : ''}</p>`));
     }
 
     // Suggested placement: category-based default plus the complaint's pathways (subject to local criteria).
@@ -1414,7 +1436,7 @@ class TriageApp {
         const s = this.state, d = this.derived, box = this.$('placement-suggest');
         const base = C.basePlacement({ level: d.level, isPaeds: d.isPaeds, mobility: s.patient.mobility });
         const proto = this.data.protocols[s.complaint.name];
-        const ctx = this.planContext();
+        const ctx = autoContext(this.planFacts());
         // Once a discriminator is chosen, pathways that depend only on a different discriminator are irrelevant.
         const chosen = !!s.complaint.discriminator || s.complaint.noneApply;
         const paths = proto ? proto.pathways.map(p => ({ ...p, on: C.planAutoMet(p.auto, ctx) }))
@@ -1439,8 +1461,8 @@ class TriageApp {
         const why = typeof test === 'string' ? '' : (test.why || '');
         const div = document.createElement('div');
         div.className = `protocol-check${opts.tag ? ` plan-${opts.tag}` : ''}`;
-        const tag = opts.tag === 'suggested' ? '<span class="plan-tag">Suggested</span>' : '';
-        div.innerHTML = `<input type="checkbox" aria-label="${esc(name)}"> <div class="protocol-check-text"><span>${category === 'Bloods' ? `<strong>${esc(name)}</strong>` : esc(name)}${tag}</span>${opts.hint ? `<small class="protocol-when">${esc(opts.hint)}</small>` : ''}${why ? `<small class="protocol-why">${esc(why)}</small>` : ''}</div>${info ? this.infoPopoverHTML(info) : ''}` +
+        const tag = opts.tag === 'now' ? '<span class="plan-tag plan-tag-now">Do now</span>' : (opts.tag === 'suggested' ? '<span class="plan-tag">Suggested</span>' : '');
+        div.innerHTML = `<input type="checkbox" aria-label="${esc(name)}"> <div class="protocol-check-text"><span>${category === 'Bloods' ? `<strong>${esc(name)}</strong>` : esc(name)}${tag}</span>${opts.hint ? `<small class="protocol-when">${esc(opts.hint)}</small>` : ''}${why ? `<small class="protocol-why">${esc(why)}</small>` : ''}${opts.extraHTML || ''}</div>${info ? this.infoPopoverHTML(info) : ''}` +
             `<div class="status-control" role="group" aria-label="${esc(name)} status">${['Planned', 'Requested', 'Done'].map(o => `<button type="button" class="status-btn" data-status="${o}">${o}</button>`).join('')}</div>`;
         const input = div.querySelector('input');
         const statusBox = div.querySelector('.status-control');
@@ -1496,7 +1518,7 @@ class TriageApp {
     validateObsField(id, value) {
         const bounds = {
             'obs-rr': [4, 60, 0, 100], 'obs-sats': [50, 100, 0, 100], 'obs-sbp': [40, 260, 0, 300], 'obs-dbp': [20, 160, 0, 200],
-            'obs-hr': [25, 220, 0, 300], 'obs-temp': [30, 42, 20, 45], 'obs-crt': [0, 8, 0, 15], 'obs-bm': [1, 35, 0, 60]
+            'obs-hr': [25, 220, 0, 300], 'obs-temp': [30, 42, 20, 45], 'obs-crt': [0, 8, 0, 15], 'obs-bm': [1, 35, 0, 60], 'obs-ketones': [0, 8, 0, 15]
         }[id];
         const el = this.$(id);
         if (!bounds || !el) return;
@@ -1546,7 +1568,7 @@ class TriageApp {
         else if (p.age !== null && p.age >= 65) lines.push('Clinical Frailty Scale: NOT RECORDED');
         lines.push(`Pain: ${C.has(s.complaint.pain) ? `${s.complaint.pain}/10 - ${d.pain.band.toLowerCase()}${s.complaint.painMethod === 'FLACC' ? ' (FLACC)' : ''}` : 'Not assessed'}`);
         const gcs = d.gcsTotal !== null ? `${d.gcsTotal} (E${o.gcsE} V${o.gcsV} M${o.gcsM})` : '-';
-        lines.push(`Obs: RR ${f(o.rr)} | SpO2 ${f(o.sats, '%')} ${o.o2 ? (o.o2 === 'O2' ? 'on O2' : 'air') : '(air/O2 not recorded)'}${o.scale2 ? ' [scale 2]' : ''} | BP ${f(o.sbp)}/${f(o.dbp)} | HR ${f(o.hr)} | ACVPU ${o.avpu || '-'} | Temp ${f(o.temp)} | CRT ${f(o.crt, 's')} | GCS ${gcs} | BM ${f(o.bm)} | Pupils ${o.pupils || '-'}`);
+        lines.push(`Obs: RR ${f(o.rr)} | SpO2 ${f(o.sats, '%')} ${o.o2 ? (o.o2 === 'O2' ? 'on O2' : 'air') : '(air/O2 not recorded)'}${o.scale2 ? ' [scale 2]' : ''} | BP ${f(o.sbp)}/${f(o.dbp)} | HR ${f(o.hr)} | ACVPU ${o.avpu || '-'} | Temp ${f(o.temp)} | CRT ${f(o.crt, 's')} | GCS ${gcs} | BM ${f(o.bm)}${C.has(o.ketones) ? ` | Ketones ${o.ketones}` : ''} | Pupils ${o.pupils || '-'}`);
         const e = d.ews;
         const ewsName = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
         if (e.recorded === 0) lines.push(`${ewsName}: NOT CALCULATED - no obs recorded`);
@@ -1585,6 +1607,8 @@ class TriageApp {
         const scr = Object.entries(this.data.screening).filter(([k]) => s.screening[k]).map(([k, def]) => `${def.label}: ${def.options ? (def.options.find(o2 => o2.val === s.screening[k]) || {}).text : s.screening[k]}`);
         if (scr.length) lines.push(`Screening: ${scr.join('; ')}`);
         if (d.ipcFlag) lines.push(`Infection control: ${Object.entries(s.assess.ipc).filter(([, v]) => v).map(([k]) => ({ dv: 'D&V', resp: 'respiratory symptoms', rash: 'rash with fever', travel: 'recent travel', mdro: 'resistant organism' }[k])).join(', ')} - side room / isolation per local policy`);
+        const cn = d.plan.cannula;
+        if (s.complaint.name || cn.decision !== 'not-needed') lines.push(`Cannula decision support: ${cn.label}${cn.size ? ` (${cn.size})` : ''}${cn.reasons.length ? ` - ${cn.reasons.filter(r => r.level === cn.decision || cn.decision === 'consider').map(r => r.text).join('; ')}` : ''}`);
         if (s.plan.length) {
             const g = {};
             s.plan.forEach(i => { (g[i.category] = g[i.category] || []).push(`${i.name} (${i.status})`); });
@@ -1785,7 +1809,7 @@ class TriageApp {
         chk('check-pregnant', p.pregnant); val('date-lmp', p.lmp); val('patient-ref', p.localRef); val('amb-callsign', p.ambulanceCallSign); val('amb-caseid', p.ambulanceCaseId);
         val('ph-hpc', ph.hpc); val('ph-tx', ph.tx); val('ph-tx-time', ph.txTime); val('ph-social', ph.social);
         ['rr', 'sats', 'sbp', 'dbp', 'hr', 'gcs', 'bm', 'ecg', 'pupils'].forEach(k => val(`ph-obs-${k}`, ph.obs[k]));
-        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm'].forEach(k => { val(`obs-${k}`, o[k]); this.validateObsField(`obs-${k}`, o[k]); });
+        ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm', 'ketones'].forEach(k => { val(`obs-${k}`, o[k]); this.validateObsField(`obs-${k}`, o[k]); });
         val('obs-pupils', o.pupils); chk('obs-scale2', o.scale2);
         val('obs-gcs-e', o.gcsE); val('obs-gcs-v', o.gcsV); val('obs-gcs-m', o.gcsM);
         val('input-complaint', s.complaint.name || s.complaint.raw);

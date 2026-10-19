@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v20.2</title>
+    <title>EMEvidence Triage v21.0</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -85,10 +85,15 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v20.2</h3>
+            <h3 id="whatsnew-heading">What's new in v21.0</h3>
             <ul class="whatsnew-list">
-                <li><strong>Clinical Frailty Scale</strong> under the pain score (hidden for children). Press "Show criteria" for the full Rockwood CFS descriptions and click one to choose it. Flagged as missing for anyone 65 or over.</li>
-                <li><strong>Plan &amp; placement:</strong> each complaint now suggests nursing investigations (ECG, BM, urine dip, peak flow, VBG, ketones, bladder scan and more), cannula advice and the ED ICE blood bundles. Items are "Suggested" when your answers, obs or discriminator call for them, otherwise "Consider if…". No imaging. Placement is suggested from the category plus the complaint's pathways.</li>
+                <li><strong>New investigations and cannula engine.</strong> The plan now reacts to everything you record, not just the complaint: obs, NEWS2, sepsis risk, BM and ketones, consciousness, pregnancy, high-risk medicines and the head injury, stroke and fever tools. Each suggestion shows <em>why</em> it fired and its source.</li>
+                <li><strong>"Do now"</strong> marks time-critical tests (for example ECG within 10 minutes for chest pain, blood cultures and gas for high-risk sepsis, BM when consciousness is reduced).</li>
+                <li><strong>Cannula decision:</strong> Insert now / Recommended / Consider / Not needed now, with the reasons, a suggested size and cautions (fistula arm, injured limb, children). A cannula is only advised when IV treatment is likely soon (sepsis, shock, bleeding, hypoxia, severe asthma, fast arrhythmia, DKA, stroke within 24 h, antidotes, hip fracture). Stable chest pain, confusion, collapse and overdose get their bloods by venepuncture instead of an idle cannula.</li>
+                <li><strong>"Neck breather"</strong> is now <strong>"Altered airway (tracheostomy / laryngectomy)"</strong>, with the reminder to oxygenate the stoma.</li>
+                <li><strong>Ketones</strong> box next to BM: ketones of 3.0 or more with a high BM flags possible DKA.</li>
+                <li><strong>Over 65s:</strong> no urine dipstick to look for infection (UKHSA) - the plan offers a urine culture only if a UTI is suspected.</li>
+                <li><strong>Pregnancy test</strong> becomes "Do now" for abdominal pain, PV bleeding, collapse, urinary or gut symptoms in anyone who could be pregnant (NICE NG126).</li>
                 <li><strong>Decision panel</strong> stays on screen: category, "see by" time, NEWS2, sepsis and anything still missing.</li>
                 <li><strong>Nothing is assumed.</strong> Pain, consciousness, oxygen and mobility start as "not recorded"; patients show NOT YET TRIAGED until you choose a discriminator.</li>
                 <li><strong>NEWS2 is only shown as a score when all 7 observations are recorded.</strong> SpO₂ Scale 2 now follows the RCP chart exactly, and ACVPU includes new confusion.</li>
@@ -109,7 +114,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v20.2 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.0 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -303,6 +308,7 @@
                             </div>
                         </div>
                         <div class="obs-item" data-param="bm"><label for="obs-bm">BM</label><input type="number" id="obs-bm" class="obs-input" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
+                        <div class="obs-item" data-param="ketones"><label for="obs-ketones">Ketones <small class="text-muted">if checked</small></label><input type="number" id="obs-ketones" class="obs-input" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
                         <div class="obs-item" data-param="pupils"><label for="obs-pupils">Pupils</label><input type="text" id="obs-pupils" class="obs-input" placeholder="PEARL" autocomplete="off"></div>
                         <div class="obs-item" data-param="scale2"><label class="check-row check-row-plain" for="obs-scale2"><input type="checkbox" id="obs-scale2"> <span>CO₂ retainer <small class="text-muted">SpO₂ scale 2</small></span></label></div>
                     </div>
@@ -445,7 +451,7 @@
     </aside>
 
     <footer>
-        <p>v20.2 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.0 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>
