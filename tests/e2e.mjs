@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '20.2');
+                localStorage.setItem('seenVersion', '21.0');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -224,6 +224,7 @@ await p.click('[data-action="ecg-done"]');
 check('ECG done recorded in note', (await note(p)).includes('ECG: done'));
 const acs = p.locator('.profile-check', { hasText: 'AE Acute Coronary Syndrome' });
 check('Chest pain adult: ACS bundle suggested', (await acs.getAttribute('class')).includes('plan-suggested'));
+check('Chest pain: ECG is "Do now" with the 10-minute timing', (await p.locator('#protocol-actions .protocol-check', { hasText: '12-lead ECG' }).getAttribute('class')).includes('plan-now') && (await p.textContent('#protocol-actions')).includes('Within 10 minutes'));
 await acs.locator('input').check();
 await acs.locator('.status-btn[data-status="Requested"]').click();
 check('Bloods profile with status in note', (await note(p)).includes('AE Acute Coronary Syndrome (Requested)'));
@@ -249,7 +250,9 @@ const nof = p.locator('.profile-check', { hasText: 'AE Fractured Neck of Femur' 
 check('Falls: NOF bundle only "consider" before the discriminator', (await nof.getAttribute('class')).includes('plan-consider'));
 await disc(p, 'Suspected neck of femur fracture');
 check('Falls + suspected #NOF: NOF bundle suggested', (await nof.getAttribute('class')).includes('plan-suggested'));
-check('Orange: cannula suggested now', (await p.textContent('#protocol-actions')).includes('Cannula: Suggested now'));
+check('Orange #NOF: cannula recommended with reasons', (await p.textContent('#protocol-actions')).includes('Cannula: Recommended') && (await p.textContent('.cannula-reasons')).includes('Suspected hip fracture'));
+check('82-year-old: no urine dip for infection, culture only if suspected', !(await p.textContent('#protocol-actions')).includes('Urine dip') && (await p.textContent('#protocol-actions')).includes('Urine sample for culture'));
+check('Note records the cannula decision', (await note(p)).includes('Cannula decision support: Recommended'));
 check('Orange adult: Majors suggested', (await p.textContent('#placement-suggest')).includes('Majors cubicle'));
 let planText = '';
 for (const c of ['Chest Pain', 'Major Trauma', 'Abdominal Pain in Adults', 'Suspected DVT / PE']) { await pick(p, c); planText += await p.textContent('#card-plan'); }
@@ -262,7 +265,10 @@ await pick(p, 'Abdominal Pain in Children');
 await p.fill('#patient-age', '9'); await p.fill('#obs-bm', '16');
 const ket = p.locator('#protocol-actions .protocol-check', { hasText: 'Capillary blood ketones' });
 check('Child abdominal pain + high BM: ketones suggested', (await ket.getAttribute('class')).includes('plan-suggested'));
-check('Child: cannula not routinely needed', (await p.textContent('#protocol-actions')).includes('Not routinely needed'));
+check('Child: cannula not needed now', (await p.textContent('#protocol-actions')).includes('Cannula: Not needed now'));
+await p.fill('#obs-ketones', '4.1');
+check('Child BM 16 + ketones 4.1: cannula now and gas now', (await p.textContent('#protocol-actions')).includes('Cannula: Insert now') && (await p.locator('#protocol-actions .protocol-check', { hasText: 'Venous blood gas' }).getAttribute('class')).includes('plan-now'));
+await p.fill('#obs-ketones', '');
 await pick(p, 'Rash');
 const psep = p.locator('.profile-check', { hasText: 'AE - Sepsis (Paediatric)' });
 check('Child rash: sepsis bloods not suggested for a blanching rash', (await psep.getAttribute('class')).includes('plan-consider'));
@@ -276,7 +282,9 @@ await p.click('#yn-assess-infection button[data-value="yes"]');
 const sep = p.locator('.profile-check', { hasText: 'AE - Sepsis' });
 check('Sore throat, infection yes, normal obs: sepsis bloods only "consider"', (await sep.getAttribute('class')).includes('plan-consider'));
 await setObs(p, { rr: 24, sats: 95, sbp: 105, hr: 115, temp: 38.6 }); await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
-check('Sore throat with NEWS2 5+: sepsis bloods suggested', (await sep.getAttribute('class')).includes('plan-suggested'));
+check('Sore throat with NEWS2 7 (high risk): sepsis bloods "do now"', (await sep.getAttribute('class')).includes('plan-now'));
+check('High risk sepsis: blood cultures do now, with a NICE source link', (await p.locator('#protocol-actions .protocol-check', { hasText: 'Blood cultures' }).getAttribute('class')).includes('plan-now') && await p.locator('#protocol-actions a[href*="nice.org.uk/guidance/ng253"]').count() > 0);
+check('High risk sepsis: cannula insert now', (await p.textContent('#protocol-actions')).includes('Cannula: Insert now'));
 allErrors.push(...p.errors); await p.context().close();
 
 // 13c. Clinical Frailty Scale.
