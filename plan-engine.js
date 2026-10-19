@@ -381,7 +381,7 @@ export function cannulaDecision(input, pre = null) {
     if (p.neut) fire('now', `${p.neut} - possible neutropenic sepsis: empiric antibiotics immediately (medical emergency)`, 'cg151', big);
     if (f.feverTL === 'Red' && child) fire('recommended', 'NICE fever traffic light RED (under 5) - senior review; IV access likely', 'ng143');
     if (disc(f, /actively seizing|status epilepticus/i)) fire('now', 'Actively seizing - IV lorazepam if access is immediately available; otherwise do not delay buccal midazolam or rectal diazepam to get it', 'ng217', big);
-    if (complaint(f, /Suspected Stroke/) && (f.lkwHours === null || f.lkwHours <= 24)) fire('now', f.lkwHours === null ? 'Suspected stroke - time last known well not yet recorded' : `Suspected stroke, last known well ${Math.round(f.lkwHours * 10) / 10} h ago - possible thrombolysis or thrombectomy (contrast scan)`, 'ng128', '18G');
+    if (complaint(f, /Suspected Stroke/) && (f.lkwHours === null || f.lkwHours <= 24)) fire('now', f.lkwHours === null ? 'Suspected stroke - time last known well not yet recorded' : `Suspected stroke, last known well ${Math.round(f.lkwHours * 10) / 10} h ago - possible thrombolysis or thrombectomy (the stroke team needs IV access)`, 'ng128', '18G');
     if (complaint(f, /^(Allergy|Bites and Stings|Rash)$/) && disc(f, /airway compromise|shock|stridor|anaphylaxis/i)) fire('now', 'Anaphylaxis - give IM adrenaline first; do not delay it for IV access', 'rcukAnaphylaxis', big);
     if (p.dka) fire('now', `${p.dka} - possible DKA: IV fluids and insulin`, child ? 'bspedDka' : 'jbdsDka', big);
     if (p.hypo && p.rc) fire('now', `${p.hypo} with reduced consciousness - cannot take oral glucose`, 'local', child ? null : '20G');
