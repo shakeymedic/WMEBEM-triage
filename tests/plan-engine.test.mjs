@@ -285,3 +285,57 @@ test('Three tiers: bloods without a cannula, a cannula, or nothing', () => {
         assert.ok(['not-needed', 'consider'].includes(r.cannula.decision), f.complaint);
     }
 });
+
+test('NG254 (ages 5 to 15): high and moderate-to-high bands drive gas, cultures, paediatric bloods and cannula', () => {
+    const hi = run({ age: 9, complaint: 'Unwell Child', level: 'Orange', sepsisRisk: 'High', sepsisGuideline: 'NG254', sepsisLabel: 'High risk', infection: 'yes', ews: { type: 'PEWS', score: 4 } });
+    assert.equal(status(hi, T.vbg), 'now');
+    assert.equal(status(hi, T.cultures), 'now');
+    assert.equal(status(hi, 'AE - Sepsis (Paediatric)', 'Bloods'), 'now');
+    assert.equal(item(hi, 'AE - Sepsis', 'Bloods'), undefined, 'adult sepsis bundle not used for a child');
+    assert.equal(hi.cannula.decision, 'now');
+    assert.ok(hi.cannula.reasons.some(x => x.source === 'ng254'));
+    assert.match(item(hi, T.cultures).reasons[0].text, /^NG254 high risk sepsis/);
+    const mid = run({ age: 13, complaint: 'Unwell Child', level: 'Yellow', sepsisRisk: 'Medium', sepsisGuideline: 'NG254', sepsisLabel: 'Moderate to high risk (2 criteria)', infection: 'yes', ews: { type: 'PEWS', score: 2 } });
+    assert.equal(status(mid, T.vbg), 'now');
+    assert.equal(mid.cannula.decision, 'recommended');
+    assert.match(mid.cannula.reasons.find(x => x.source === 'ng254').text, /lactate reviewed within 1 hour/);
+});
+
+test('ECG triggers: chest pain anywhere, breathlessness, new oxygen need and cardiac history (adults)', () => {
+    assert.equal(status(run({ age: 40, complaint: 'Palpitations', discriminator: 'Chest Pain' }), T.ecg), 'now');
+    assert.equal(status(run({ age: 50, complaint: 'Suspected DVT / PE', discriminator: 'Pleuritic chest pain with hypoxia' }), T.ecg), 'now');
+    assert.equal(status(run({ age: 30, complaint: 'Asthma', discriminator: 'Moderate respiratory distress' }), T.ecg), 'suggested');
+    const o2 = run({ age: 30, complaint: 'Limb Problems', obs: { o2: 'O2', sats: 96 } });
+    assert.ok(item(o2, T.ecg).reasons.some(r => /New oxygen requirement/.test(r.text)));
+    assert.equal(status(run({ age: 30, complaint: 'Limb Problems', obs: { o2: 'Air', sats: 93 } }), T.ecg), 'suggested');
+    assert.equal(item(run({ age: 30, complaint: 'Limb Problems', obs: { o2: 'Air', sats: 90, scale2: true } }), T.ecg), undefined, 'scale 2: 88% target');
+    assert.equal(item(run({ age: 6, complaint: 'Shortness of Breath in Children', obs: { o2: 'O2' } }), T.ecg), undefined, 'not routine in children');
+    assert.equal(status(run({ age: 60, complaint: 'Abdominal Pain in Adults', cardiacHistory: 'heart failure' }), T.ecg), 'suggested');
+    assert.equal(item(run({ age: 60, complaint: 'Wounds', cardiacHistory: 'AF' }), T.ecg), undefined, 'minor wound: cardiac history alone is not enough');
+    assert.equal(status(run({ age: 60, complaint: 'Wounds', cardiacHistory: 'AF', ews: news(3) }), T.ecg), 'suggested');
+});
+
+test('cardiacHistoryFrom: finds significant cardiac history in PMH without false matches', async () => {
+    const { cardiacHistoryFrom } = await import('../plan-engine.js');
+    for (const t of ['IHD', 'previous MI 2019', 'AF on apixaban', 'heart failure', 'CABG x3', 'pacemaker', 'NSTEMI', 'angina', 'aortic stenosis']) assert.notEqual(cardiacHistoryFrom(t), '', t);
+    for (const t of ['asthma', 'ureteric stent', 'migraine', 'family history', 'affected', 'diabetes', '']) assert.equal(cardiacHistoryFrom(t), '', t);
+});
+
+test('VBG low threshold: lactate, gas or electrolytes wherever they would help', () => {
+    const gas = (f) => status(run(f), T.vbg);
+    assert.equal(gas({ age: 40, complaint: 'Abdominal Pain in Adults', discriminator: 'Mild pain', level: 'Green' }), 'suggested');
+    assert.equal(gas({ age: 20, complaint: 'Overdose and Poisoning', discriminator: 'Symptomatic but stable' }), 'suggested');
+    assert.equal(gas({ age: 15, complaint: 'Overdose and Poisoning' }), 'suggested');
+    assert.equal(gas({ age: 30, complaint: 'Diarrhoea and Vomiting', discriminator: 'Mild Dehydration' }), 'suggested');
+    assert.equal(gas({ age: 4, complaint: 'Abdominal Pain in Children', discriminator: 'Dehydration' }), 'suggested');
+    assert.equal(gas({ age: 80, complaint: 'Confusion' }), 'suggested');
+    assert.equal(gas({ age: 50, complaint: 'Limb Problems', obs: { avpu: 'C' } }), 'suggested');
+    assert.equal(gas({ age: 50, complaint: 'Limb Problems', ews: news(3) }), 'suggested');
+    assert.equal(gas({ age: 50, complaint: 'Limb Problems', obs: { temp: 34.5 } }), 'suggested');
+    assert.equal(gas({ age: 50, complaint: 'Limb Problems', obs: { o2: 'Air', sats: 91 } }), 'suggested');
+    assert.equal(gas({ age: 50, complaint: 'Collapse' }), 'suggested');
+    // Still nothing for the well minor-injury patient
+    for (const f of [{ age: 30, complaint: 'Wounds', discriminator: 'Graze/Glue', level: 'Green', ews: news(0) }, { age: 25, complaint: 'Sore Throat', ews: news(1) }, { age: 6, complaint: 'Limping Child' }]) {
+        assert.equal(item(run(f), T.vbg), undefined, f.complaint);
+    }
+});

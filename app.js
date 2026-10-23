@@ -1,8 +1,8 @@
 import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
-import { evaluatePlan, autoContext, SOURCES } from './plan-engine.js';
+import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
 
-const VERSION = '21.0';
+const VERSION = '21.1';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -23,6 +23,8 @@ const store = {
 
 const hhmm = (d) => d ? new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
 const ddmmyyyy = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
+// NG253 risks are one word ('High'); NG254 risks carry their own wording ('Moderate to high risk (2 criteria)').
+const sepsisRiskText = (sp) => (sp.guideline === 'NG254' ? sp.risk : `${sp.risk} risk`);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // EPR fields are often not Unicode-safe: keep the note to plain characters.
 const plain = (s) => String(s ?? '').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/₂/g, '2').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/·/g, '-').replace(/­/g, '');
@@ -124,7 +126,15 @@ class TriageApp {
         else if (isPaeds) ews = { type: 'PEWS', ...C.localPews(o, p.age, d.scoring.pews) };
         else ews = { type: 'NEWS2', ...C.news2(o, d.scoring.news2) };
         const newsResp = ews.type === 'NEWS2' ? C.news2Response(ews.score, ews.redParam) : null;
-        const sepsis = C.sepsisNG253({ age: p.age, pregnant: p.pregnant, infection: s.assess.infection, news: ews.type === 'NEWS2' ? ews : { score: 0, complete: false, redParam: false } });
+        if (!s.assess.ng254) s.assess.ng254 = {}; // patients saved before NG254 was added
+        const ng254Applies = p.age !== null && p.age >= 5 && p.age < 16;
+        const sepsis = ng254Applies
+            ? C.sepsisNG254({
+                age: p.age, pregnant: p.pregnant, infection: s.assess.infection, ticks: s.assess.ng254,
+                obs: { ...o, gcs: [o.gcsE, o.gcsV, o.gcsM].every(C.has) ? Number(o.gcsE) + Number(o.gcsV) + Number(o.gcsM) : null },
+                immunosuppressed: !!(s.history.manualRiskFlags.immunosuppressant || s.history.manualRiskFlags.steroid || s.history.manualRiskFlags.chemo || risks.some(r => /Immunosuppressant|Biologic|Steroid/.test(r)))
+            })
+            : C.sepsisNG253({ age: p.age, pregnant: p.pregnant, infection: s.assess.infection, news: ews.type === 'NEWS2' ? ews : { score: 0, complete: false, redParam: false } });
 
         const pain = C.mtsPain(s.complaint.pain);
         const feverTL = C.ng143TrafficLight({ age: p.age, obs: o, ticks: s.assess.ng143.ticks });
@@ -150,7 +160,7 @@ class TriageApp {
             floors.push({ level: 'Orange', reason: `${partial}local MEOWS ${ews.score}` });
         }
         if (pain && pain.floor) floors.push({ level: pain.floor, reason: `${pain.band} pain ${s.complaint.pain}/10 (MTS pain ruler)` });
-        if (s.assess.sepsisFactors.sepsis_rash || (feverRelevant && s.assess.ng143.ticks.non_blanching)) floors.push({ level: 'Orange', reason: 'Non-blanching rash' });
+        if (s.assess.sepsisFactors.sepsis_rash || (feverRelevant && s.assess.ng143.ticks.non_blanching) || (sepsis.guideline === 'NG254' && s.assess.infection === 'yes' && s.assess.ng254.rash)) floors.push({ level: 'Orange', reason: 'Non-blanching rash' });
 
         const priority = C.triagePriority({ discriminator: disc, noneApply: s.complaint.noneApply, floors, override: s.triage.override });
         const level = priority.final;
@@ -176,7 +186,7 @@ class TriageApp {
 
         // Reassessment timing (NEWS2 response; NG253 sepsis reassessment if shorter).
         let obsMins = newsResp ? newsResp.monitorMins : null;
-        if (sepsis.status === 'assessed' && obsMins !== null) obsMins = Math.min(obsMins, sepsis.reassessMins);
+        if (sepsis.status === 'assessed' && obsMins !== null && sepsis.reassessMins) obsMins = Math.min(obsMins, sepsis.reassessMins);
         const obsBase = s.meta.obsAt ? new Date(s.meta.obsAt) : null;
         let nextObs = '-', nextObsAt = null;
         if (ews.type !== 'NEWS2') nextObs = 'Per local chart';
@@ -1134,11 +1144,18 @@ class TriageApp {
 
     renderSepsis() {
         const d = this.derived, s = this.state, sp = d.sepsis, box = this.$('sepsis-screen-container');
-        const key = JSON.stringify([sp.applicable, s.assess.infection, sp.status === 'paeds' || sp.status === 'pregnant' || sp.status === 'no-age']);
+        const key = JSON.stringify([sp.applicable, sp.guideline || 'NG253', sp.ageText || '', s.assess.infection, sp.status === 'paeds' || sp.status === 'pregnant' || sp.status === 'no-age']);
         if (this.built.sepsisKey !== key) {
             this.built.sepsisKey = key;
             if (!sp.applicable) {
                 box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG253)</span></div><p class="tool-note" id="sepsis-text"></p>`;
+            } else if (sp.guideline === 'NG254') {
+                const items = sp.ageText === 'aged 12 to 15' ? C.NG254_ITEMS.young : C.NG254_ITEMS.child;
+                box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG254, ${sp.ageText || 'ages 5 to 15'})</span><span class="tool-result" id="sepsis-result"></span></div>
+                    <div class="q-row"><span><strong>Could this be an infection?</strong> (suspected or confirmed)</span>${this.ynHTML('assess.infection', s.assess.infection)}</div>
+                    <p class="tool-actions" id="sepsis-actions"></p><p class="tool-note" id="sepsis-judgement"></p>
+                    ${s.assess.infection === 'yes' ? `<p class="tool-note" id="ng254-auto"></p><h4>High risk criteria</h4>${this.checksHTML(items.high, 'assess.ng254', s.assess.ng254)}<h4>Moderate to high risk criteria</h4>${this.checksHTML(items.moderate, 'assess.ng254', s.assess.ng254)}` : ''}
+                    <p class="tool-note">RR, heart rate, SpO2, temperature${sp.ageText === 'aged 12 to 15' ? ', systolic BP' : ' and CRT'} and ACVPU/GCS are scored automatically from the obs.</p>`;
             } else {
                 box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG253, 16 and over)</span><span class="tool-result" id="sepsis-result"></span></div>
                     <div class="q-row"><span><strong>Could this be an infection?</strong> (suspected or confirmed)</span>${this.ynHTML('assess.infection', s.assess.infection)}</div>
@@ -1152,11 +1169,16 @@ class TriageApp {
         const r = this.$('sepsis-result');
         if (r) {
             if (sp.status === 'assessed') {
-                r.textContent = `${sp.risk} risk${sp.provisional ? ' (provisional - obs incomplete)' : ''}`;
-                r.className = `tool-result ${sp.risk === 'High' ? 'res-red' : (sp.risk === 'Medium' ? 'res-amber' : 'res-grey')}`;
+                r.textContent = `${sepsisRiskText(sp)}${sp.provisional ? ' (provisional - obs incomplete)' : ''}`;
+                r.className = `tool-result ${(sp.band || sp.risk) === 'High' ? 'res-red' : ((sp.band || sp.risk) === 'Medium' ? 'res-amber' : 'res-grey')}`;
             } else { r.textContent = sp.status === 'not-suspected' ? 'Not applied' : 'Not assessed'; r.className = 'tool-result res-grey'; }
             this.$('sepsis-actions').textContent = sp.status === 'assessed' ? sp.actions : '';
             this.$('sepsis-judgement').textContent = sp.judgement || '';
+            const au = this.$('ng254-auto');
+            if (au) {
+                const fromObs = sp.status === 'assessed' ? [...sp.high.filter(x => !Object.values(C.NG254_ITEMS).some(g => g.high.some(([, t]) => t === x))).map(x => `high: ${x}`), ...sp.moderate.filter(x => !Object.values(C.NG254_ITEMS).some(g => g.moderate.some(([, t]) => t === x))).map(x => `moderate to high: ${x}`)] : [];
+                au.textContent = fromObs.length ? `From the obs - ${fromObs.join('; ')}` : (sp.missing && sp.missing.length ? `Still to record: ${sp.missing.join(', ')}` : '');
+            }
         }
     }
 
@@ -1305,7 +1327,7 @@ class TriageApp {
         const e = d.ews;
         rows.push(['Obs', e.recorded === 0 ? ['Not taken', 'st-grey'] : (!e.complete ? [`${e.type} incomplete (${e.missing.length} missing), partial ${e.score}`, 'st-amber'] : [`${e.type} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk}` : ''}`, e.score >= 5 ? 'st-red' : ''])]);
         const sp = d.sepsis;
-        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sp.risk} risk${sp.provisional ? ' (provisional)' : ''}`, sp.risk === 'High' ? 'st-red' : (sp.risk === 'Medium' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
+        if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sepsisRiskText(sp)}${sp.provisional ? ' (provisional)' : ''}`, (sp.band || sp.risk) === 'High' ? 'st-red' : ((sp.band || sp.risk) === 'Medium' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
         rows.push(['Pain', C.has(s.complaint.pain) ? [`${s.complaint.pain}/10 ${d.pain.band.toLowerCase()}`, s.complaint.pain >= 8 ? 'st-red' : ''] : ['Not assessed', 'st-grey']]);
         if (d.frailty) rows.push(['Frailty', [d.frailty.label, d.frailty.frail ? 'st-amber' : '']]);
         const al = s.history.allergies.trim();
@@ -1339,7 +1361,9 @@ class TriageApp {
             complaint: s.complaint.name, discriminator: s.complaint.discriminator, level: d.level,
             painOnlyOrange: d.level === 'Orange' && orangeFrom.length > 0 && orangeFrom.every(x => x === 'pain'),
             ews: d.ews, obs: { ...s.obs, gcs: d.gcsTotal }, prehospitalBm: s.prehospital.obs.bm,
-            sepsisRisk: d.sepsis.status === 'assessed' ? d.sepsis.risk : null, infection: s.assess.infection,
+            sepsisRisk: d.sepsis.status === 'assessed' ? (d.sepsis.band || d.sepsis.risk) : null, infection: s.assess.infection,
+            sepsisGuideline: d.sepsis.status === 'assessed' ? (d.sepsis.guideline || 'NG253') : null,
+            sepsisLabel: d.sepsis.status === 'assessed' && d.sepsis.guideline === 'NG254' ? d.sepsis.risk : '',
             feverTL: d.feverRelevant ? d.feverTL.level : null,
             ng232: d.ng232 ? d.ng232.level : null, headInjury: !!d.ng232,
             rosierLikely: !!(d.rosier && d.rosier.likely), lkwHours,
@@ -1352,6 +1376,7 @@ class TriageApp {
                 lithium: /lithium|priadel|camcolit/.test(meds), digoxin: /digoxin/.test(meds)
             },
             diabetes: /diabet|\bt[12]dm\b|\biddm\b|\bniddm\b/.test(pmh),
+            cardiacHistory: cardiacHistoryFrom(pmh),
             pain: s.complaint.pain,
             protocol: this.data.protocols[s.complaint.name] || null
         };
@@ -1577,10 +1602,14 @@ class TriageApp {
         const sp = d.sepsis;
         if (sp.applicable) {
             if (sp.status === 'assessed') {
-                lines.push(`Sepsis (NICE NG253): infection suspected - ${sp.risk} risk${sp.provisional ? ' (provisional, obs incomplete)' : ''}. ${sp.actions}${sp.judgement ? ` ${sp.judgement}` : ''}`);
+                lines.push(`Sepsis (NICE ${sp.guideline || 'NG253'}): infection suspected - ${sepsisRiskText(sp)}${sp.provisional ? ' (provisional, obs incomplete)' : ''}. ${sp.actions}${sp.judgement ? ` ${sp.judgement}` : ''}`);
+                if (sp.guideline === 'NG254') {
+                    if (sp.high.length) lines.push(`NG254 high risk criteria: ${sp.high.join('; ')}`);
+                    if (sp.moderate.length) lines.push(`NG254 moderate to high risk criteria: ${sp.moderate.join('; ')}`);
+                }
                 const f2 = this.data.sepsisConsiderations.filter(c => s.assess.sepsisFactors[c.id]).map(c => c.label);
                 if (f2.length) lines.push(`Sepsis considerations: ${f2.join('; ')}`);
-            } else lines.push(`Sepsis (NICE NG253): ${sp.status === 'not-suspected' ? 'infection not suspected' : 'infection question not answered'}`);
+            } else lines.push(`Sepsis (NICE ${sp.guideline || 'NG253'}): ${sp.status === 'not-suspected' ? 'infection not suspected' : 'infection question not answered'}`);
         }
         if (d.feverRelevant) {
             const tl = d.feverTL;
@@ -1644,7 +1673,7 @@ class TriageApp {
         const B = `PMH: ${h.pmh || 'not recorded'}. Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (${h.allergyReaction})` : ''}.${d.risks.length ? ` Alerts: ${d.risks.join('; ')}.` : ''}${d.frailty ? ` Baseline frailty: ${d.frailty.label}.` : ''}`;
         const e = d.ews;
         let A = e.recorded === 0 ? 'Obs not yet taken.' : `${e.type === 'NEWS2' ? 'NEWS2' : `Local ${e.type}`} ${e.complete ? e.score : `incomplete (partial ${e.score}, missing ${e.missing.join(', ')})`}.`;
-        if (d.sepsis.status === 'assessed') A += ` Suspected infection - NG253 ${d.sepsis.risk} risk.`;
+        if (d.sepsis.status === 'assessed') A += ` Suspected infection - ${d.sepsis.guideline || 'NG253'} ${sepsisRiskText(d.sepsis)}.`;
         if (C.has(s.complaint.pain)) A += ` Pain ${s.complaint.pain}/10.`;
         if (d.ng232) A += ` Head injury: ${ng232Nurse(d.ng232)}.`;
         if (d.feverRelevant && d.feverTL.level) A += ` NICE fever traffic light ${d.feverTL.level}.`;

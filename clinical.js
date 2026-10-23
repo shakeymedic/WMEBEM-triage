@@ -162,7 +162,7 @@ export function localMeows(obs) {
 // ---------------------------------------------------------------------------------------------
 export function sepsisNG253({ age, pregnant, infection, news }) {
     if (age === null || age === undefined) return { applicable: false, status: 'no-age', text: 'Record age to use the NG253 sepsis tool.' };
-    if (age < 16) return { applicable: false, status: 'paeds', text: 'NG253 covers people 16 or over - use the paediatric sepsis pathway (NICE NG254) and PEWS/traffic light.' };
+    if (age < 16) return { applicable: false, status: 'paeds', text: age < 5 ? 'Under 5: use the NICE fever traffic light (NG143) in the Paediatric card and your trust\'s paediatric sepsis tool - the NG254 under-5 table is not built into this app.' : 'Ages 5 to 15 use NICE NG254.' };
     if (pregnant) return { applicable: false, status: 'pregnant', text: 'NG253 excludes pregnant or recently pregnant people - use the maternity sepsis pathway (NICE NG255).' };
     if (infection !== 'yes') {
         return infection === 'no'
@@ -195,6 +195,125 @@ export function sepsisNG253({ age, pregnant, infection, news }) {
     // A partial NEWS2 of 7+ is already high risk; anything lower can only be provisional.
     const provisional = incomplete && risk !== 'High';
     return { applicable: true, status: 'assessed', risk, actions, judgement, reassessMins, provisional, text: `${risk} risk (NEWS2 ${incomplete ? '>=' : ''}${s})` };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Suspected sepsis in under 16s, NICE NG254 (November 2025): tables 2 (ages 5 to 11) and 3 (ages
+// 12 to 15), recommendations 1.5 and 1.7. Checked against the NICE PDF on 23 October 2026.
+// Under 5s are not covered here (the fever traffic light, NG143, is in the Paediatric card).
+// Obs-derived criteria fire automatically; the rest are ticked. `band` maps the result onto the
+// engine's risk bands: High; Medium = venous bloods and lactate review within 1 hour (2 or more
+// moderate to high risk criteria, or systolic BP 91-100 at 12-15); Low = 1 criterion; Very low = none.
+// ---------------------------------------------------------------------------------------------
+export const NG254_ITEMS = {
+    child: {
+        high: [
+            ['altered', 'Objective evidence of altered behaviour or mental state'],
+            ['appears_ill', 'Appears ill to a healthcare professional'],
+            ['wont_wake', 'Does not wake, or if roused does not stay awake'],
+            ['o2_increase', 'Increased oxygen requirement over baseline'],
+            ['mottled', 'Mottled or ashen appearance'],
+            ['cyanosis', 'Cyanosis of skin, lips or tongue'],
+            ['rash', 'Non-blanching petechial or purpuric rash']
+        ],
+        moderate: [
+            ['not_normal', 'Not behaving normally'],
+            ['less_active', 'Decreased activity'],
+            ['carer_concern', 'Parent or carer concern that the child is behaving differently from usual'],
+            ['urine', 'Reduced urine output (catheterised: less than 1 ml/kg per hour)'],
+            ['leg_pain', 'Leg pain'],
+            ['cold_peripheries', 'Cold hands or feet']
+        ]
+    },
+    young: {
+        high: [
+            ['altered', 'Objective evidence of new altered mental state'],
+            ['o2_new', 'New need for oxygen (40% FiO2 or more) to keep SpO2 above 92% (above 88% in known chronic hypercapnic respiratory failure)'],
+            ['sbp_drop', 'Systolic BP more than 40 mmHg below their normal'],
+            ['no_urine_18', 'Not passed urine in the previous 18 hours (catheterised: less than 0.5 ml/kg per hour)'],
+            ['mottled', 'Mottled or ashen appearance'],
+            ['cyanosis', 'Cyanosis of skin, lips or tongue'],
+            ['rash', 'Non-blanching petechial or purpuric rash']
+        ],
+        moderate: [
+            ['history_altered', 'New altered behaviour or mental state reported by the patient, a friend or a relative'],
+            ['function', 'Acute deterioration of functional ability'],
+            ['immune', 'Impaired immune system (illness or drugs, including oral steroids)'],
+            ['procedure', 'Trauma, surgery or invasive procedure in the last 6 weeks'],
+            ['arrhythmia', 'New-onset arrhythmia'],
+            ['urine_12', 'Not passed urine in the past 12 to 18 hours (catheterised: 0.5 to 1 ml/kg per hour)'],
+            ['wound', 'Redness, swelling or discharge at a surgical site, or wound breakdown']
+        ]
+    }
+};
+
+// Age-specific RR and HR thresholds from table 2: [high from, moderate from, moderate to].
+const NG254_CHILD_RR = (y) => (y <= 5 ? [29, 24, 28] : y <= 7 ? [27, 24, 26] : [25, 22, 24]);
+const NG254_CHILD_HR = (y) => (y <= 5 ? [130, 120, 129] : y <= 7 ? [120, 110, 119] : [115, 105, 114]);
+
+export function sepsisNG254({ age, pregnant, infection, obs = {}, ticks = {}, immunosuppressed = false }) {
+    if (age === null || age === undefined || age < 5 || age >= 16) return { applicable: false, status: 'not-ng254', text: '' };
+    if (pregnant) return { applicable: false, status: 'pregnant', text: 'Pregnant or recently pregnant: use the maternity sepsis pathway (NICE NG255).' };
+    const base = { applicable: true, guideline: 'NG254' };
+    if (infection !== 'yes') {
+        return infection === 'no'
+            ? { ...base, status: 'not-suspected', text: 'Infection not suspected - NG254 sepsis risk not applied.' }
+            : { ...base, status: 'not-asked', text: 'Could this be an infection? Answer to apply the NG254 sepsis risk.' };
+    }
+    const years = Math.floor(age);
+    const young = years >= 12;
+    const items = young ? NG254_ITEMS.young : NG254_ITEMS.child;
+    const high = [], moderate = [], missing = [];
+    const n = (k) => (has(obs[k]) ? Number(obs[k]) : null);
+    const rr = n('rr'), hr = n('hr'), sats = n('sats'), temp = n('temp'), crt = n('crt'), sbp = n('sbp'), gcs = n('gcs');
+
+    if (has(obs.avpu) && obs.avpu !== 'A') high.push(`${items.high[0][1]} (ACVPU ${obs.avpu})`);
+    else if (gcs !== null && gcs < 15) high.push(`${items.high[0][1]} (GCS ${gcs})`);
+    if (rr === null) missing.push('RR');
+    if (hr === null) missing.push('HR');
+    if (temp === null) missing.push('Temp');
+    if (young) {
+        if (rr !== null) { if (rr >= 25) high.push(`RR ${rr} (25 or more)`); else if (rr >= 21) moderate.push(`RR ${rr} (21-24)`); }
+        if (hr !== null) { if (hr > 130) high.push(`HR ${hr} (more than 130)`); else if (hr >= 91) moderate.push(`HR ${hr} (91-130)`); }
+        if (sbp === null) missing.push('Systolic BP');
+        else if (sbp <= 90) high.push(`Systolic BP ${sbp} (90 or less)`);
+        else if (sbp <= 100) moderate.push(`Systolic BP ${sbp} (91-100)`);
+        if (immunosuppressed && !ticks.immune) moderate.push(`${items.moderate[2][1]} (from History)`);
+    } else {
+        const [rH, rM, rTo] = NG254_CHILD_RR(years), [hH, hM, hTo] = NG254_CHILD_HR(years);
+        if (rr !== null) { if (rr >= rH) high.push(`RR ${rr} (${rH} or more at age ${years})`); else if (rr >= rM) moderate.push(`RR ${rr} (${rM}-${rTo} at age ${years})`); }
+        if (hr !== null) {
+            if (hr < 60) high.push(`HR ${hr} (less than 60)`);
+            else if (hr >= hH) high.push(`HR ${hr} (${hH} or more at age ${years})`);
+            else if (hr >= hM) moderate.push(`HR ${hr} (${hM}-${hTo} at age ${years})`);
+        }
+        if (sats !== null && obs.o2 === 'Air') { if (sats < 90) high.push(`SpO2 ${sats}% in air (less than 90%)`); else if (sats < 92) moderate.push(`SpO2 ${sats}% in air (less than 92%)`); }
+        if (crt === null) missing.push('CRT');
+        else if (crt >= 3) moderate.push(`CRT ${crt}s (3 seconds or more)`);
+    }
+    if (temp !== null && temp < 36) moderate.push(`Temperature ${temp}°C (less than 36)`);
+    items.high.forEach(([k, t]) => { if (ticks[k] && !high.some(x => x.startsWith(t))) high.push(t); });
+    items.moderate.forEach(([k, t]) => { if (ticks[k]) moderate.push(t); });
+
+    const ageText = young ? 'aged 12 to 15' : 'aged 5 to 11';
+    const bloods = 'Venous bloods: gas with glucose and lactate, blood culture, FBC, CRP, U&E, creatinine, LFTs, clotting.';
+    const sbpMid = young && sbp !== null && sbp > 90 && sbp <= 100;
+    let band, risk, actions, reassessMins;
+    if (high.length) {
+        band = 'High'; risk = 'High risk'; reassessMins = 30;
+        actions = `Senior clinical decision maker to assess urgently; discuss with a consultant. ${bloods} Broad-spectrum antibiotics within 1 hour of meeting a high risk criterion. IV fluid bolus within 1 hour if lactate is over 4 ${young ? 'or systolic BP is 90 or less' : ''} (and refer to critical care) or lactate is 2-4; consider a bolus if lactate is below 2. Monitor continuously or at least every 30 minutes.`.replace(/  +/g, ' ');
+    } else if (moderate.length >= 2 || sbpMid) {
+        band = 'Medium'; risk = `Moderate to high risk (${moderate.length >= 2 ? `${moderate.length} criteria` : 'systolic BP 91-100'})`; reassessMins = 60;
+        actions = `${bloods} A clinician reviews the patient and the venous lactate within 1 hour. Lactate over 2${young ? ' or acute kidney injury' : ''}: treat as high risk. Otherwise, if no definitive condition is found, repeat the structured assessment at least hourly and a senior reviews the need for antibiotics within 3 hours.`;
+    } else if (moderate.length === 1) {
+        band = 'Low'; risk = 'Moderate to high risk (1 criterion)'; reassessMins = 60;
+        actions = `Clinician review within 1 hour; blood tests if indicated. If no definitive condition is found, repeat the structured assessment at least hourly and a senior reviews the need for antibiotics within 3 hours.`;
+    } else {
+        band = 'Very low'; risk = 'Low risk'; reassessMins = null;
+        actions = 'No high or moderate to high risk criteria: arrange clinician review and use clinical judgement.';
+    }
+    const provisional = band !== 'High' && missing.length > 0;
+    return { ...base, status: 'assessed', band, risk, high, moderate, missing, actions, reassessMins, provisional, ageText, text: `${risk} (NG254, ${ageText})` };
 }
 
 // ---------------------------------------------------------------------------------------------

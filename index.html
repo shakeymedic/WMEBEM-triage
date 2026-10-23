@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.0</title>
+    <title>EMEvidence Triage v21.1</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -85,8 +85,11 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.0</h3>
+            <h3 id="whatsnew-heading">What's new in v21.1</h3>
             <ul class="whatsnew-list">
+                <li><strong>Sepsis in ages 5 to 15 now follows NICE NG254.</strong> Answer "Could this be an infection?", and the NG254 high and moderate-to-high risk criteria for the child's age are scored from the obs, with tick boxes for the rest. High risk and 2 or more moderate-to-high criteria bring blood gas, cultures, paediatric sepsis bloods and IV access into the plan. Under 5s still use the fever traffic light (NG143).</li>
+                <li><strong>More ECG triggers:</strong> chest pain on any flowchart, shortness of breath, a new oxygen requirement and a significant cardiac history in the PMH (adults).</li>
+                <li><strong>Blood gas has a low threshold:</strong> it is now suggested wherever lactate, glucose, potassium, sodium, pH or CO2 would help - for example abdominal pain, overdose, diarrhoea and vomiting, confusion, reduced consciousness, NEWS2 of 3 or more, new oxygen need and abnormal temperature.</li>
                 <li><strong>New investigations and cannula engine.</strong> The plan now reacts to everything you record, not just the complaint: obs, NEWS2, sepsis risk, BM and ketones, consciousness, pregnancy, high-risk medicines and the head injury, stroke and fever tools. Each suggestion shows <em>why</em> it fired and its source.</li>
                 <li><strong>"Do now"</strong> marks time-critical tests (for example ECG within 10 minutes for chest pain, blood cultures and gas for high-risk sepsis, BM when consciousness is reduced).</li>
                 <li><strong>Cannula decision:</strong> Insert now / Recommended / Consider / Not needed now, with the reasons, a suggested size and cautions (fistula arm, injured limb, children). A cannula is only advised when IV treatment is likely soon (sepsis, shock, bleeding, hypoxia, severe asthma, fast arrhythmia, DKA, stroke within 24 h, antidotes, hip fracture). Stable chest pain, confusion, collapse and overdose get their bloods by venepuncture instead of an idle cannula.</li>
@@ -114,7 +117,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.0 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.1 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -451,7 +454,7 @@
     </aside>
 
     <footer>
-        <p>v21.0 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.1 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>
