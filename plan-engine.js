@@ -20,7 +20,7 @@ import { has, toNumber, planAutoMet } from './clinical.js';
 // ------------------------------------------------------------------------------------------------
 export const SOURCES = {
     ng253: { label: 'NICE NG253 Suspected sepsis in people aged 16 or over (1.8)', url: 'https://www.nice.org.uk/guidance/ng253/chapter/Managing-suspected-sepsis' },
-    ng254: { label: 'NICE NG254 Suspected sepsis in under 16s', url: 'https://www.nice.org.uk/guidance/ng254' },
+    ng254: { label: 'NICE NG254 Suspected sepsis in under 16s (1.5 grading risk, 1.7 managing suspected sepsis)', url: 'https://www.nice.org.uk/guidance/ng254/chapter/Managing-suspected-sepsis' },
     cg151: { label: 'NICE CG151 Neutropenic sepsis (1.4.1.1)', url: 'https://www.nice.org.uk/guidance/cg151/chapter/Recommendations' },
     cg95: { label: 'NICE CG95 Recent-onset chest pain of suspected cardiac origin (1.2.2.1)', url: 'https://www.nice.org.uk/guidance/cg95/chapter/Recommendations' },
     ng258: { label: 'NICE NG258 Anaphylaxis: assessment and referral (timing of blood samples)', url: 'https://www.nice.org.uk/guidance/ng258/chapter/Timing-of-blood-samples' },
@@ -52,9 +52,11 @@ export const FACT_DEFAULTS = {
     age: null, sex: '', pregnant: false,
     complaint: '', discriminator: null, level: null, painOnlyOrange: false,
     ews: { type: 'NEWS2', score: 0, complete: false, recorded: 0, redParam: false },
-    obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, temp: null, avpu: null, gcs: null, bm: null, ketones: null },
+    obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, avpu: null, gcs: null, bm: null, ketones: null },
     prehospitalBm: null,
-    sepsisRisk: null,          // NG253: 'High' | 'Medium' | 'Low' | 'Very low' | null (not assessed)
+    sepsisRisk: null,          // 'High' | 'Medium' | 'Low' | 'Very low' | null (not assessed); NG254 is mapped onto these bands
+    sepsisGuideline: null,     // 'NG253' (16 and over) | 'NG254' (5 to 15)
+    sepsisLabel: '',           // the guideline's own wording, e.g. 'Moderate to high risk (2 criteria)'
     infection: null,           // 'yes' | 'no' | null
     feverTL: null,             // NG143 under 5s, only when fever is relevant: 'Red' | 'Amber' | 'Green' | null
     ng232: null,               // NG232 level: '1h' | '8h' | 'consider8h' | 'observe4h' | 'none' | null
@@ -62,6 +64,7 @@ export const FACT_DEFAULTS = {
     rosierLikely: false, lkwHours: null,
     flags: {},                 // anticoag, antiplatelet, insulin, sulphonylurea, sglt2, steroid, immunosuppressant, chemo, sickle, dialysis, lithium, digoxin
     diabetes: false,
+    cardiacHistory: '',        // the significant cardiac history found in PMH (see cardiacHistoryFrom)
     pain: null,
     protocol: null             // the complaint's entry in clinicalData.protocols
 };
@@ -178,6 +181,29 @@ export function couldBePregnant(f) {
 
 const sepsisHigh = (f) => f.sepsisRisk === 'High';
 const sepsisMedium = (f) => f.sepsisRisk === 'Medium';
+const sepsisSource = (f) => (f.sepsisGuideline === 'NG254' ? 'ng254' : 'ng253');
+const sepsisName = (f) => `${f.sepsisGuideline || 'NG253'} ${(f.sepsisLabel || `${f.sepsisRisk} risk`).toLowerCase()} sepsis`;
+
+// Significant cardiac history in free-text PMH. Word boundaries keep short terms (MI, AF, VT) from
+// matching inside other words; a bare "stent" is left out because it is often ureteric or biliary.
+const CARDIAC_RE = /\b(ihd|ischa?emic heart|coronary|angina|mi|n?stemi|acs|heart attack|myocardial infarction|cabg|pci|heart failure|ccf|lvsd|hfref|hfpef|cardiomyopathy|af|atrial fibrillation|atrial flutter|svt|vt|ventricular tachycardia|arrhythmia|pacemaker|ppm|icd|heart valve|valve replacement|aortic stenosis|mitral|tavi|congenital heart|long qt|brugada|wpw|wolff)\b/i;
+export function cardiacHistoryFrom(pmh) {
+    const m = String(pmh || '').match(CARDIAC_RE);
+    return m ? m[0] : '';
+}
+
+// Needs oxygen now: already on oxygen, or SpO2 in air below the target (94%, or 88% on scale 2).
+export function oxygenNeed(f) {
+    if (f.obs.o2 === 'O2') return 'On oxygen at triage';
+    if (has(f.obs.sats) && f.obs.o2 === 'Air') {
+        const target = f.obs.scale2 ? 88 : 94;
+        if (Number(f.obs.sats) < target) return `SpO2 ${f.obs.sats}% in air (below ${target}%)`;
+    }
+    return '';
+}
+
+// Presentations where a significant cardiac history alone does not need an ECG.
+const MINOR_RE = /^(Limb Problems|Wounds|Burns and Scalds|Eye Problems|Ear Problems|Dental Problems|Facial Problems|Foreign Body|Needlestick Injury|Bites and Stings|Sexually Acquired Infection|Abscesses and Local Infections|Sore Throat|Rash|Back Pain|Neck Pain)$/;
 const news = (f) => (f.ews.type === 'NEWS2' ? f.ews.score : null);
 const ewsLabel = (f) => `${f.ews.complete ? '' : 'partial '}${f.ews.type === 'NEWS2' ? 'NEWS2' : `local ${f.ews.type}`} ${f.ews.score}`;
 
@@ -240,7 +266,7 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (complaint(f, /Fits and Seizures/) || disc(f, /seiz/i)) bed(T.bm, 'now', 'Seizure - hypoglycaemia is a possible underlying cause', 'ng217');
     if (complaint(f, /Suspected Stroke|Suspected TIA/) || f.rosierLikely) bed(T.bm, 'now', 'Sudden neurological symptoms - exclude hypoglycaemia', 'ng128');
     if (diab) bed(T.bm, 'suggested', diab, 'local');
-    if (sepsisHigh(f) || sepsisMedium(f)) bed(T.bm, 'suggested', `NG253 ${f.sepsisRisk.toLowerCase()} risk sepsis - glucose is part of the blood tests`, 'ng253');
+    if (sepsisHigh(f) || sepsisMedium(f)) bed(T.bm, 'suggested', `${sepsisName(f)} - glucose is part of the blood tests`, sepsisSource(f));
     if (hypo) bed(T.bm, 'now', `${hypo} - treat per hypoglycaemia protocol and recheck`, 'local', { timing: 'Recheck 10-15 minutes after treatment' });
 
     // Ketones
@@ -256,20 +282,39 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (f.flags.dialysis && (f.ews.score >= 1 || f.infection === 'yes' || disc(f, /weak|vomit|palpit/i))) bed(T.ecg, 'suggested', 'Dialysis patient who is unwell - potassium risk', 'local');
     if ((f.flags.digoxin || f.flags.lithium) && (f.ews.score >= 3 || complaint(f, /Overdose|Confusion|Diarrhoea and Vomiting|Collapse|Palpitations/))) bed(T.ecg, 'suggested', `On ${f.flags.digoxin ? 'digoxin' : 'lithium'} and unwell - toxicity can cause arrhythmia`, 'local');
     if (dka) bed(T.ecg, 'suggested', 'Possible DKA - potassium can be very abnormal', 'local');
+    // Department ECG triggers (agreed 23 October 2026). Breathlessness, oxygen and cardiac history are
+    // for adults: in children these are usually respiratory and an ECG is not routine.
+    if (!complaint(f, /^Chest Pain$/) && disc(f, /chest pain/i)) bed(T.ecg, 'now', `Chest pain ("${f.discriminator}") - 12-lead ECG`, 'local');
+    if (isAdult(f) && (complaint(f, /^Shortness of Breath in Adults$|^Suspected DVT \/ PE$/) || disc(f, /respiratory distress|breath/i))) bed(T.ecg, 'suggested', 'Shortness of breath', 'local');
+    const o2 = oxygenNeed(f);
+    if (isAdult(f) && o2) bed(T.ecg, 'suggested', `New oxygen requirement (${o2})`, 'local');
+    if (isAdult(f) && f.cardiacHistory && (!complaint(f, MINOR_RE) || f.ews.score >= 3)) bed(T.ecg, 'suggested', `Significant cardiac history (${f.cardiacHistory} in PMH)`, 'local');
 
-    // Blood gas (lactate, glucose, potassium, pH)
-    if (sepsisHigh(f)) bed(T.vbg, 'now', 'NG253 high risk sepsis - blood gas including glucose and lactate', 'ng253');
-    else if (sepsisMedium(f)) bed(T.vbg, 'now', 'NG253 medium risk sepsis - blood gas including glucose and lactate (lactate reviewed within 1 hour)', 'ng253');
-    if (n2 !== null && n2 >= 5 && !sepsisHigh(f) && !sepsisMedium(f)) bed(T.vbg, 'suggested', `${ewsLabel(f)} (5 or more) - lactate and gas for the clinician`, 'local');
+    // Blood gas (lactate, glucose, potassium, sodium, pH, CO2). Low threshold (agreed 23 October 2026):
+    // suggest it wherever any of these would help, because it comes from the same venous sample.
+    if (sepsisHigh(f)) bed(T.vbg, 'now', `${sepsisName(f)} - blood gas including glucose and lactate`, sepsisSource(f));
+    else if (sepsisMedium(f)) bed(T.vbg, 'now', `${sepsisName(f)} - blood gas including glucose and lactate (lactate reviewed within 1 hour)`, sepsisSource(f));
+    if (n2 !== null && (n2 >= 3 || f.ews.redParam) && !sepsisHigh(f) && !sepsisMedium(f)) bed(T.vbg, 'suggested', `${ewsLabel(f)}${n2 >= 3 ? ' (3 or more)' : ' with a single red score'} - lactate and gas for the clinician`, 'local');
+    if (f.ews.type === 'PEWS' && f.ews.score >= 5 && !sepsisHigh(f) && !sepsisMedium(f)) bed(T.vbg, 'suggested', `${ewsLabel(f)} - lactate and gas for the clinician`, 'local');
     if (shock) bed(T.vbg, 'now', `Shocked (${shock}) - lactate`, 'local');
+    if (rc) bed(T.vbg, 'suggested', `${rc} - glucose, sodium, CO2 and lactate`, 'local');
+    if (complaint(f, /^Abdominal Pain in Adults$/)) bed(T.vbg, 'suggested', 'Abdominal pain - lactate (bowel ischaemia, sepsis), glucose and potassium', 'local');
+    if (complaint(f, /^Overdose and Poisoning$/) || (complaint(f, /^Self Harm$/) && disc(f, /overdose|poison|ingest/i))) bed(T.vbg, 'suggested', 'Overdose or poisoning - pH, lactate, glucose and potassium (many poisons cause acidosis)', 'local');
+    if (disc(f, /smoke|carbon monoxide|inhalation injury/i)) bed(T.vbg, 'suggested', 'Smoke or carbon monoxide exposure - carboxyhaemoglobin on the gas', 'local');
+    if (complaint(f, /^Diarrhoea and Vomiting$/) && (isAdult(f) || disc(f, /dehydrat/i))) bed(T.vbg, 'suggested', 'Diarrhoea and vomiting - potassium, sodium, bicarbonate and lactate', 'local');
+    if (isChild(f) && disc(f, /dehydrat|bile-stained/i) && !complaint(f, /^Diarrhoea and Vomiting$/)) bed(T.vbg, 'suggested', `${f.discriminator} - electrolytes, glucose and lactate`, 'local');
+    if (isAdult(f) && complaint(f, /^(Collapse|Unwell Adult|Confusion|Elderly Care \/ Off Legs|Shortness of Breath in Adults|Gastrointestinal Bleeding|Diabetes)$/)) bed(T.vbg, 'suggested', `${f.complaint} - lactate, potassium, glucose and haemoglobin in minutes`, 'local');
+    if (isAdult(f) && o2) bed(T.vbg, 'suggested', `New oxygen requirement (${o2}) - pH and CO2`, 'local');
+    if (has(f.obs.temp) && (Number(f.obs.temp) < 35 || Number(f.obs.temp) >= 40)) bed(T.vbg, 'suggested', `Temperature ${f.obs.temp}°C - lactate, glucose and potassium`, 'local');
+    if (has(f.obs.hr) && (Number(f.obs.hr) <= 40 || Number(f.obs.hr) >= 131)) bed(T.vbg, 'suggested', `Heart rate ${f.obs.hr} - potassium`, 'local');
+    if (f.flags.dialysis && (f.ews.score >= 1 || f.infection === 'yes' || disc(f, /weak|vomit|palpit/i))) bed(T.vbg, 'suggested', 'Dialysis patient who is unwell - potassium in minutes', 'local');
     if (dka) bed(T.vbg, 'now', `${dka} - pH and bicarbonate grade DKA`, isChild(f) ? 'bspedDka' : 'jbdsDka');
     else if (ketoNeed && toNumber(f.obs.ketones) === null) bed(T.vbg, 'consider', '', 'local', { when: 'ketones are above 3.0 (DKA - pH and bicarbonate)' });
     if (neut) bed(T.vbg, 'suggested', `${neut} - possible neutropenic sepsis`, 'cg151');
 
     // Blood cultures
     const cultureTiming = 'Take before antibiotics - but never delay antibiotics to get them';
-    if (sepsisHigh(f)) bed(T.cultures, 'now', 'NG253 high risk sepsis', 'ng253', { timing: cultureTiming });
-    else if (sepsisMedium(f)) bed(T.cultures, 'now', 'NG253 medium risk sepsis', 'ng253', { timing: cultureTiming });
+    if (sepsisHigh(f) || sepsisMedium(f)) bed(T.cultures, 'now', sepsisName(f), sepsisSource(f), { timing: cultureTiming });
     if (neut) bed(T.cultures, 'now', `${neut} - possible neutropenic sepsis`, 'cg151', { timing: cultureTiming });
     if (f.feverTL === 'Red') bed(T.cultures, 'suggested', 'NICE fever traffic light RED (under 5) - for the clinician', 'ng143', { timing: cultureTiming });
 
@@ -297,7 +342,8 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (isChild(f)) bed(T.weight, 'suggested', 'Child - measured weight for doses and fluids', 'local');
 
     // ---- 3. Bloods: cross-cutting bundles ----
-    if (isAdult(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis', 'now', `NG253 ${f.sepsisRisk.toLowerCase()} risk sepsis - NICE also lists LFTs and "consider procalcitonin"`, 'ng253');
+    if (isAdult(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis', 'now', `${sepsisName(f)} - NICE also lists LFTs and "consider procalcitonin"`, 'ng253');
+    if (isChild(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis (Paediatric)', 'now', `${sepsisName(f)} - NICE lists FBC, CRP, U&E, creatinine, LFTs and clotting`, 'ng254');
     if (isAdult(f) && neut) blood('AE - Sepsis', 'now', `${neut} - possible neutropenic sepsis (add FBC differential per local pathway)`, 'cg151');
     if (isChild(f) && (f.feverTL === 'Red' || neut)) blood('AE - Sepsis (Paediatric)', 'suggested', f.feverTL === 'Red' ? 'NICE fever traffic light RED (under 5)' : `${neut} - possible neutropenic sepsis`, f.feverTL === 'Red' ? 'ng143' : 'cg151');
     if (bleed) blood('Major Bleed Procedure', 'now', bleed, 'local', { timing: 'Major haemorrhage: follow the local major haemorrhage protocol' });
@@ -377,7 +423,7 @@ export function cannulaDecision(input, pre = null) {
     else if (p.shock) fire('now', `Shocked (${p.shock})`, 'local', child ? null : '16G/18G x2');
     if (news(f) !== null && news(f) >= 7) fire('now', `${ewsLabel(f)} (7 or more) - emergency response`, 'local', big);
     if (f.ews.type === 'PEWS' && f.ews.score >= 7) fire('now', `${ewsLabel(f)} (high)`, 'local');
-    if (sepsisHigh(f)) fire('now', 'NG253 high risk sepsis - antibiotics within 1 hour', 'ng253', big);
+    if (sepsisHigh(f)) fire('now', `${sepsisName(f)} - antibiotics within 1 hour`, sepsisSource(f), big);
     if (p.neut) fire('now', `${p.neut} - possible neutropenic sepsis: empiric antibiotics immediately (medical emergency)`, 'cg151', big);
     if (f.feverTL === 'Red' && child) fire('recommended', 'NICE fever traffic light RED (under 5) - senior review; IV access likely', 'ng143');
     if (disc(f, /actively seizing|status epilepticus/i)) fire('now', 'Actively seizing - IV lorazepam if access is immediately available; otherwise do not delay buccal midazolam or rectal diazepam to get it', 'ng217', big);
@@ -392,7 +438,7 @@ export function cannulaDecision(input, pre = null) {
     if (news(f) !== null && news(f) >= 5 && news(f) < 7) fire('recommended', `${ewsLabel(f)} (5-6) - urgent response`, 'local', big);
     if (f.ews.type === 'PEWS' && f.ews.score >= 5 && f.ews.score < 7) fire('recommended', `${ewsLabel(f)}`, 'local');
     if (f.ews.type === 'MEOWS' && f.ews.score >= 3) fire('recommended', `${ewsLabel(f)} - maternity review`, 'local');
-    if (sepsisMedium(f)) fire('recommended', 'NG253 medium risk sepsis - antibiotics may be deferred for up to 3 hours, but may be needed sooner', 'ng253', big);
+    if (sepsisMedium(f)) fire('recommended', f.sepsisGuideline === 'NG254' ? `${sepsisName(f)} - lactate reviewed within 1 hour; over 2 means treat as high risk` : 'NG253 medium risk sepsis - antibiotics may be deferred for up to 3 hours, but may be needed sooner', sepsisSource(f), big);
     if (disc(f, /neck of femur/i)) fire('recommended', 'Suspected hip fracture - fluids and bloods', 'local', '18G');
     if (f.headInjury && f.flags.anticoag && f.ng232 && f.ng232 !== 'none') fire('recommended', 'Anticoagulated head injury meeting NICE CT criteria - reversal may be needed', 'local', '18G');
     if (disc(f, /severe dehydration/i)) fire('recommended', 'Severe dehydration - IV fluids likely', 'local');

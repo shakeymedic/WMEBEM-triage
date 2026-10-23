@@ -1,4 +1,4 @@
-// protocols.js - Clinical configuration (v21.0). The complaint plans in section 7b feed plan-engine.js.
+// protocols.js - Clinical configuration (v21.1). The complaint plans in section 7b feed plan-engine.js.
 // STATUS: NOT CLINICALLY SIGNED OFF. The flowcharts below are a paraphrase of Manchester Triage
 // System presentations, not the licensed MTS content, and must be reviewed line by line against the
 // trust's licensed MTS edition by a named clinical lead before live use. Guideline-derived rules

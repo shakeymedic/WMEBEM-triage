@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.0');
+                localStorage.setItem('seenVersion', '21.1');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -285,6 +285,21 @@ await setObs(p, { rr: 24, sats: 95, sbp: 105, hr: 115, temp: 38.6 }); await seg(
 check('Sore throat with NEWS2 7 (high risk): sepsis bloods "do now"', (await sep.getAttribute('class')).includes('plan-now'));
 check('High risk sepsis: blood cultures do now, with a NICE source link', (await p.locator('#protocol-actions .protocol-check', { hasText: 'Blood cultures' }).getAttribute('class')).includes('plan-now') && await p.locator('#protocol-actions a[href*="nice.org.uk/guidance/ng253"]').count() > 0);
 check('High risk sepsis: cannula insert now', (await p.textContent('#protocol-actions')).includes('Cannula: Insert now'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 13b2. NICE NG254 for a 9-year-old with suspected infection.
+p = await fresh();
+await p.fill('#patient-age', '9'); await p.selectOption('#patient-sex', 'Female');
+await pick(p, 'Unwell Child');
+await p.click('#yn-assess-infection button[data-value="yes"]');
+check('NG254: sepsis panel for ages 5 to 15', (await p.textContent('#sepsis-screen-container')).includes('NICE NG254, aged 5 to 11'));
+await setObs(p, { rr: 20, sats: 98, hr: 95, temp: 37.4, crt: 2 }); await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+check('NG254: normal obs = low risk', (await p.textContent('#sepsis-result')).startsWith('Low risk'), await p.textContent('#sepsis-result'));
+await setObs(p, { rr: 27 });
+check('NG254: RR 27 at age 9 = high risk', (await p.textContent('#sepsis-result')).startsWith('High risk'), await p.textContent('#sepsis-result'));
+check('NG254 high risk: gas do now', (await p.locator('#protocol-actions .protocol-check', { hasText: 'Venous blood gas' }).getAttribute('class')).includes('plan-now'));
+check('NG254 high risk: paediatric sepsis bloods do now with an NG254 link', (await p.locator('.profile-check', { hasText: 'AE - Sepsis (Paediatric)' }).getAttribute('class')).includes('plan-now') && await p.locator('#protocol-actions a[href*="nice.org.uk/guidance/ng254"]').count() > 0);
+check('NG254 high risk: in the note', (await note(p)).includes('Sepsis (NICE NG254): infection suspected - High risk'));
 allErrors.push(...p.errors); await p.context().close();
 
 // 13c. Clinical Frailty Scale.

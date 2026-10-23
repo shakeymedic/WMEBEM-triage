@@ -276,3 +276,42 @@ test('Clinical Frailty Scale levels', () => {
     assert.equal(C.cfs(4).frail, false);
     assert.equal(C.cfs('5').label, 'CFS 5 - Living with mild frailty');
 });
+
+test('NG254 sepsis (ages 5 to 15): only with suspected infection; tables 2 and 3 thresholds', () => {
+    const obs = (o) => ({ rr: 20, hr: 90, sats: 98, o2: 'Air', temp: 37, crt: 2, sbp: 115, avpu: 'A', ...o });
+    assert.equal(C.sepsisNG254({ age: 4, infection: 'yes', obs: obs() }).applicable, false, 'under 5s are not covered');
+    assert.equal(C.sepsisNG254({ age: 16, infection: 'yes', obs: obs() }).applicable, false, '16+ is NG253');
+    assert.equal(C.sepsisNG254({ age: 10, infection: null, obs: obs() }).status, 'not-asked');
+    assert.equal(C.sepsisNG254({ age: 10, infection: 'no', obs: obs() }).status, 'not-suspected');
+    assert.equal(C.sepsisNG254({ age: 10, pregnant: true, infection: 'yes', obs: obs() }).applicable, false);
+    // Table 2, age 5: RR 29+ high, 24-28 moderate; HR 130+ high, 120-129 moderate
+    assert.equal(C.sepsisNG254({ age: 5, infection: 'yes', obs: obs({ rr: 29 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 5, infection: 'yes', obs: obs({ rr: 24 }) }).band, 'Low');
+    assert.equal(C.sepsisNG254({ age: 5, infection: 'yes', obs: obs({ rr: 23 }) }).band, 'Very low');
+    assert.equal(C.sepsisNG254({ age: 5, infection: 'yes', obs: obs({ hr: 130 }) }).band, 'High');
+    // Age 6-7: RR 27+ high; HR 110-119 moderate. Age 8-11: RR 25+ high, 22-24 moderate; HR 115+ high
+    assert.equal(C.sepsisNG254({ age: 7, infection: 'yes', obs: obs({ rr: 27 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 7, infection: 'yes', obs: obs({ hr: 110, rr: 24 }) }).band, 'Medium', 'two moderate criteria');
+    assert.equal(C.sepsisNG254({ age: 11, infection: 'yes', obs: obs({ rr: 25 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 11, infection: 'yes', obs: obs({ hr: 115 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 11, infection: 'yes', obs: obs({ hr: 105 }) }).band, 'Low');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs({ hr: 55 }) }).band, 'High', 'HR under 60');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs({ sats: 89 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs({ sats: 91 }) }).band, 'Low');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs({ sats: 89, o2: 'O2' }) }).band, 'Very low', 'sats thresholds are in air');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs({ crt: 3, temp: 35.8 }) }).band, 'Medium');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs({ avpu: 'V' }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs(), ticks: { rash: true } }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: obs(), ticks: { leg_pain: true, cold_peripheries: true } }).band, 'Medium');
+    // Table 3 (12-15): RR 25+ high, 21-24 moderate; HR >130 high, 91-130 moderate; SBP <=90 high, 91-100 bloods
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ rr: 25 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ rr: 21 }) }).band, 'Low');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ hr: 131 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ hr: 130 }) }).band, 'Low');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ sbp: 90 }) }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ sbp: 100 }) }).band, 'Medium', 'NG254 1.7.15: SBP 91-100 alone needs the bloods');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ hr: 95 }), immunosuppressed: true }).band, 'Medium');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ rr: 18 }) }).band, 'Very low');
+    assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: { rr: 18 } }).provisional, true, 'missing obs make a non-high result provisional');
+    assert.match(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ rr: 26 }) }).actions, /within 1 hour/);
+});
