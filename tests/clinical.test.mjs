@@ -56,6 +56,29 @@ test('NEWS2 completeness: nothing recorded is incomplete, never "0 = normal"', (
     assert.equal(partial.complete, false);
 });
 
+test('Provisional NEWS2: a minimum that escalates but never reassures', () => {
+    const blank = { rr: null, sats: null, o2: null, sbp: null, hr: null, avpu: null, temp: null };
+    const sum = (o) => C.news2Summary(C.news2({ ...blank, ...o }, R));
+    assert.equal(sum({}).status, 'none');
+    const low = sum({ rr: 16, hr: 80 });
+    assert.equal(low.status, 'provisional');
+    assert.match(low.text, /^Provisional NEWS2 at least 0 \(2 of 7 obs\)$/);
+    assert.equal(low.monitorMins, null, 'a low partial score must not set a 12-hour obs interval');
+    assert.doesNotMatch(low.riskText, /^Low risk/);
+    assert.deepEqual(low.missing, ['SpO2', 'Air/O2', 'Systolic BP', 'Consciousness', 'Temp']);
+    const red = sum({ rr: 30 });
+    assert.equal(red.monitorMins, 60);
+    assert.match(red.riskText, /Low-medium risk or higher/);
+    const med = sum({ rr: 24, sats: 93, hr: 112 });
+    assert.equal(med.score, 6);
+    assert.equal(med.riskText, 'Medium risk or higher');
+    assert.equal(sum({ rr: 30, sats: 90, avpu: 'V' }).monitorMins, 0);
+    const full = sum({ rr: 16, sats: 97, o2: 'Air', sbp: 125, hr: 75, avpu: 'A', temp: 37 });
+    assert.equal(full.status, 'complete');
+    assert.equal(full.text, 'NEWS2 0');
+    assert.equal(full.monitorMins, 720);
+});
+
 test('NEWS2 response frequency (RCP)', () => {
     assert.equal(C.news2Response(0, false).monitorMins, 720);
     assert.equal(C.news2Response(3, false).monitorMins, 240);

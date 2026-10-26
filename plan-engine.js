@@ -205,7 +205,9 @@ export function oxygenNeed(f) {
 // Presentations where a significant cardiac history alone does not need an ECG.
 const MINOR_RE = /^(Limb Problems|Wounds|Burns and Scalds|Eye Problems|Ear Problems|Dental Problems|Facial Problems|Foreign Body|Needlestick Injury|Bites and Stings|Sexually Acquired Infection|Abscesses and Local Infections|Sore Throat|Rash|Back Pain|Neck Pain)$/;
 const news = (f) => (f.ews.type === 'NEWS2' ? f.ews.score : null);
-const ewsLabel = (f) => `${f.ews.complete ? '' : 'partial '}${f.ews.type === 'NEWS2' ? 'NEWS2' : `local ${f.ews.type}`} ${f.ews.score}`;
+const ewsLabel = (f) => f.ews.type === 'NEWS2'
+    ? (f.ews.complete ? `NEWS2 ${f.ews.score}` : `provisional NEWS2 at least ${f.ews.score}`)
+    : `${f.ews.complete ? '' : 'partial '}local ${f.ews.type} ${f.ews.score}`;
 
 // What the complaint plan's `auto` conditions (protocols.js section 7b) are evaluated against.
 export function autoContext(input) {

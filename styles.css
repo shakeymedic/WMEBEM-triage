@@ -225,6 +225,13 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 .news-breakdown { display: flex; flex-wrap: wrap; gap: 4px; }
 .news-tag { background: var(--surface-2); padding: 2px 7px; border-radius: 4px; font-size: 0.74rem; border: 1px solid var(--border); color: var(--secondary); font-weight: 600; }
 .news-tag.missing { border-style: dashed; }
+.ews-badge.ews-provisional { outline: 2px dashed rgba(0,0,0,0.35); outline-offset: 2px; }
+.ews-prov-note { flex-basis: 100%; margin: 0; }
+.ews-mini { margin-top: 6px; padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); font-size: 0.8rem; color: var(--text-main); }
+.ews-mini.provisional { border-style: dashed; border-width: 2px; }
+.ews-mini.ews-mid { background: var(--yellow); color: #222; }
+.ews-mini.ews-high { background: var(--orange); color: #fff; }
+.ews-mini.ews-crit { background: var(--red); color: #fff; }
 
 .field-warning { border-color: var(--yellow) !important; background: rgba(255, 184, 28, 0.1) !important; }
 .field-danger { border-color: var(--red) !important; background: rgba(213, 40, 27, 0.08) !important; }
@@ -342,7 +349,8 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
     /* Flex (not a 1-column grid) so the sticky panel's containing block is the whole layout. */
     .layout { display: flex; flex-direction: column; align-items: stretch; }
     .decision { order: -1; position: sticky; top: 0; z-index: 60; max-height: none; overflow: visible; padding: 8px; }
-    .decision > :not(#priority-display):not(.seeby):not(.decision-actions) { display: none; }
+    .decision > :not(#priority-display):not(.seeby):not(.ews-mini):not(.decision-actions) { display: none; }
+    .decision .ews-mini { grid-column: 1 / -1; margin-top: 0; }
     .decision.expanded > * { display: revert; }
     .decision { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
     .decision > * + * { margin-top: 0; }
