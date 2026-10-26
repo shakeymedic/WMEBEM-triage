@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.1</title>
+    <title>EMEvidence Triage v21.2</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -58,7 +58,9 @@
                 <tr><td><kbd>Alt</kbd>+<kbd>K</kbd></td><td>Jump to presenting complaint search</td></tr>
                 <tr><td><kbd>↑</kbd> <kbd>↓</kbd> then <kbd>Enter</kbd></td><td>Choose a complaint or discriminator</td></tr>
                 <tr><td><kbd>Enter</kbd> in an obs box</td><td>Move to the next observation</td></tr>
-                <tr><td><kbd>A</kbd> <kbd>C</kbd> <kbd>V</kbd> <kbd>P</kbd> <kbd>U</kbd></td><td>Set consciousness (when the ACVPU buttons are focused)</td></tr>
+                <tr><td><kbd>A</kbd> / <kbd>O</kbd></td><td>Air or oxygen (when the Air/O₂ buttons are focused) - moves on to BP</td></tr>
+                <tr><td><kbd>A</kbd> <kbd>C</kbd> <kbd>V</kbd> <kbd>P</kbd> <kbd>U</kbd></td><td>Set consciousness (when the ACVPU buttons are focused) - moves on</td></tr>
+                <tr><td><kbd>M</kbd> / <kbd>F</kbd>, <kbd>W</kbd> <kbd>C</kbd> <kbd>T</kbd></td><td>Sex, and mobility (walking, chair, trolley), when those buttons are focused</td></tr>
                 <tr><td><kbd>0</kbd>–<kbd>9</kbd>, <kbd>1</kbd><kbd>0</kbd></td><td>Set pain score (when the pain buttons are focused)</td></tr>
                 <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Set Clinical Frailty Scale (when the frailty buttons are focused)</td></tr>
                 <tr><td><kbd>Alt</kbd>+<kbd>C</kbd></td><td>Copy the EPR note</td></tr>
@@ -85,8 +87,10 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.1</h3>
+            <h3 id="whatsnew-heading">What's new in v21.2</h3>
             <ul class="whatsnew-list">
+                <li><strong>Provisional NEWS2 from the obs you have.</strong> As soon as one obs is in, you see "Provisional NEWS2 at least X (n of 7 obs)" with the risk it already shows (for example "Medium risk or higher"), in the obs section, the decision panel and the bar pinned at the top on phones. Missing obs are listed and are <strong>not</strong> counted as 0, so the full score can only be the same or higher. A low provisional score never says "low risk" and never sets the next obs hours away - it asks you to finish the obs.</li>
+                <li><strong>Fewer taps:</strong> Sex and Mobility are one-tap buttons instead of drop-downs (tap again to clear). Choosing Air or O₂ jumps straight to the blood pressure. On a phone the keyboard's Next key moves through the obs. On a keyboard, type the obs and press Enter between them; at Air/O₂ press <kbd>A</kbd> or <kbd>O</kbd>, and at ACVPU press the letter - both move straight on.</li>
                 <li><strong>Sepsis in ages 5 to 15 now follows NICE NG254.</strong> Answer "Could this be an infection?", and the NG254 high and moderate-to-high risk criteria for the child's age are scored from the obs, with tick boxes for the rest. High risk and 2 or more moderate-to-high criteria bring blood gas, cultures, paediatric sepsis bloods and IV access into the plan. Under 5s still use the fever traffic light (NG143).</li>
                 <li><strong>More ECG triggers:</strong> chest pain on any flowchart, shortness of breath, a new oxygen requirement and a significant cardiac history in the PMH (adults).</li>
                 <li><strong>Blood gas has a low threshold:</strong> it is now suggested wherever lactate, glucose, potassium, sodium, pH or CO2 would help - for example abdominal pain, overdose, diarrhoea and vomiting, confusion, reduced consciousness, NEWS2 of 3 or more, new oxygen need and abnormal temperature.</li>
@@ -99,7 +103,7 @@
                 <li><strong>Pregnancy test</strong> becomes "Do now" for abdominal pain, PV bleeding, collapse, urinary or gut symptoms in anyone who could be pregnant (NICE NG126).</li>
                 <li><strong>Decision panel</strong> stays on screen: category, "see by" time, NEWS2, sepsis and anything still missing.</li>
                 <li><strong>Nothing is assumed.</strong> Pain, consciousness, oxygen and mobility start as "not recorded"; patients show NOT YET TRIAGED until you choose a discriminator.</li>
-                <li><strong>NEWS2 is only shown as a score when all 7 observations are recorded.</strong> SpO₂ Scale 2 now follows the RCP chart exactly, and ACVPU includes new confusion.</li>
+                <li><strong>A full NEWS2 needs all 7 observations</strong>; until then it is shown as provisional. SpO₂ Scale 2 follows the RCP chart exactly, and ACVPU includes new confusion.</li>
                 <li><strong>Sepsis follows NICE NG253</strong>: answer "Could this be an infection?" first, then risk comes from NEWS2.</li>
                 <li><strong>Pain follows the MTS ruler</strong> (5–7 moderate = Yellow, 8–10 severe = Orange). Orange target is 10 minutes.</li>
                 <li><strong>New nurse tools:</strong> NICE head injury criteria (tells you when to tell the ED doctor), NICE fever traffic light (under 5s), ROSIER and time last known well, ECG-in-10-minutes, 4AT, mental health risk, infection control, corridor care, children's safeguarding.</li>
@@ -117,7 +121,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.1 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.2 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -153,18 +157,17 @@
                         <input type="text" id="patient-ref" maxlength="12" placeholder="Chair / cubicle" autocomplete="off">
                     </div>
                     <div class="form-group">
-                        <label for="patient-mobility">Mobility</label>
-                        <select id="patient-mobility">
-                            <option value="">Not recorded</option>
-                            <option value="Walking">Walking / self-caring</option>
-                            <option value="Wheelchair">Wheelchair</option>
-                            <option value="Trolley">Trolley / bed bound</option>
-                        </select>
+                        <span class="label-text" id="lbl-mobility">Mobility</span>
+                        <div class="segmented-control" id="seg-mobility" role="group" aria-labelledby="lbl-mobility" data-keys="w,c,t">
+                            <button data-value="Walking" type="button" title="Walking / self-caring">Walking</button>
+                            <button data-value="Wheelchair" type="button" title="Wheelchair">Chair</button>
+                            <button data-value="Trolley" type="button" title="Trolley / bed bound">Trolley</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="patient-age">Age</label>
                         <div class="input-with-unit">
-                            <input type="number" id="patient-age" inputmode="decimal" min="0" max="120" step="1" placeholder="e.g. 45">
+                            <input type="number" id="patient-age" inputmode="decimal" enterkeyhint="next" min="0" max="120" step="1" placeholder="e.g. 45">
                             <div class="segmented-control compact" id="seg-age-unit">
                                 <button data-value="Years" class="active" type="button" aria-label="Years">Yrs</button>
                                 <button data-value="Months" type="button" aria-label="Months">Mths</button>
@@ -172,12 +175,11 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="patient-sex">Sex</label>
-                        <select id="patient-sex">
-                            <option value="">Not recorded</option>
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                        </select>
+                        <span class="label-text" id="lbl-sex">Sex</span>
+                        <div class="segmented-control" id="seg-sex" role="group" aria-labelledby="lbl-sex" data-keys="m,f">
+                            <button data-value="Male" type="button">Male</button>
+                            <button data-value="Female" type="button">Female</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="patient-weight">Weight (kg)</label>
@@ -294,15 +296,15 @@
                 </h2>
                 <div id="obs-collapsible-body" class="stack">
                     <div id="obs-form" class="obs-grid">
-                        <div class="obs-item" data-param="rr"><label for="obs-rr">Resp rate</label><input type="number" id="obs-rr" class="obs-input" inputmode="numeric" placeholder="/min"></div>
-                        <div class="obs-item" data-param="sats"><label for="obs-sats">SpO₂</label><input type="number" id="obs-sats" class="obs-input" inputmode="numeric" placeholder="%"></div>
+                        <div class="obs-item" data-param="rr"><label for="obs-rr">Resp rate</label><input type="number" id="obs-rr" class="obs-input" enterkeyhint="next" inputmode="numeric" placeholder="/min"></div>
+                        <div class="obs-item" data-param="sats"><label for="obs-sats">SpO₂</label><input type="number" id="obs-sats" class="obs-input" enterkeyhint="next" inputmode="numeric" placeholder="%"></div>
                         <div class="obs-item" data-param="o2"><label>Air / O₂</label><div class="segmented-control obs-input" id="seg-o2" data-keys="a,o"><button data-value="Air" type="button">Air</button><button data-value="O2" type="button">O₂</button></div></div>
-                        <div class="obs-item" data-param="sbp"><label for="obs-sbp">Systolic BP</label><input type="number" id="obs-sbp" class="obs-input" inputmode="numeric" placeholder="mmHg"></div>
-                        <div class="obs-item" data-param="dbp"><label for="obs-dbp">Diastolic BP</label><input type="number" id="obs-dbp" class="obs-input" inputmode="numeric" placeholder="mmHg"></div>
-                        <div class="obs-item" data-param="hr"><label for="obs-hr">Heart rate</label><input type="number" id="obs-hr" class="obs-input" inputmode="numeric" placeholder="bpm"></div>
-                        <div class="obs-item" data-param="temp"><label for="obs-temp">Temp</label><input type="number" id="obs-temp" class="obs-input" inputmode="decimal" step="0.1" placeholder="°C"></div>
+                        <div class="obs-item" data-param="sbp"><label for="obs-sbp">Systolic BP</label><input type="number" id="obs-sbp" class="obs-input" enterkeyhint="next" inputmode="numeric" placeholder="mmHg"></div>
+                        <div class="obs-item" data-param="dbp"><label for="obs-dbp">Diastolic BP</label><input type="number" id="obs-dbp" class="obs-input" enterkeyhint="next" inputmode="numeric" placeholder="mmHg"></div>
+                        <div class="obs-item" data-param="hr"><label for="obs-hr">Heart rate</label><input type="number" id="obs-hr" class="obs-input" enterkeyhint="next" inputmode="numeric" placeholder="bpm"></div>
+                        <div class="obs-item" data-param="temp"><label for="obs-temp">Temp</label><input type="number" id="obs-temp" class="obs-input" enterkeyhint="next" inputmode="decimal" step="0.1" placeholder="°C"></div>
                         <div class="obs-item obs-wide" data-param="avpu"><label>Consciousness (ACVPU)</label><div class="segmented-control obs-input" id="seg-avpu" data-keys="a,c,v,p,u"><button data-value="A" type="button" title="Alert">A</button><button data-value="C" type="button" title="New confusion">C</button><button data-value="V" type="button" title="Voice">V</button><button data-value="P" type="button" title="Pain">P</button><button data-value="U" type="button" title="Unresponsive">U</button></div></div>
-                        <div class="obs-item" data-param="crt"><label for="obs-crt">CRT</label><input type="number" id="obs-crt" class="obs-input" inputmode="decimal" placeholder="secs"></div>
+                        <div class="obs-item" data-param="crt"><label for="obs-crt">CRT</label><input type="number" id="obs-crt" class="obs-input" enterkeyhint="next" inputmode="decimal" placeholder="secs"></div>
                         <div class="obs-item obs-wide" data-param="gcs"><label>GCS <span class="text-muted" id="gcs-total"></span></label>
                             <div class="gcs-row">
                                 <select id="obs-gcs-e" class="obs-input" aria-label="GCS eyes"><option value="">E</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
@@ -310,8 +312,8 @@
                                 <select id="obs-gcs-m" class="obs-input" aria-label="GCS motor"><option value="">M</option><option>6</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select>
                             </div>
                         </div>
-                        <div class="obs-item" data-param="bm"><label for="obs-bm">BM</label><input type="number" id="obs-bm" class="obs-input" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
-                        <div class="obs-item" data-param="ketones"><label for="obs-ketones">Ketones <small class="text-muted">if checked</small></label><input type="number" id="obs-ketones" class="obs-input" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
+                        <div class="obs-item" data-param="bm"><label for="obs-bm">BM</label><input type="number" id="obs-bm" class="obs-input" enterkeyhint="next" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
+                        <div class="obs-item" data-param="ketones"><label for="obs-ketones">Ketones <small class="text-muted">if checked</small></label><input type="number" id="obs-ketones" class="obs-input" enterkeyhint="next" inputmode="decimal" step="0.1" placeholder="mmol/L"></div>
                         <div class="obs-item" data-param="pupils"><label for="obs-pupils">Pupils</label><input type="text" id="obs-pupils" class="obs-input" placeholder="PEARL" autocomplete="off"></div>
                         <div class="obs-item" data-param="scale2"><label class="check-row check-row-plain" for="obs-scale2"><input type="checkbox" id="obs-scale2"> <span>CO₂ retainer <small class="text-muted">SpO₂ scale 2</small></span></label></div>
                     </div>
@@ -414,6 +416,7 @@
         <aside class="decision" id="decision-panel" aria-label="Triage decision">
             <div id="priority-display" class="priority-badge priority-None" aria-live="polite">NOT YET TRIAGED</div>
             <div class="seeby" id="seeby"></div>
+            <div class="ews-mini hidden" id="ews-mini" aria-live="polite"></div>
             <dl class="priority-meta">
                 <div><dt>Stream</dt><dd id="stream-display">–</dd></div>
                 <div><dt>Next obs due</dt><dd id="next-obs-display">–</dd></div>
@@ -454,7 +457,7 @@
     </aside>
 
     <footer>
-        <p>v21.1 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.2 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>

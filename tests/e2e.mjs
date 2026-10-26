@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.1');
+                localStorage.setItem('seenVersion', '21.2');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -96,7 +96,7 @@ await p.fill('#patient-age', '84');
 await pick(p, 'Falls');
 await disc(p, 'Able to weight bear');
 n = await note(p);
-check('Ambulance: mobility defaults to Trolley', (await p.inputValue('#patient-mobility')) === 'Trolley');
+check('Ambulance: mobility defaults to Trolley', (await p.getAttribute('#seg-mobility button.active', 'data-value')) === 'Trolley');
 check('Ambulance fall: stream not Minors', !(await p.textContent('#stream-display')).includes('Minors'), await p.textContent('#stream-display'));
 check('No obs: note says NEWS2 not calculated', n.includes('NEWS2: NOT CALCULATED'));
 check('No obs: missing list asks for obs', (await p.textContent('#missing-list')).includes('Obs:'));
@@ -212,7 +212,7 @@ allErrors.push(...p.errors); await p.context().close();
 
 // 13. SBAR, allergies, override, bloods, corridor care, chest pain ECG.
 p = await fresh();
-await p.fill('#patient-age', '72'); await p.selectOption('#patient-sex', 'Female');
+await p.fill('#patient-age', '72'); await seg(p, 'seg-sex', 'Female');
 await pick(p, 'Chest Pain');
 await disc(p, 'Cardiac-type chest pain at rest');
 await p.fill('#allergies', 'Penicillin'); await p.fill('#allergy-reaction', 'anaphylaxis');
@@ -238,7 +238,7 @@ allErrors.push(...p.errors); await p.context().close();
 // 13b. Nursing plan: bundles, triggers, cannula, placement, no imaging, pregnancy test.
 p = await fresh();
 check('Pregnancy test offered while age and sex are unknown', await p.isVisible('#universal-checks-container') && (await p.textContent('#universal-checks-container')).includes('Pregnancy test'));
-await p.selectOption('#patient-sex', 'Male');
+await seg(p, 'seg-sex', 'Male');
 check('No pregnancy test for a male patient', !(await p.isVisible('#universal-checks-container')));
 await p.fill('#patient-age', '82'); await p.fill('#meds', 'Apixaban 5mg BD');
 await pick(p, 'Head Injury');
@@ -276,7 +276,7 @@ await disc(p, 'Non-blanching');
 check('Child non-blanching rash: paediatric sepsis bloods suggested', (await psep.getAttribute('class')).includes('plan-suggested'));
 allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
-await p.fill('#patient-age', '60'); await p.selectOption('#patient-sex', 'Male');
+await p.fill('#patient-age', '60'); await seg(p, 'seg-sex', 'Male');
 await pick(p, 'Sore Throat');
 await p.click('#yn-assess-infection button[data-value="yes"]');
 const sep = p.locator('.profile-check', { hasText: 'AE - Sepsis' });
@@ -289,7 +289,7 @@ allErrors.push(...p.errors); await p.context().close();
 
 // 13b2. NICE NG254 for a 9-year-old with suspected infection.
 p = await fresh();
-await p.fill('#patient-age', '9'); await p.selectOption('#patient-sex', 'Female');
+await p.fill('#patient-age', '9'); await seg(p, 'seg-sex', 'Female');
 await pick(p, 'Unwell Child');
 await p.click('#yn-assess-infection button[data-value="yes"]');
 check('NG254: sepsis panel for ages 5 to 15', (await p.textContent('#sepsis-screen-container')).includes('NICE NG254, aged 5 to 11'));
@@ -328,7 +328,7 @@ await p.check('input[data-path="assess.stroke.rosier.face"]'); await p.check('in
 check('ROSIER 2 = stroke likely', (await p.textContent('#rosier-result')).includes('ROSIER 2'));
 allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
-await p.fill('#patient-age', '28'); await p.selectOption('#patient-sex', 'Female'); await p.check('#check-pregnant');
+await p.fill('#patient-age', '28'); await seg(p, 'seg-sex', 'Female'); await p.check('#check-pregnant');
 check('Pregnant, blank obs: MEOWS not a false red', (await note(p)).includes('Local MEOWS: NOT CALCULATED') && (await badge(p)).includes('NOT YET TRIAGED'));
 await seg(p, 'seg-avpu', 'U');
 check('Pregnant, unresponsive: escalates', (await badge(p)).startsWith('ORANGE'));
@@ -336,7 +336,7 @@ allErrors.push(...p.errors); await p.context().close();
 
 // 15. Recent patients, local ref, shared-computer mode.
 p = await fresh();
-await p.fill('#patient-ref', 'C12'); await p.fill('#patient-age', '45'); await p.selectOption('#patient-sex', 'Male');
+await p.fill('#patient-ref', 'C12'); await p.fill('#patient-age', '45'); await seg(p, 'seg-sex', 'Male');
 await pick(p, 'Chest Pain');
 await p.waitForTimeout(1000);
 await p.click('#btn-history');
@@ -364,6 +364,50 @@ for (const w of [943, 1920, 700]) {
     check(`No horizontal scroll at ${w}px`, await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     allErrors.push(...p.errors); await p.context().close();
 }
+
+// 16c. Provisional NEWS2 from partial obs: labelled, lists what is not scored, never reassures.
+p = await fresh();
+await p.fill('#patient-age', '70');
+await setObs(p, { rr: 24, sats: 93, hr: 112 });
+let ews = await p.textContent('#visual-ews-container');
+check('Partial obs: provisional NEWS2 shown with a minimum', ews.includes('Provisional NEWS2 at least 6 (3 of 7 obs)'), ews);
+check('Partial obs: risk is "or higher"', ews.includes('Medium risk or higher'), ews);
+check('Partial obs: missing obs named, not scored as 0', ews.includes('Systolic BP not scored yet') && ews.includes('not</strong> counted as 0'.replace(/<\/?strong>/g, '')), ews);
+check('Partial obs: sticky strip shows provisional NEWS2', (await p.textContent('#ews-mini')).includes('provisional') && await p.isVisible('#ews-mini'));
+n = await note(p);
+check('Partial obs: note says PROVISIONAL and lists missing', n.includes('NEWS2: PROVISIONAL - at least 6 from 3 of 7 obs') && n.includes('Not yet recorded, not scored: Air/O2, Systolic BP, Consciousness, Temp'), n.split('\n').find(l => l.includes('NEWS2')));
+check('Partial obs: note still ASCII only', !/[^\x00-\x7f]/.test(n.split('\n').find(l => l.includes('NEWS2')) || ''));
+await p.fill('#obs-hr', '80');
+ews = await p.textContent('#visual-ews-container');
+check('Low partial score never reassures', ews.includes('Risk not known yet') && !/Low risk/.test(ews), ews);
+check('Low partial score: next obs not pushed hours away', (await p.textContent('#next-obs-display')).includes('Finish the obs'), await p.textContent('#next-obs-display'));
+await seg(p, 'seg-o2', 'Air'); await p.fill('#obs-sbp', '130'); await seg(p, 'seg-avpu', 'A'); await p.fill('#obs-temp', '37');
+ews = await p.textContent('#visual-ews-container');
+check('All 7 obs: full NEWS2, no longer provisional', ews.includes('NEWS2 4') && !ews.includes('Provisional'), ews);
+allErrors.push(...p.errors); await p.context().close();
+
+// 16d. Fewer taps: one-tap sex and mobility, obs run on without reaching for the next box.
+p = await fresh();
+await seg(p, 'seg-sex', 'Female'); await seg(p, 'seg-mobility', 'Walking');
+n = await note(p);
+check('One tap sets sex and mobility', n.includes('Female | Mobility: Walking'), n.split('\n').find(l => l.startsWith('Patient:')));
+await seg(p, 'seg-sex', 'Female');
+check('Tapping the chosen sex again clears it', (await note(p)).includes('sex not recorded'));
+await seg(p, 'seg-o2', 'Air');
+check('Choosing Air/O2 moves straight to systolic BP', await p.evaluate(() => document.activeElement && document.activeElement.id === 'obs-sbp'));
+await p.click('#obs-rr'); await p.keyboard.type('18'); await p.keyboard.press('Enter'); await p.keyboard.type('97'); await p.keyboard.press('Enter');
+await p.keyboard.press('o');
+check('Keyboard: "o" on Air/O2 records O2 and moves on', await p.evaluate(() => window.app.state.obs.o2 === 'O2' && document.activeElement.id === 'obs-sbp'));
+await p.click('#seg-avpu button[data-value="A"]'); await p.keyboard.press('v');
+check('Keyboard: ACVPU key records and moves on', await p.evaluate(() => window.app.state.obs.avpu === 'V' && document.activeElement.id === 'obs-crt'));
+check('Obs boxes show a Next key on phones', (await p.getAttribute('#obs-rr', 'enterkeyhint')) === 'next');
+allErrors.push(...p.errors); await p.context().close();
+
+// 16e. Phone width: provisional NEWS2 sits in the pinned bar.
+p = await fresh(412);
+await setObs(p, { rr: 30 });
+check('Phone: provisional NEWS2 visible in pinned bar', await p.isVisible('#ews-mini') && (await p.textContent('#ews-mini')).includes('provisional'));
+allErrors.push(...p.errors); await p.context().close();
 
 // 17. Missing initials is flagged.
 p = await fresh(943, { initials: '' });

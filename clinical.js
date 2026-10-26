@@ -90,6 +90,29 @@ export function news2Response(score, redParam) {
     return { risk: 'Low', monitorMins: 720, monitorText: 'at least every 12 hours' };
 }
 
+// Provisional NEWS2 from whatever obs are recorded (app default - the RCP chart only defines a
+// score from all seven). A missing parameter is NOT scored 0: it is left out, so the true NEWS2
+// can only be the same or higher. A provisional score therefore escalates but never reassures.
+export function news2Summary(ews) {
+    const total = ews.recorded + ews.missing.length;
+    if (ews.recorded === 0) return { status: 'none', score: null, recorded: 0, total, missing: ews.missing, text: 'NEWS2 not calculated - no obs recorded', short: 'NEWS2 -', riskText: '', monitorMins: null, monitorText: '' };
+    const resp = news2Response(ews.score, ews.redParam);
+    if (ews.complete) {
+        return { status: 'complete', score: ews.score, recorded: ews.recorded, total, missing: [], text: `NEWS2 ${ews.score}`, short: `NEWS2 ${ews.score}`, riskText: `${resp.risk} risk`, monitorMins: resp.monitorMins, monitorText: resp.monitorText };
+    }
+    let riskText, monitorMins = null, monitorText = '';
+    if (ews.score >= 7) { riskText = 'High risk already'; monitorMins = 0; monitorText = 'continuous monitoring'; }
+    else if (ews.score >= 5) { riskText = 'Medium risk or higher'; monitorMins = 60; monitorText = 'at least hourly'; }
+    else if (ews.redParam) { riskText = 'Low-medium risk or higher (a single parameter scores 3)'; monitorMins = 60; monitorText = 'at least hourly'; }
+    else riskText = 'Risk not known yet - record the missing obs';
+    return {
+        status: 'provisional', score: ews.score, recorded: ews.recorded, total, missing: ews.missing,
+        text: `Provisional NEWS2 at least ${ews.score} (${ews.recorded} of ${total} obs)`,
+        short: `NEWS2 \u2265${ews.score} provisional`,
+        riskText, monitorMins, monitorText
+    };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Local PEWS (not the national PEWS/SPOT chart - see protocols.js). Unset fields never score.
 // ---------------------------------------------------------------------------------------------

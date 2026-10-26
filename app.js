@@ -2,7 +2,7 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
 
-const VERSION = '21.1';
+const VERSION = '21.2';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -126,6 +126,7 @@ class TriageApp {
         else if (isPaeds) ews = { type: 'PEWS', ...C.localPews(o, p.age, d.scoring.pews) };
         else ews = { type: 'NEWS2', ...C.news2(o, d.scoring.news2) };
         const newsResp = ews.type === 'NEWS2' ? C.news2Response(ews.score, ews.redParam) : null;
+        const newsSum = ews.type === 'NEWS2' ? C.news2Summary(ews) : null;
         if (!s.assess.ng254) s.assess.ng254 = {}; // patients saved before NG254 was added
         const ng254Applies = p.age !== null && p.age >= 5 && p.age < 16;
         const sepsis = ng254Applies
@@ -150,9 +151,10 @@ class TriageApp {
         }
         const partial = ews.complete ? '' : 'partial ';
         if (ews.type === 'NEWS2') {
-            if (ews.score >= 7) floors.push({ level: 'Red', reason: `${partial}NEWS2 ${ews.score} (7 or more)` });
-            else if (ews.score >= 5) floors.push({ level: 'Orange', reason: `${partial}NEWS2 ${ews.score} (5-6)` });
-            else if (ews.score >= 3) floors.push({ level: 'Yellow', reason: `${partial}NEWS2 ${ews.score}` });
+            const nw = ews.complete ? `NEWS2 ${ews.score}` : `provisional NEWS2 at least ${ews.score}`;
+            if (ews.score >= 7) floors.push({ level: 'Red', reason: `${nw} (7 or more)` });
+            else if (ews.score >= 5) floors.push({ level: 'Orange', reason: `${nw} (5-6)` });
+            else if (ews.score >= 3) floors.push({ level: 'Yellow', reason: nw });
         } else if (ews.type === 'PEWS') {
             if (ews.score >= 7) floors.push({ level: 'Red', reason: `${partial}local PEWS ${ews.score} (high)` });
             else if (ews.score >= 5) floors.push({ level: 'Orange', reason: `${partial}local PEWS ${ews.score}` });
@@ -185,12 +187,15 @@ class TriageApp {
         if (level && p.pregnant) stream = `Maternity / ${stream}`;
 
         // Reassessment timing (NEWS2 response; NG253 sepsis reassessment if shorter).
-        let obsMins = newsResp ? newsResp.monitorMins : null;
+        // A provisional NEWS2 only sets a frequency when it already escalates (5+ or a red parameter):
+        // a low partial score must never push the next obs hours away.
+        let obsMins = newsSum ? newsSum.monitorMins : null;
         if (sepsis.status === 'assessed' && obsMins !== null && sepsis.reassessMins) obsMins = Math.min(obsMins, sepsis.reassessMins);
         const obsBase = s.meta.obsAt ? new Date(s.meta.obsAt) : null;
         let nextObs = '-', nextObsAt = null;
         if (ews.type !== 'NEWS2') nextObs = 'Per local chart';
         else if (ews.recorded === 0) nextObs = 'Obs not taken';
+        else if (obsMins === null) nextObs = 'Finish the obs now';
         else if (obsMins === 0) nextObs = 'Continuous';
         else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt); }
 
@@ -220,7 +225,7 @@ class TriageApp {
         if (sepsis.status === 'not-asked' && (ews.score >= 3 || (C.has(o.temp) && (o.temp >= 38 || o.temp < 36)))) missing.push('Could this be an infection? (sepsis)');
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
-        this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
+        this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, newsSum, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
         this.derived.plan = evaluatePlan(this.planFacts(), d.bloodProfiles);
     }
 
@@ -369,8 +374,6 @@ class TriageApp {
         // Patient
         bindInput('patient-age', 'patient.ageValue', num);
         bindInput('patient-weight', 'patient.weight', num);
-        bindInput('patient-sex', 'patient.sex');
-        bindInput('patient-mobility', 'patient.mobility');
         bindInput('check-pregnant', 'patient.pregnant');
         bindInput('date-lmp', 'patient.lmp');
         bindInput('patient-ref', 'patient.localRef');
@@ -522,14 +525,7 @@ class TriageApp {
         // Enter moves to the next observation.
         this.$('obs-form').addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
-            const stops = [];
-            this.$('obs-form').querySelectorAll('.obs-item').forEach(item => {
-                item.querySelectorAll('input.obs-input, select.obs-input').forEach(x => stops.push(x));
-                const seg = item.querySelector('.segmented-control');
-                if (seg) stops.push(seg.querySelector('button.active') || seg.querySelector('button'));
-            });
-            const i = stops.indexOf(e.target);
-            if (i >= 0 && stops[i + 1]) { e.preventDefault(); stops[i + 1].focus(); }
+            if (this.focusNextObs(e.target)) e.preventDefault();
         });
 
         // Dynamic tool panels delegate their inputs to data-path attributes.
@@ -679,18 +675,40 @@ class TriageApp {
         switch (group.id) {
             case 'seg-arrival': {
                 const amb = value === 'Ambulance';
-                if (amb && !this.state.patient.mobility) { this.state.patient.mobility = 'Trolley'; this.$('patient-mobility').value = 'Trolley'; }
+                if (amb && !this.state.patient.mobility) this.state.patient.mobility = 'Trolley';
                 this.set('patient.arrivalMode', value);
                 this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', false);
                 break;
             }
             case 'seg-age-unit': this.set('patient.ageUnit', value); break;
-            case 'seg-o2': this.set('obs.o2', this.state.obs.o2 === value ? null : value); break;
+            // One tap instead of opening a drop-down; tapping the chosen answer again clears it.
+            case 'seg-sex': this.set('patient.sex', this.state.patient.sex === value ? '' : value); break;
+            case 'seg-mobility': this.set('patient.mobility', this.state.patient.mobility === value ? '' : value); break;
+            case 'seg-o2':
+                this.set('obs.o2', this.state.obs.o2 === value ? null : value);
+                // Fewer taps: once Air/O2 is chosen, go straight on to the blood pressure.
+                if (this.state.obs.o2 && btn) { this.focusNextObs(btn); return; }
+                break;
             case 'seg-avpu': this.set('obs.avpu', this.state.obs.avpu === value ? null : value); break;
             case 'seg-ph-o2': this.set('prehospital.obs.o2', value); break;
             default: return;
         }
         if (btn) btn.focus();
+    }
+
+    // Next stop in the obs grid (numbers, then each segmented control). Returns false at the end.
+    focusNextObs(from) {
+        const stops = [];
+        this.$('obs-form').querySelectorAll('.obs-item').forEach(item => {
+            item.querySelectorAll('input.obs-input, select.obs-input').forEach(x => stops.push(x));
+            const seg = item.querySelector('.segmented-control');
+            if (seg) stops.push(seg.querySelector('button.active') || seg.querySelector('button'));
+        });
+        const seg = from.closest('.segmented-control');
+        const i = seg ? stops.findIndex(x => seg.contains(x)) : stops.indexOf(from);
+        if (i < 0 || !stops[i + 1]) return false;
+        stops[i + 1].focus();
+        return true;
     }
 
     onSegmentedKey(e) {
@@ -712,7 +730,9 @@ class TriageApp {
             e.preventDefault();
             const target = buttons[idx];
             if (!target.classList.contains('active')) this.onSegmented(group, target.dataset.value, target);
-            target.focus();
+            if (group.contains(document.activeElement)) target.focus();
+            // Keyboard obs entry runs straight on: "24 Enter 96 Enter a" lands in systolic BP.
+            if (group.id === 'seg-avpu') this.focusNextObs(target);
         }
     }
 
@@ -862,6 +882,8 @@ class TriageApp {
     renderDemographics() {
         const p = this.state.patient, d = this.derived;
         document.querySelectorAll('#seg-age-unit button').forEach(b => b.classList.toggle('active', b.dataset.value === p.ageUnit));
+        document.querySelectorAll('#seg-sex button').forEach(b => b.classList.toggle('active', b.dataset.value === p.sex));
+        document.querySelectorAll('#seg-mobility button').forEach(b => b.classList.toggle('active', b.dataset.value === p.mobility));
         this.$('female-health-section').classList.toggle('hidden', p.sex === 'Male');
         this.$('pregnancy-details').classList.toggle('hidden', !p.pregnant);
         const g = d.gestation;
@@ -1130,7 +1152,7 @@ class TriageApp {
         const label = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
         if (e.recorded === 0) text = `${label}: no obs recorded`;
         else if (!e.complete) {
-            text = `${label}: INCOMPLETE ${e.recorded}/${e.recorded + e.missing.length} - partial score ${e.score}`;
+            text = e.type === 'NEWS2' ? `${d.newsSum.text} - ${d.newsSum.riskText}` : `${label}: INCOMPLETE ${e.recorded}/${e.recorded + e.missing.length} - partial score ${e.score}`;
             if (e.score >= 7) cls = 'ews-crit'; else if (e.score >= 5) cls = 'ews-high'; else if (e.score >= 3 || e.redParam) cls = 'ews-mid';
         } else {
             text = `${label} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} risk` : ''}`;
@@ -1138,8 +1160,12 @@ class TriageApp {
             else cls = e.score >= 5 ? 'ews-crit' : (e.score >= 1 ? 'ews-mid' : 'ews-low');
         }
         const tags = e.params.filter(p => p.points > 0).map(p => `<span class="news-tag">${esc(p.label)} ${esc(p.value)} (+${p.points})</span>`).join('')
-            + e.missing.map(m => `<span class="news-tag missing">${esc(m)} missing</span>`).join('');
-        this.$('visual-ews-container').innerHTML = `<span class="ews-badge ${cls}">${esc(text)}</span>${this.infoPopoverHTML(ref)}<div class="news-breakdown">${tags}</div>${d.newsResp && e.recorded ? `<span class="hint">RCP response: obs ${esc(d.newsResp.monitorText)}</span>` : ''}`;
+            + e.missing.map(m => `<span class="news-tag missing">${esc(m)} not scored yet</span>`).join('');
+        const sum = d.newsSum;
+        const prov = sum && sum.status === 'provisional'
+            ? `<p class="hint ews-prov-note">Provisional: missing obs are <strong>not</strong> counted as 0, so the full NEWS2 can only be the same or higher. App default - the RCP chart scores all 7.</p>` : '';
+        const resp = sum && sum.monitorText ? `<span class="hint">RCP response: obs ${esc(sum.monitorText)}</span>` : (sum && sum.status === 'provisional' ? '<span class="hint">Obs frequency: record the missing obs first</span>' : '');
+        this.$('visual-ews-container').innerHTML = `<span class="ews-badge ${cls}${sum && sum.status === 'provisional' ? ' ews-provisional' : ''}">${esc(text)}</span>${this.infoPopoverHTML(ref)}<div class="news-breakdown">${tags}</div>${resp}${prov}`;
     }
 
     renderSepsis() {
@@ -1311,6 +1337,14 @@ class TriageApp {
         const lvl = d.level;
         badge.className = `priority-badge priority-${lvl || 'None'}${d.priority.provisional ? ' provisional' : ''}`;
         badge.innerHTML = lvl ? `${lvl.toUpperCase()}${d.priority.provisional ? '<small>provisional - choose a discriminator</small>' : ''}` : 'NOT YET TRIAGED';
+        const mini = this.$('ews-mini'), sum = d.newsSum;
+        if (sum && sum.status !== 'none') {
+            mini.classList.remove('hidden');
+            mini.className = `ews-mini${sum.status === 'provisional' ? ' provisional' : ''}${d.ews.score >= 7 ? ' ews-crit' : (d.ews.score >= 5 ? ' ews-high' : (d.ews.score >= 3 || d.ews.redParam ? ' ews-mid' : ''))}`;
+            mini.innerHTML = sum.status === 'provisional'
+                ? `<strong>${esc(sum.short)}</strong> <span>${sum.recorded}/${sum.total} obs - ${esc(sum.riskText)}</span>`
+                : `<strong>${esc(sum.short)}</strong> <span>${esc(sum.riskText)}</span>`;
+        } else { mini.className = 'ews-mini hidden'; mini.innerHTML = ''; }
         const sb = this.$('seeby');
         if (lvl && d.seeBy) {
             const mins = Math.round((d.seeBy - Date.now()) / 60000);
@@ -1325,7 +1359,7 @@ class TriageApp {
 
         const rows = [];
         const e = d.ews;
-        rows.push(['Obs', e.recorded === 0 ? ['Not taken', 'st-grey'] : (!e.complete ? [`${e.type} incomplete (${e.missing.length} missing), partial ${e.score}`, 'st-amber'] : [`${e.type} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk}` : ''}`, e.score >= 5 ? 'st-red' : ''])]);
+        rows.push(['Obs', e.recorded === 0 ? ['Not taken', 'st-grey'] : (!e.complete ? (e.type === 'NEWS2' ? [`${d.newsSum.text}; not scored yet: ${e.missing.join(', ')}`, e.score >= 5 ? 'st-red' : 'st-amber'] : [`${e.type} incomplete (${e.missing.length} missing), partial ${e.score}`, 'st-amber']) : [`${e.type} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk}` : ''}`, e.score >= 5 ? 'st-red' : ''])]);
         const sp = d.sepsis;
         if (sp.applicable) rows.push(['Sepsis', sp.status === 'assessed' ? [`${sepsisRiskText(sp)}${sp.provisional ? ' (provisional)' : ''}`, (sp.band || sp.risk) === 'High' ? 'st-red' : ((sp.band || sp.risk) === 'Medium' ? 'st-amber' : '')] : [sp.status === 'not-suspected' ? 'Infection not suspected' : 'Infection question not answered', 'st-grey']]);
         rows.push(['Pain', C.has(s.complaint.pain) ? [`${s.complaint.pain}/10 ${d.pain.band.toLowerCase()}`, s.complaint.pain >= 8 ? 'st-red' : ''] : ['Not assessed', 'st-grey']]);
@@ -1597,6 +1631,7 @@ class TriageApp {
         const e = d.ews;
         const ewsName = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
         if (e.recorded === 0) lines.push(`${ewsName}: NOT CALCULATED - no obs recorded`);
+        else if (!e.complete && e.type === 'NEWS2') lines.push(`NEWS2: PROVISIONAL - at least ${e.score} from ${e.recorded} of ${e.recorded + e.missing.length} obs (${d.newsSum.riskText}). Not yet recorded, not scored: ${e.missing.join(', ')}. Full NEWS2 needs all 7 obs.`);
         else if (!e.complete) lines.push(`${ewsName}: INCOMPLETE - partial score ${e.score}; missing ${e.missing.join(', ')}`);
         else lines.push(`${ewsName}: ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} clinical risk; obs ${d.newsResp.monitorText}` : ''}${e.params.filter(x => x.points).length ? ` [${e.params.filter(x => x.points).map(x => `${x.label} ${x.value} +${x.points}`).join(', ')}]` : ''}`);
         const sp = d.sepsis;
@@ -1672,7 +1707,7 @@ class TriageApp {
         const S = `I have a ${age} ${p.sex ? p.sex.toLowerCase() : 'patient (sex not recorded)'} who arrived ${p.arrivalMode === 'Ambulance' ? 'by ambulance' : 'self-presented'} at ${hhmm(s.meta.arrivalAt)} with ${s.complaint.name || s.complaint.raw || 'an unrecorded complaint'}. Triage category: ${d.level ? d.level + (d.priority.provisional ? ' (provisional)' : '') : 'not yet triaged'}.`;
         const B = `PMH: ${h.pmh || 'not recorded'}. Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (${h.allergyReaction})` : ''}.${d.risks.length ? ` Alerts: ${d.risks.join('; ')}.` : ''}${d.frailty ? ` Baseline frailty: ${d.frailty.label}.` : ''}`;
         const e = d.ews;
-        let A = e.recorded === 0 ? 'Obs not yet taken.' : `${e.type === 'NEWS2' ? 'NEWS2' : `Local ${e.type}`} ${e.complete ? e.score : `incomplete (partial ${e.score}, missing ${e.missing.join(', ')})`}.`;
+        let A = e.recorded === 0 ? 'Obs not yet taken.' : (e.type === 'NEWS2' && !e.complete ? `Provisional NEWS2 at least ${e.score} (${e.missing.join(', ')} not yet recorded).` : `${e.type === 'NEWS2' ? 'NEWS2' : `Local ${e.type}`} ${e.complete ? e.score : `incomplete (partial ${e.score}, missing ${e.missing.join(', ')})`}.`);
         if (d.sepsis.status === 'assessed') A += ` Suspected infection - ${d.sepsis.guideline || 'NG253'} ${sepsisRiskText(d.sepsis)}.`;
         if (C.has(s.complaint.pain)) A += ` Pain ${s.complaint.pain}/10.`;
         if (d.ng232) A += ` Head injury: ${ng232Nurse(d.ng232)}.`;
@@ -1834,7 +1869,7 @@ class TriageApp {
         const s = this.state, p = s.patient, o = s.obs, h = s.history, ph = s.prehospital;
         const val = (id, v) => { const el = this.$(id); if (el) el.value = C.has(v) ? v : ''; };
         const chk = (id, v) => { const el = this.$(id); if (el) el.checked = !!v; };
-        val('patient-age', p.ageValue); val('patient-weight', p.weight); val('patient-sex', p.sex); val('patient-mobility', p.mobility);
+        val('patient-age', p.ageValue); val('patient-weight', p.weight); 
         chk('check-pregnant', p.pregnant); val('date-lmp', p.lmp); val('patient-ref', p.localRef); val('amb-callsign', p.ambulanceCallSign); val('amb-caseid', p.ambulanceCaseId);
         val('ph-hpc', ph.hpc); val('ph-tx', ph.tx); val('ph-tx-time', ph.txTime); val('ph-social', ph.social);
         ['rr', 'sats', 'sbp', 'dbp', 'hr', 'gcs', 'bm', 'ecg', 'pupils'].forEach(k => val(`ph-obs-${k}`, ph.obs[k]));
