@@ -185,7 +185,7 @@ export function localMeows(obs) {
 // ---------------------------------------------------------------------------------------------
 export function sepsisNG253({ age, pregnant, infection, news }) {
     if (age === null || age === undefined) return { applicable: false, status: 'no-age', text: 'Record age to use the NG253 sepsis tool.' };
-    if (age < 16) return { applicable: false, status: 'paeds', text: age < 5 ? 'Under 5: use the NICE fever traffic light (NG143) in the Paediatric card and your trust\'s paediatric sepsis tool - the NG254 under-5 table is not built into this app.' : 'Ages 5 to 15 use NICE NG254.' };
+    if (age < 16) return { applicable: false, status: 'paeds', text: 'Under 16s use NICE NG254.' };
     if (pregnant) return { applicable: false, status: 'pregnant', text: 'NG253 excludes pregnant or recently pregnant people - use the maternity sepsis pathway (NICE NG255).' };
     if (infection !== 'yes') {
         return infection === 'no'
@@ -221,14 +221,41 @@ export function sepsisNG253({ age, pregnant, infection, news }) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Suspected sepsis in under 16s, NICE NG254 (November 2025): tables 2 (ages 5 to 11) and 3 (ages
-// 12 to 15), recommendations 1.5 and 1.7. Checked against the NICE PDF on 23 October 2026.
-// Under 5s are not covered here (the fever traffic light, NG143, is in the Paediatric card).
+// Suspected sepsis in under 16s, NICE NG254 (November 2025): tables 1 (under 5s), 2 (ages 5 to 11)
+// and 3 (ages 12 to 15), recommendations 1.5 and 1.7. Tables 2 and 3 checked against the NICE PDF
+// on 23 October 2026, table 1 against the NICE website on 27 October 2026. The fever traffic light
+// (NG143) still shows separately in the Paediatric card for under 5s with fever.
 // Obs-derived criteria fire automatically; the rest are ticked. `band` maps the result onto the
 // engine's risk bands: High; Medium = venous bloods and lactate review within 1 hour (2 or more
 // moderate to high risk criteria, or systolic BP 91-100 at 12-15); Low = 1 criterion; Very low = none.
 // ---------------------------------------------------------------------------------------------
 export const NG254_ITEMS = {
+    under5: {
+        high: [
+            ['no_social', 'No response to social cues'],
+            ['appears_ill', 'Appears ill to a healthcare professional'],
+            ['wont_wake', 'Does not wake, or if roused does not stay awake'],
+            ['weak_cry', 'Weak high-pitched or continuous cry'],
+            ['grunting', 'Grunting'],
+            ['apnoea', 'Apnoea'],
+            ['o2_increase', 'Increased oxygen requirement over baseline'],
+            ['mottled', 'Mottled or ashen appearance'],
+            ['cyanosis', 'Cyanosis of skin, lips or tongue'],
+            ['rash', 'Non-blanching petechial or purpuric rash']
+        ],
+        moderate: [
+            ['not_normal_social', 'Not responding normally to social cues'],
+            ['no_smile', 'No smile'],
+            ['prolonged_wake', 'Wakes only with prolonged stimulation'],
+            ['less_active', 'Decreased activity'],
+            ['carer_concern', 'Parent or carer concern that the child is behaving differently from usual'],
+            ['nasal_flaring', 'Nasal flaring'],
+            ['urine', 'Reduced urine output (catheterised: less than 1 ml/kg per hour)'],
+            ['pallor', 'Pallor of skin, lips or tongue'],
+            ['leg_pain', 'Leg pain'],
+            ['cold_peripheries', 'Cold hands or feet']
+        ]
+    },
     child: {
         high: [
             ['altered', 'Objective evidence of altered behaviour or mental state'],
@@ -273,9 +300,13 @@ export const NG254_ITEMS = {
 // Age-specific RR and HR thresholds from table 2: [high from, moderate from, moderate to].
 const NG254_CHILD_RR = (y) => (y <= 5 ? [29, 24, 28] : y <= 7 ? [27, 24, 26] : [25, 22, 24]);
 const NG254_CHILD_HR = (y) => (y <= 5 ? [130, 120, 129] : y <= 7 ? [120, 110, 119] : [115, 105, 114]);
+// Table 1 (under 5s), by age band under 1 year, 1 to 2 years, 3 to 4 years: [high from, moderate from, moderate to].
+const NG254_UNDER5_RR = (y) => (y < 1 ? [60, 50, 59] : y <= 2 ? [50, 40, 49] : [40, 35, 39]);
+const NG254_UNDER5_HR = (y) => (y < 1 ? [160, 150, 159] : y <= 2 ? [150, 140, 149] : [140, 130, 139]);
+const under5Band = (y) => (y < 1 ? 'under 1 year' : y <= 2 ? 'age 1 to 2' : 'age 3 to 4');
 
 export function sepsisNG254({ age, pregnant, infection, obs = {}, ticks = {}, immunosuppressed = false }) {
-    if (age === null || age === undefined || age < 5 || age >= 16) return { applicable: false, status: 'not-ng254', text: '' };
+    if (age === null || age === undefined || age < 0 || age >= 16) return { applicable: false, status: 'not-ng254', text: '' };
     if (pregnant) return { applicable: false, status: 'pregnant', text: 'Pregnant or recently pregnant: use the maternity sepsis pathway (NICE NG255).' };
     const base = { applicable: true, guideline: 'NG254' };
     if (infection !== 'yes') {
@@ -284,13 +315,17 @@ export function sepsisNG254({ age, pregnant, infection, obs = {}, ticks = {}, im
             : { ...base, status: 'not-asked', text: 'Could this be an infection? Answer to apply the NG254 sepsis risk.' };
     }
     const years = Math.floor(age);
-    const young = years >= 12;
-    const items = young ? NG254_ITEMS.young : NG254_ITEMS.child;
+    const young = years >= 12, under5 = age < 5;
+    const items = young ? NG254_ITEMS.young : under5 ? NG254_ITEMS.under5 : NG254_ITEMS.child;
     const high = [], moderate = [], missing = [];
     const n = (k) => (has(obs[k]) ? Number(obs[k]) : null);
     const rr = n('rr'), hr = n('hr'), sats = n('sats'), temp = n('temp'), crt = n('crt'), sbp = n('sbp'), gcs = n('gcs');
 
-    if (has(obs.avpu) && obs.avpu !== 'A') high.push(`${items.high[0][1]} (ACVPU ${obs.avpu})`);
+    if (under5) {
+        // Table 1 has no "altered mental state" item: only ACVPU P or U is taken as "does not wake";
+        // C and V are left to the nurse's ticks.
+        if (obs.avpu === 'P' || obs.avpu === 'U') high.push(`Does not wake, or if roused does not stay awake (ACVPU ${obs.avpu})`);
+    } else if (has(obs.avpu) && obs.avpu !== 'A') high.push(`${items.high[0][1]} (ACVPU ${obs.avpu})`);
     else if (gcs !== null && gcs < 15) high.push(`${items.high[0][1]} (GCS ${gcs})`);
     if (rr === null) missing.push('RR');
     if (hr === null) missing.push('HR');
@@ -302,6 +337,25 @@ export function sepsisNG254({ age, pregnant, infection, obs = {}, ticks = {}, im
         else if (sbp <= 90) high.push(`Systolic BP ${sbp} (90 or less)`);
         else if (sbp <= 100) moderate.push(`Systolic BP ${sbp} (91-100)`);
         if (immunosuppressed && !ticks.immune) moderate.push(`${items.moderate[2][1]} (from History)`);
+    } else if (under5) {
+        const [rH, rM, rTo] = NG254_UNDER5_RR(years), [hH, hM, hTo] = NG254_UNDER5_HR(years), ab = under5Band(years);
+        if (rr !== null) { if (rr >= rH) high.push(`RR ${rr} (${rH} or more, ${ab})`); else if (rr >= rM) moderate.push(`RR ${rr} (${rM}-${rTo}, ${ab})`); }
+        if (hr !== null) {
+            if (hr < 60) high.push(`HR ${hr} (less than 60)`);
+            else if (hr >= hH) high.push(`HR ${hr} (${hH} or more, ${ab})`);
+            else if (hr >= hM) moderate.push(`HR ${hr} (${hM}-${hTo}, ${ab})`);
+        }
+        if (sats !== null && obs.o2 === 'Air') { if (sats < 90) high.push(`SpO2 ${sats}% in air (less than 90%)`); else if (sats < 92) moderate.push(`SpO2 ${sats}% in air (less than 92%)`); }
+        if (crt === null) missing.push('CRT');
+        else if (crt >= 3) moderate.push(`CRT ${crt}s (3 seconds or more)`);
+        // Temperature: less than 36 is high risk at any age under 5; 38 or more under 3 months is high
+        // risk; 39 or more at 3 to 6 months is moderate to high (6 months counted in that band).
+        const months = age * 12;
+        if (temp !== null) {
+            if (temp < 36) high.push(`Temperature ${temp}°C (less than 36)`);
+            else if (months < 3 && temp >= 38) high.push(`Temperature ${temp}°C (38 or more under 3 months)`);
+            else if (months >= 3 && months <= 6 && temp >= 39) moderate.push(`Temperature ${temp}°C (39 or more at 3 to 6 months)`);
+        }
     } else {
         const [rH, rM, rTo] = NG254_CHILD_RR(years), [hH, hM, hTo] = NG254_CHILD_HR(years);
         if (rr !== null) { if (rr >= rH) high.push(`RR ${rr} (${rH} or more at age ${years})`); else if (rr >= rM) moderate.push(`RR ${rr} (${rM}-${rTo} at age ${years})`); }
@@ -314,11 +368,13 @@ export function sepsisNG254({ age, pregnant, infection, obs = {}, ticks = {}, im
         if (crt === null) missing.push('CRT');
         else if (crt >= 3) moderate.push(`CRT ${crt}s (3 seconds or more)`);
     }
-    if (temp !== null && temp < 36) moderate.push(`Temperature ${temp}°C (less than 36)`);
+    if (!under5 && temp !== null && temp < 36) moderate.push(`Temperature ${temp}°C (less than 36)`);
     items.high.forEach(([k, t]) => { if (ticks[k] && !high.some(x => x.startsWith(t))) high.push(t); });
     items.moderate.forEach(([k, t]) => { if (ticks[k]) moderate.push(t); });
 
-    const ageText = young ? 'aged 12 to 15' : 'aged 5 to 11';
+    const ageText = young ? 'aged 12 to 15' : under5 ? 'under 5' : 'aged 5 to 11';
+    // NG254 1.7.4 (from NG143): parenteral antibiotics for fever under 1 month, and at 1 to 3 months if unwell or WBC under 5 or over 15.
+    const infantNote = age < 0.25 ? ' Under 3 months (NG254 1.7.4): parenteral antibiotics for any fever under 1 month, and at 1 to 3 months with fever if they appear unwell or WBC is under 5 or over 15 x10^9/L.' : '';
     const bloods = 'Venous bloods: gas with glucose and lactate, blood culture, FBC, CRP, U&E, creatinine, LFTs, clotting.';
     const sbpMid = young && sbp !== null && sbp > 90 && sbp <= 100;
     let band, risk, actions, reassessMins;
@@ -335,6 +391,7 @@ export function sepsisNG254({ age, pregnant, infection, obs = {}, ticks = {}, im
         band = 'Very low'; risk = 'Low risk'; reassessMins = null;
         actions = 'No high or moderate to high risk criteria: arrange clinician review and use clinical judgement.';
     }
+    actions += infantNote;
     const provisional = band !== 'High' && missing.length > 0;
     return { ...base, status: 'assessed', band, risk, high, moderate, missing, actions, reassessMins, provisional, ageText, text: `${risk} (NG254, ${ageText})` };
 }

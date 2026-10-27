@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.2</title>
+    <title>EMEvidence Triage v21.3</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -87,11 +87,12 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.2</h3>
+            <h3 id="whatsnew-heading">What's new in v21.3</h3>
             <ul class="whatsnew-list">
+                <li><strong>Sepsis in under 5s now follows NICE NG254 too.</strong> The sepsis panel uses NG254 table 1 for children under 5: breathing rate and heart rate by age band (under 1, 1 to 2, 3 to 4), SpO2 in air, capillary refill and temperature are scored from the obs (under 36°C is high risk; 38°C or more under 3 months is high risk; 39°C or more at 3 to 6 months is moderate to high), with tick boxes for behaviour, cry, grunting, apnoea, skin and the rest. ACVPU P or U counts as "does not wake". Under 3 months, the panel adds NICE's advice on parenteral antibiotics for fever. The fever traffic light (NG143) still shows in the Paediatric card.</li>
                 <li><strong>Provisional NEWS2 from the obs you have.</strong> As soon as one obs is in, you see "Provisional NEWS2 at least X (n of 7 obs)" with the risk it already shows (for example "Medium risk or higher"), in the obs section, the decision panel and the bar pinned at the top on phones. Missing obs are listed and are <strong>not</strong> counted as 0, so the full score can only be the same or higher. A low provisional score never says "low risk" and never sets the next obs hours away - it asks you to finish the obs.</li>
                 <li><strong>Fewer taps:</strong> Sex and Mobility are one-tap buttons instead of drop-downs (tap again to clear). Choosing Air or O₂ jumps straight to the blood pressure. On a phone the keyboard's Next key moves through the obs. On a keyboard, type the obs and press Enter between them; at Air/O₂ press <kbd>A</kbd> or <kbd>O</kbd>, and at ACVPU press the letter - both move straight on.</li>
-                <li><strong>Sepsis in ages 5 to 15 now follows NICE NG254.</strong> Answer "Could this be an infection?", and the NG254 high and moderate-to-high risk criteria for the child's age are scored from the obs, with tick boxes for the rest. High risk and 2 or more moderate-to-high criteria bring blood gas, cultures, paediatric sepsis bloods and IV access into the plan. Under 5s still use the fever traffic light (NG143).</li>
+                <li><strong>Sepsis in ages 5 to 15 now follows NICE NG254 (v21.1).</strong> Answer "Could this be an infection?", and the NG254 high and moderate-to-high risk criteria for the child's age are scored from the obs, with tick boxes for the rest. High risk and 2 or more moderate-to-high criteria bring blood gas, cultures, paediatric sepsis bloods and IV access into the plan.</li>
                 <li><strong>More ECG triggers:</strong> chest pain on any flowchart, shortness of breath, a new oxygen requirement and a significant cardiac history in the PMH (adults).</li>
                 <li><strong>Blood gas has a low threshold:</strong> it is now suggested wherever lactate, glucose, potassium, sodium, pH or CO2 would help - for example abdominal pain, overdose, diarrhoea and vomiting, confusion, reduced consciousness, NEWS2 of 3 or more, new oxygen need and abnormal temperature.</li>
                 <li><strong>New investigations and cannula engine.</strong> The plan now reacts to everything you record, not just the complaint: obs, NEWS2, sepsis risk, BM and ketones, consciousness, pregnancy, high-risk medicines and the head injury, stroke and fever tools. Each suggestion shows <em>why</em> it fired and its source.</li>
@@ -121,7 +122,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.2 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.3 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -457,7 +458,7 @@
     </aside>
 
     <footer>
-        <p>v21.2 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.3 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>
