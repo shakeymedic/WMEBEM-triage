@@ -302,7 +302,6 @@ test('Clinical Frailty Scale levels', () => {
 
 test('NG254 sepsis (ages 5 to 15): only with suspected infection; tables 2 and 3 thresholds', () => {
     const obs = (o) => ({ rr: 20, hr: 90, sats: 98, o2: 'Air', temp: 37, crt: 2, sbp: 115, avpu: 'A', ...o });
-    assert.equal(C.sepsisNG254({ age: 4, infection: 'yes', obs: obs() }).applicable, false, 'under 5s are not covered');
     assert.equal(C.sepsisNG254({ age: 16, infection: 'yes', obs: obs() }).applicable, false, '16+ is NG253');
     assert.equal(C.sepsisNG254({ age: 10, infection: null, obs: obs() }).status, 'not-asked');
     assert.equal(C.sepsisNG254({ age: 10, infection: 'no', obs: obs() }).status, 'not-suspected');
@@ -337,4 +336,58 @@ test('NG254 sepsis (ages 5 to 15): only with suspected infection; tables 2 and 3
     assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ rr: 18 }) }).band, 'Very low');
     assert.equal(C.sepsisNG254({ age: 13, infection: 'yes', obs: { rr: 18 } }).provisional, true, 'missing obs make a non-high result provisional');
     assert.match(C.sepsisNG254({ age: 13, infection: 'yes', obs: obs({ rr: 26 }) }).actions, /within 1 hour/);
+});
+
+test('NG254 sepsis table 1 (under 5s): age-band RR/HR, sats, CRT, temperature and ticks', () => {
+    const obs = (o) => ({ rr: 30, hr: 110, sats: 98, o2: 'Air', temp: 37, crt: 2, avpu: 'A', ...o });
+    const r = (age, o, extra = {}) => C.sepsisNG254({ age, infection: 'yes', obs: obs(o), ...extra });
+    assert.equal(r(3, {}).applicable, true);
+    assert.equal(r(3, {}).ageText, 'under 5');
+    assert.equal(r(3, {}).band, 'Very low');
+    // Under 1 year: RR 60+ high, 50-59 moderate; HR 160+ high, 150-159 moderate
+    assert.equal(r(0.5, { rr: 60 }).band, 'High');
+    assert.equal(r(0.5, { rr: 59 }).band, 'Low');
+    assert.equal(r(0.5, { rr: 49 }).band, 'Very low');
+    assert.equal(r(0.5, { hr: 160 }).band, 'High');
+    assert.equal(r(0.5, { hr: 150 }).band, 'Low');
+    assert.equal(r(0.5, { hr: 150, rr: 50 }).band, 'Medium', 'two moderate criteria');
+    // 1 to 2 years (up to the 3rd birthday): RR 50+ high, 40-49 moderate; HR 150+ high, 140-149 moderate
+    assert.equal(r(1, { rr: 50 }).band, 'High');
+    assert.equal(r(2.9, { rr: 40 }).band, 'Low', 'age 2.9 is still the 1 to 2 band');
+    assert.equal(r(2.9, { hr: 150 }).band, 'High');
+    assert.equal(r(2, { hr: 140 }).band, 'Low');
+    // 3 to 4 years: RR 40+ high, 35-39 moderate; HR 140+ high, 130-139 moderate
+    assert.equal(r(3, { rr: 40 }).band, 'High');
+    assert.equal(r(4.9, { rr: 35 }).band, 'Low');
+    assert.equal(r(4, { hr: 140 }).band, 'High');
+    assert.equal(r(4, { hr: 130 }).band, 'Low');
+    assert.equal(r(4, { hr: 129 }).band, 'Very low');
+    assert.equal(r(2, { hr: 55 }).band, 'High', 'bradycardia under 60 at any age');
+    // SpO2 in air: under 90 high, under 92 moderate; CRT 3+ moderate
+    assert.equal(r(2, { sats: 89 }).band, 'High');
+    assert.equal(r(2, { sats: 91 }).band, 'Low');
+    assert.equal(r(2, { sats: 89, o2: 'O2' }).band, 'Very low', 'sats thresholds are in air');
+    assert.equal(r(2, { crt: 3 }).band, 'Low');
+    // Temperature: under 36 is HIGH risk under 5 (moderate at 5-11); 38+ under 3 months high; 39+ at 3-6 months moderate
+    assert.equal(r(2, { temp: 35.9 }).band, 'High');
+    assert.equal(C.sepsisNG254({ age: 9, infection: 'yes', obs: { rr: 20, hr: 90, sats: 98, o2: 'Air', temp: 35.9, crt: 2, avpu: 'A' } }).band, 'Low', 'still moderate at 5 to 11');
+    assert.equal(r(2 / 12, { temp: 38 }).band, 'High');
+    assert.equal(r(4 / 12, { temp: 38.5 }).band, 'Very low');
+    assert.equal(r(4 / 12, { temp: 39 }).band, 'Low');
+    assert.equal(r(0.5, { temp: 39.2 }).band, 'Low', '6 months counted in the 3 to 6 months band');
+    assert.equal(r(1, { temp: 39.5 }).band, 'Very low', 'fever alone is not a criterion over 6 months');
+    // ACVPU: P/U = does not wake (high); V is left to the ticks
+    assert.equal(r(2, { avpu: 'P' }).band, 'High');
+    assert.equal(r(2, { avpu: 'V' }).band, 'Very low');
+    // Ticks
+    assert.equal(r(2, {}, { ticks: { grunting: true } }).band, 'High');
+    assert.equal(r(2, {}, { ticks: { weak_cry: true } }).band, 'High');
+    assert.equal(r(2, {}, { ticks: { no_smile: true, pallor: true } }).band, 'Medium');
+    assert.equal(r(2, {}, { ticks: { nasal_flaring: true } }).band, 'Low');
+    // Missing obs and the under-3-months antibiotic note (1.7.4)
+    assert.equal(C.sepsisNG254({ age: 2, infection: 'yes', obs: { rr: 30 } }).provisional, true);
+    assert.deepEqual(C.sepsisNG254({ age: 2, infection: 'yes', obs: { rr: 30 } }).missing, ['HR', 'Temp', 'CRT']);
+    assert.match(r(1 / 12, {}).actions, /Under 3 months/);
+    assert.doesNotMatch(r(1, {}).actions, /Under 3 months/);
+    assert.equal(C.sepsisNG253({ age: 3, infection: 'yes', news: { score: 0, complete: true } }).applicable, false);
 });

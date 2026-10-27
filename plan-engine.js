@@ -55,7 +55,7 @@ export const FACT_DEFAULTS = {
     obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, avpu: null, gcs: null, bm: null, ketones: null },
     prehospitalBm: null,
     sepsisRisk: null,          // 'High' | 'Medium' | 'Low' | 'Very low' | null (not assessed); NG254 is mapped onto these bands
-    sepsisGuideline: null,     // 'NG253' (16 and over) | 'NG254' (5 to 15)
+    sepsisGuideline: null,     // 'NG253' (16 and over) | 'NG254' (under 16)
     sepsisLabel: '',           // the guideline's own wording, e.g. 'Moderate to high risk (2 criteria)'
     infection: null,           // 'yes' | 'no' | null
     feverTL: null,             // NG143 under 5s, only when fever is relevant: 'Red' | 'Amber' | 'Green' | null

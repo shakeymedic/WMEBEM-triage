@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.2');
+                localStorage.setItem('seenVersion', '21.3');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -300,6 +300,30 @@ check('NG254: RR 27 at age 9 = high risk', (await p.textContent('#sepsis-result'
 check('NG254 high risk: gas do now', (await p.locator('#protocol-actions .protocol-check', { hasText: 'Venous blood gas' }).getAttribute('class')).includes('plan-now'));
 check('NG254 high risk: paediatric sepsis bloods do now with an NG254 link', (await p.locator('.profile-check', { hasText: 'AE - Sepsis (Paediatric)' }).getAttribute('class')).includes('plan-now') && await p.locator('#protocol-actions a[href*="nice.org.uk/guidance/ng254"]').count() > 0);
 check('NG254 high risk: in the note', (await note(p)).includes('Sepsis (NICE NG254): infection suspected - High risk'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 13b3. NICE NG254 table 1 for a 2-year-old and a 2-month-old with suspected infection.
+p = await fresh();
+await p.fill('#patient-age', '2'); await seg(p, 'seg-sex', 'Male');
+await pick(p, 'Unwell Child');
+await p.click('#yn-assess-infection button[data-value="yes"]');
+check('NG254 under 5: sepsis panel uses table 1', (await p.textContent('#sepsis-screen-container')).includes('NICE NG254, under 5'));
+check('NG254 under 5: table 1 tick boxes shown', (await p.textContent('#sepsis-screen-container')).includes('Grunting'));
+await setObs(p, { rr: 30, sats: 98, hr: 120, temp: 37.4, crt: 2 }); await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+check('NG254 under 5: normal obs = low risk', (await p.textContent('#sepsis-result')).startsWith('Low risk'), await p.textContent('#sepsis-result'));
+await setObs(p, { hr: 150 });
+check('NG254 under 5: HR 150 at age 2 = high risk', (await p.textContent('#sepsis-result')).startsWith('High risk'), await p.textContent('#sepsis-result'));
+check('NG254 under 5: paediatric sepsis bloods do now', (await p.locator('.profile-check', { hasText: 'AE - Sepsis (Paediatric)' }).getAttribute('class')).includes('plan-now'));
+check('NG254 under 5: fever traffic light still in the Paediatric card', await p.locator('#ng143-result').count() === 1);
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '2'); await seg(p, 'seg-age-unit', 'Months');
+await pick(p, 'Unwell Child');
+await p.click('#yn-assess-infection button[data-value="yes"]');
+await setObs(p, { rr: 45, sats: 98, hr: 140, temp: 38.2, crt: 2 }); await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+check('NG254: 2 months with temp 38.2 = high risk', (await p.textContent('#sepsis-result')).startsWith('High risk'), await p.textContent('#sepsis-result'));
+check('NG254: under 3 months antibiotic advice shown', (await p.textContent('#sepsis-actions')).includes('Under 3 months'));
 allErrors.push(...p.errors); await p.context().close();
 
 // 13c. Clinical Frailty Scale.

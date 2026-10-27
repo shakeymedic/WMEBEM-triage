@@ -2,7 +2,7 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
 
-const VERSION = '21.2';
+const VERSION = '21.3';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -128,7 +128,7 @@ class TriageApp {
         const newsResp = ews.type === 'NEWS2' ? C.news2Response(ews.score, ews.redParam) : null;
         const newsSum = ews.type === 'NEWS2' ? C.news2Summary(ews) : null;
         if (!s.assess.ng254) s.assess.ng254 = {}; // patients saved before NG254 was added
-        const ng254Applies = p.age !== null && p.age >= 5 && p.age < 16;
+        const ng254Applies = p.age !== null && p.age < 16;
         const sepsis = ng254Applies
             ? C.sepsisNG254({
                 age: p.age, pregnant: p.pregnant, infection: s.assess.infection, ticks: s.assess.ng254,
@@ -1176,12 +1176,14 @@ class TriageApp {
             if (!sp.applicable) {
                 box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG253)</span></div><p class="tool-note" id="sepsis-text"></p>`;
             } else if (sp.guideline === 'NG254') {
-                const items = sp.ageText === 'aged 12 to 15' ? C.NG254_ITEMS.young : C.NG254_ITEMS.child;
-                box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG254, ${sp.ageText || 'ages 5 to 15'})</span><span class="tool-result" id="sepsis-result"></span></div>
+                const items = sp.ageText === 'aged 12 to 15' ? C.NG254_ITEMS.young : sp.ageText === 'under 5' ? C.NG254_ITEMS.under5 : C.NG254_ITEMS.child;
+                box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG254, ${sp.ageText || 'under 16'})</span><span class="tool-result" id="sepsis-result"></span></div>
                     <div class="q-row"><span><strong>Could this be an infection?</strong> (suspected or confirmed)</span>${this.ynHTML('assess.infection', s.assess.infection)}</div>
                     <p class="tool-actions" id="sepsis-actions"></p><p class="tool-note" id="sepsis-judgement"></p>
                     ${s.assess.infection === 'yes' ? `<p class="tool-note" id="ng254-auto"></p><h4>High risk criteria</h4>${this.checksHTML(items.high, 'assess.ng254', s.assess.ng254)}<h4>Moderate to high risk criteria</h4>${this.checksHTML(items.moderate, 'assess.ng254', s.assess.ng254)}` : ''}
-                    <p class="tool-note">RR, heart rate, SpO2, temperature${sp.ageText === 'aged 12 to 15' ? ', systolic BP' : ' and CRT'} and ACVPU/GCS are scored automatically from the obs.</p>`;
+                    <p class="tool-note">${sp.ageText === 'under 5'
+                        ? 'RR, heart rate, SpO2, temperature and CRT are scored automatically from the obs; ACVPU P or U counts as "does not wake". NICE: measure BP in under 5s if heart rate or CRT is abnormal.'
+                        : `RR, heart rate, SpO2, temperature${sp.ageText === 'aged 12 to 15' ? ', systolic BP' : ' and CRT'} and ACVPU/GCS are scored automatically from the obs.`}</p>`;
             } else {
                 box.innerHTML = `<div class="tool-head"><span class="tool-title">Sepsis (NICE NG253, 16 and over)</span><span class="tool-result" id="sepsis-result"></span></div>
                     <div class="q-row"><span><strong>Could this be an infection?</strong> (suspected or confirmed)</span>${this.ynHTML('assess.infection', s.assess.infection)}</div>

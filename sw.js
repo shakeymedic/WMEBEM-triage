@@ -2,7 +2,7 @@
 // Basic offline app-shell caching for a device used at a triage desk with unreliable wifi.
 // Cache-first for the app shell, network-first fallback isn't needed since this app has no server calls.
 
-const CACHE_NAME = 'emevidence-triage-v21-2';
+const CACHE_NAME = 'emevidence-triage-v21-3';
 const ASSETS = [
     './',
     './index.html',
