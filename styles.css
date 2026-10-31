@@ -365,7 +365,7 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 
 /* ---------- ℹ️ reference popovers ---------- */
 .info-pop { position: relative; display: inline-block; }
-.info-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 0 2px; }
+.info-btn { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; padding: 0; margin-left: 2px; border-radius: 50%; border: 1.5px solid var(--primary); background: var(--bg-card); color: var(--primary); cursor: pointer; font: 700 0.7rem/1 Georgia, serif; font-style: italic; vertical-align: middle; }
 .info-bubble { display: none; position: absolute; top: 100%; left: 0; margin-top: 6px; width: 260px; max-width: 60vw; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border); border-radius: 6px; padding: 9px; font-size: 0.76rem; font-weight: 500; line-height: 1.4; text-align: left; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 200; }
 .info-pop.open .info-bubble { display: block; }
 
@@ -427,3 +427,15 @@ footer a { color: var(--primary); }
 .epr-note-formatted { margin-top: 6px; max-height: 420px; overflow: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); font-size: 0.8rem; line-height: 1.4; user-select: text; }
 .epr-note-formatted p { margin: 0 0 8px; }
 .epr-note-formatted p:last-child { margin-bottom: 0; }
+
+.obs-msg { display: block; font-size: 0.7rem; line-height: 1.2; margin-top: 2px; color: #9a5a00; }
+.obs-msg.obs-msg-danger { color: var(--red); font-weight: 700; }
+
+.amb-hidden { display: none !important; }
+#override-msg.override-msg-ok { color: var(--green); }
+
+/* Dark mode: the light blue / grey fills are too pale for white text (WCAG AA 4.5:1), so use dark text on them. */
+[data-theme="dark"] .btn-primary, [data-theme="dark"] .btn-secondary, [data-theme="dark"] .segmented-control button.active,
+[data-theme="dark"] .combobox-option.active, [data-theme="dark"] .combobox-option:hover, [data-theme="dark"] .pain-btn.active,
+[data-theme="dark"] .cfs-row.active .cfs-num, [data-theme="dark"] .suggestion-item:hover, [data-theme="dark"] .status-btn.active,
+[data-theme="dark"] body.quick-mode #btn-quick-mode, [data-theme="dark"] .toast:not(.toast-error) { color: #0b1220; }

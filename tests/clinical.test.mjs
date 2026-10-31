@@ -200,7 +200,11 @@ test('Paediatric analgesia guards', () => {
     assert.match(C.paedsAnalgesia({ age: 3, weight: null }).blocked, /weight/);
     const d = C.paedsAnalgesia({ age: 4, weight: 16 });
     assert.equal(d.paracetamol, 240);
-    assert.equal(d.ibuprofen, 160);
+    assert.equal(d.ibuprofen, 100, '4 years but 16 kg: the lower (weight) band, 100 mg');
+    assert.equal(C.paedsAnalgesia({ age: 2, weight: 12 }).ibuprofen, 100, 'SmPC 1-3 years: 100 mg');
+    assert.equal(C.paedsAnalgesia({ age: 8 / 12, weight: 8 }).ibuprofen, 50);
+    assert.equal(C.paedsAnalgesia({ age: 5, weight: 18 }).ibuprofen, 150);
+    assert.equal(C.paedsAnalgesia({ age: 14, weight: 50 }).ibuprofen, 400);
     assert.equal(C.paedsAnalgesia({ age: 5 / 12, weight: 4.5 }).ibuprofen, null);
     assert.equal(C.paedsAnalgesia({ age: 15, weight: 80 }).paracetamol, 750);
 });
@@ -390,4 +394,17 @@ test('NG254 sepsis table 1 (under 5s): age-band RR/HR, sats, CRT, temperature an
     assert.match(r(1 / 12, {}).actions, /Under 3 months/);
     assert.doesNotMatch(r(1, {}).actions, /Under 3 months/);
     assert.equal(C.sepsisNG253({ age: 3, infection: 'yes', news: { score: 0, complete: true } }).applicable, false);
+});
+
+test('v21.5: EDD is LMP + 280 calendar days across the clock change', () => {
+    const g = C.gestationFromLmp('2026-04-04', new Date(2026, 9, 31));
+    assert.equal(g.edd.getFullYear(), 2027); assert.equal(g.edd.getMonth(), 0); assert.equal(g.edd.getDate(), 9);
+    const g2 = C.gestationFromLmp('2026-01-31', new Date(2026, 5, 1));
+    assert.equal(g2.edd.getMonth(), 10); assert.equal(g2.edd.getDate(), 7);
+});
+
+test('v21.5: ROSIER is "not done" until marked complete', () => {
+    assert.equal(C.rosier({}, false).text, 'ROSIER not done');
+    assert.equal(C.rosier({ face: true }, false).text, 'ROSIER incomplete (score so far 1)');
+    assert.equal(C.rosier({}, true).text, 'ROSIER 0: stroke unlikely but not excluded');
 });

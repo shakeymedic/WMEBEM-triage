@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.4</title>
+    <title>EMEvidence Triage v21.5</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -88,8 +88,22 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.4</h3>
+            <h3 id="whatsnew-heading">What's new in v21.5</h3>
             <ul class="whatsnew-list">
+                <li><strong>v21.5 - fixes from a full stress test.</strong></li>
+                <li><strong>Closer to MTS.</strong> Cardiac-type chest pain is now Orange. Stroke uses "acute neurological deficit (onset within 24 hours)" = Orange. A hot child (38.5°C or above) is Orange; an adult is Yellow at 38.5°C and Orange at 41°C (not on injury flowcharts).</li>
+                <li><strong>Orange on its own no longer recommends a cannula</strong> - it is "consider", like Yellow.</li>
+                <li><strong>Pregnant with abdominal pain:</strong> both the abdominal pain and pregnancy (PV bleed) bundles, plus a blood gas.</li>
+                <li><strong>Adults with any abnormal obs:</strong> repeat within 60 minutes (RCEM standard), then per NEWS2.</li>
+                <li><strong>Ibuprofen for children</strong> now uses the licensed age and weight bands (lower of the two), not 10 mg/kg.</li>
+                <li><strong>Impossible obs are refused.</strong> A value that cannot be real (for example SpO2 150, a negative heart rate or age) is not scored and not put in the note; the box says "Not possible - re-enter" and it is listed in "Still to record". Unusual but possible values are kept, with a "please double-check" note under the box.</li>
+                <li><strong>A reload no longer loses the patient.</strong> The patient on screen is kept in this browser tab and comes back after a reload (closing the tab clears it).</li>
+                <li><strong>Stroke:</strong> an unticked ROSIER now reads "ROSIER not done", not "ROSIER 0". Tick the findings and tap "ROSIER complete". Time last known well, ROSIER and BM are listed in "Still to record".</li>
+                <li><strong>EDD</strong> is no longer a day early when the LMP is in British Summer Time.</li>
+                <li><strong>Partial obs:</strong> next obs says "Finish the obs now" first, then the frequency the partial NEWS2 already needs.</li>
+                <li><strong>High-risk medicines:</strong> when the medicines list already shows a high-risk group, the button reads "No other groups" and the note no longer contradicts the alerts.</li>
+                <li><strong>Children:</strong> heart-rate triggers for ECG and blood gas use adult NEWS2 bands, so they no longer fire for children; weight is not suggested once measured; temperature is listed in "Still to record"; a sepsis re-check time shows under next obs.</li>
+                <li><strong>Other fixes:</strong> no lying and standing BP with a suspected hip fracture or inability to weight bear; maternity triage instead of EPU from 20 weeks by LMP (app default); "Testicular torsion" not offered for female patients; HPC box for walk-in patients too; the triage decision now leads the note for ambulance patients as well; SBAR flags an outstanding ECG; the override says what it still needs; "Wheelchair" button; better contrast in dark mode; What's new opens at the top.</li>
                 <li><strong>The EPR note now pastes with bold headings.</strong> "Copy EPR note" copies a formatted version (bold, underlined section headings and bold labels) and a plain text version together. A note box that accepts formatting keeps the bold; a plain box gets the plain text, now split into sections with a blank line between them. If your EPR pastes the formatting badly, tick <em>Copy the EPR note as plain text only</em> in Settings. SBAR copies the same way.</li>
                 <li><strong>The triage category is now near the top of the note</strong>, straight after the patient details, with the stream, reasons and next obs time. The note then runs: presenting complaint, observations and assessment, alerts, history, screening, plan.</li>
                 <li><strong>Ambulance arrivals:</strong> Trolley is still filled in for you, but it now says it was assumed. Tapping Trolley confirms it (before, that tap cleared it). Switching back to Self clears an assumed Trolley.</li>
@@ -129,7 +143,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.4 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.5 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -168,7 +182,7 @@
                         <span class="label-text" id="lbl-mobility">Mobility</span>
                         <div class="segmented-control" id="seg-mobility" role="group" aria-labelledby="lbl-mobility" data-keys="w,c,t">
                             <button data-value="Walking" type="button" title="Walking / self-caring">Walking</button>
-                            <button data-value="Wheelchair" type="button" title="Wheelchair">Chair</button>
+                            <button data-value="Wheelchair" type="button" title="Wheelchair">Wheelchair</button>
                             <button data-value="Trolley" type="button" title="Trolley / bed bound">Trolley</button>
                         </div>
                         <small class="hint hidden" id="mobility-hint">Set from ambulance arrival - tap to confirm or change</small>
@@ -223,7 +237,7 @@
             </section>
 
             <section class="card hidden" id="card-handover">
-                <h2 class="section-title">Crew handover</h2>
+                <h2 class="section-title" id="handover-title">Crew handover</h2>
                 <div class="form-group">
                     <div class="label-row">
                         <label for="ph-hpc">HPC <span class="text-muted">history of presenting complaint</span></label>
@@ -231,7 +245,7 @@
                     </div>
                     <textarea id="ph-hpc" rows="3" placeholder="Onset, associated symptoms, relevant context…"></textarea>
                 </div>
-                <button type="button" class="subsection-toggle quick-hide" id="ph-obs-toggle" aria-expanded="false" aria-controls="ph-obs-collapsible"><span>Pre-hospital observations <span class="text-muted">only if not already in the EPR</span></span><span class="chevron" aria-hidden="true">▾</span></button>
+                <button type="button" class="subsection-toggle quick-hide amb-only" id="ph-obs-toggle" aria-expanded="false" aria-controls="ph-obs-collapsible"><span>Pre-hospital observations <span class="text-muted">only if not already in the EPR</span></span><span class="chevron" aria-hidden="true">▾</span></button>
                 <div id="ph-obs-collapsible" class="hidden">
                     <div class="obs-grid">
                         <div class="obs-item"><label for="ph-obs-rr">RR</label><input type="number" id="ph-obs-rr" inputmode="numeric"></div>
@@ -246,7 +260,7 @@
                         <div class="obs-item"><label for="ph-obs-pupils">Pupils</label><input type="text" id="ph-obs-pupils" placeholder="PEARL" autocomplete="off"></div>
                     </div>
                 </div>
-                <div class="form-group quick-hide">
+                <div class="form-group quick-hide amb-only">
                     <div class="label-row">
                         <label for="ph-tx">Pre-hospital medications / treatment</label>
                         <div class="label-actions"><button type="button" class="mic-btn" data-target="ph-tx" aria-label="Dictate pre-hospital treatment">🎤</button></div>
@@ -254,7 +268,7 @@
                     <textarea id="ph-tx" rows="2" placeholder="e.g. IV paracetamol 1g, O₂ 2L via nasal cannula…"></textarea>
                 </div>
                 <div class="form-grid quick-hide">
-                    <div class="form-group"><label for="ph-tx-time">Time given <span class="text-muted">if known</span></label><input type="time" id="ph-tx-time"></div>
+                    <div class="form-group amb-only"><label for="ph-tx-time">Time given <span class="text-muted">if known</span></label><input type="time" id="ph-tx-time"></div>
                     <div class="form-group"><label for="ph-social">Social <span class="text-muted">optional</span></label><input type="text" id="ph-social" placeholder="e.g. Frame, PoC 3x daily" autocomplete="off"></div>
                 </div>
                 <button type="button" class="quick-more btn-tiny" data-action="quick-more" aria-expanded="false" data-label="pre-hospital obs, treatment and social">Show pre-hospital obs, treatment and social</button>
@@ -448,6 +462,7 @@
                 <div id="override-options" class="hidden override-panel">
                     <label for="sel-override">Manual category</label>
                     <select id="sel-override">
+                            <option value="">Choose category</option>
                         <option value="Red">Red (immediate)</option>
                         <option value="Orange">Orange (10 min)</option>
                         <option value="Yellow">Yellow (60 min)</option>
@@ -455,6 +470,7 @@
                         <option value="Blue">Blue (240 min)</option>
                     </select>
                     <input type="text" id="txt-override" class="mt-6" placeholder="Reason (required, audited)">
+                <small class="hint" id="override-msg" aria-live="polite"></small>
                 </div>
             </div>
             <details class="note-preview">
@@ -473,7 +489,7 @@
     </aside>
 
     <footer>
-        <p>v21.4 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.5 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>
