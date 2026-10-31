@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.5');
+                localStorage.setItem('seenVersion', '21.6');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -177,6 +177,27 @@ check('Adult vomiting x2 -> CT within 1 hour', (await p.textContent('#ng232-resu
 await p.fill('#patient-age', '8');
 await p.check('input[data-path="assess.ng232.drowsy"]');
 check('Child 1 risk factor -> observe 4 hours', (await p.textContent('#ng232-result')).includes('4 hours'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 10b. NG232 and antiplatelets: aspirin alone is not a criterion; other antiplatelets are (adults and children).
+for (const [meds, expectCT, label] of [['aspirin 75mg once per day', false, 'aspirin alone'], ['ASA 75mg, paracetamol 1g QDS per GP', false, 'ASA + paracetamol'], ['clopidogrel 75mg OD', true, 'clopidogrel'], ['aspirin, clopidogrel', true, 'aspirin + clopidogrel'], ['Brilique 90mg BD', true, 'ticagrelor (brand)']]) {
+    p = await fresh();
+    await p.fill('#patient-age', '70'); await p.fill('#meds', meds);
+    await pick(p, 'Head Injury');
+    const r = await p.textContent('#ng232-result');
+    check(`NG232 ${label}: ${expectCT ? 'consider CT within 8 h' : 'no CT criterion'}`, expectCT ? r.includes('Consider CT head within 8 hours') : r.includes('No NG232 CT indication'));
+    check(`NG232 ${label}: box ${expectCT ? 'ticked' : 'not ticked'}`, (await p.isChecked('#ng232-anticoag')) === expectCT);
+    const alerts = await p.textContent('#meds-alert');
+    check(`${label}: ${expectCT ? 'antiplatelet alert' : 'no high-risk alert'}`, expectCT ? alerts.includes('Antiplatelet') : !alerts.includes('Antiplatelet'));
+    if (label === 'clopidogrel') check('Clopidogrel alone: no INR / warfarin bundle', !(await p.locator('.profile-check', { hasText: 'AE Head Injury on Warfarin' }).getAttribute('class')).includes('plan-suggested'));
+    allErrors.push(...p.errors); await p.context().close();
+}
+p = await fresh();
+await p.fill('#patient-age', '6'); await p.fill('#meds', 'warfarin');
+await pick(p, 'Head Injury');
+check('NG232 child on an anticoagulant: consider CT within 8 h', (await p.textContent('#ng232-result')).includes('Consider CT head within 8 hours'));
+await p.check('input[data-path="assess.ng232.clotting"]');
+check('NG232 child: 1 risk factor + anticoagulant: observe 4 h and consider CT', /4 hours.*consider CT/i.test(await p.textContent('#ng232-result')));
 allErrors.push(...p.errors); await p.context().close();
 
 // 11. NEWS2 scale 2 on air.
@@ -538,6 +559,8 @@ await p.fill('#obs-rr', '28'); await p.fill('#obs-hr', '130');
 check('Partial NEWS2 that escalates: finish the obs first', (await p.textContent('#next-obs-display')).startsWith('Finish the obs now'));
 await pick(p, 'Chest Pain');
 await p.fill('#meds', 'aspirin, ramipril');
+check('Aspirin alone: no high-risk alert, button stays "None of these"', (await p.textContent('#btn-hr-none')) === 'None of these' && !(await p.textContent('#meds-alert')).includes('Antiplatelet'));
+await p.fill('#meds', 'aspirin, clopidogrel, ramipril');
 check('High-risk button becomes "No other groups" when the list found one', (await p.textContent('#btn-hr-none')) === 'No other groups');
 await p.click('#btn-hr-none');
 n = await note(p);
@@ -549,7 +572,7 @@ await p.selectOption('#sel-override', 'Orange');
 check('Override without a reason says what it needs', (await p.textContent('#override-msg')).includes('Type a reason'));
 // Reload keeps the patient
 await p.reload(); await p.waitForFunction(() => !!window.app);
-check('Reload keeps the patient being triaged', await p.evaluate(() => window.app.state.complaint.name === 'Chest Pain' && window.app.state.patient.ageValue === 58) && (await p.inputValue('#meds')) === 'aspirin, ramipril');
+check('Reload keeps the patient being triaged', await p.evaluate(() => window.app.state.complaint.name === 'Chest Pain' && window.app.state.patient.ageValue === 58) && (await p.inputValue('#meds')) === 'aspirin, clopidogrel, ramipril');
 allErrors.push(...p.errors); await p.context().close();
 
 p = await fresh();
