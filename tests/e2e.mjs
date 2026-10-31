@@ -580,6 +580,26 @@ await pick(p, 'Unwell Child');
 check('Child: temperature listed as still to record', (await p.textContent('#missing-list')).includes('Temp (child'));
 allErrors.push(...p.errors); await p.context().close();
 
+// 30. MTS alignment (v21.5): cardiac pain Orange, hot child, RCEM 60-minute repeat, licensed ibuprofen bands.
+p = await fresh();
+await p.fill('#patient-age', '58'); await seg(p, 'seg-sex', 'Male');
+await pick(p, 'Chest Pain'); await disc(p, 'Cardiac-type chest pain at rest');
+check('MTS: cardiac chest pain is ORANGE', (await badge(p)).startsWith('ORANGE'), await badge(p));
+await setObs(p, { rr: 22, sats: 97, sbp: 140, hr: 96, temp: 36.8 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+const nx = await p.textContent('#next-obs-display');
+check('RCEM: abnormal adult obs repeated within 60 min', nx.includes('within 60 min'), nx);
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '3');
+await pick(p, 'Unwell Child'); await disc(p, 'Viral symptoms');
+await setObs(p, { temp: 38.7 });
+check('MTS: hot child (38.5 or above) floors to ORANGE', (await badge(p)).startsWith('ORANGE'), await badge(p));
+n = await note(p);
+check('Note stays ASCII with a temperature reason', !/[^\x00-\x7f]/.test(n), n.match(/[^\x00-\x7f]/g)?.join(''));
+allErrors.push(...p.errors); await p.context().close();
+
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
 
 await browser.close();

@@ -200,7 +200,11 @@ test('Paediatric analgesia guards', () => {
     assert.match(C.paedsAnalgesia({ age: 3, weight: null }).blocked, /weight/);
     const d = C.paedsAnalgesia({ age: 4, weight: 16 });
     assert.equal(d.paracetamol, 240);
-    assert.equal(d.ibuprofen, 160);
+    assert.equal(d.ibuprofen, 100, '4 years but 16 kg: the lower (weight) band, 100 mg');
+    assert.equal(C.paedsAnalgesia({ age: 2, weight: 12 }).ibuprofen, 100, 'SmPC 1-3 years: 100 mg');
+    assert.equal(C.paedsAnalgesia({ age: 8 / 12, weight: 8 }).ibuprofen, 50);
+    assert.equal(C.paedsAnalgesia({ age: 5, weight: 18 }).ibuprofen, 150);
+    assert.equal(C.paedsAnalgesia({ age: 14, weight: 50 }).ibuprofen, 400);
     assert.equal(C.paedsAnalgesia({ age: 5 / 12, weight: 4.5 }).ibuprofen, null);
     assert.equal(C.paedsAnalgesia({ age: 15, weight: 80 }).paracetamol, 750);
 });

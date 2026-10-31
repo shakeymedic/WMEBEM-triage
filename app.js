@@ -30,7 +30,7 @@ const ddmmyyyy = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
 const sepsisRiskText = (sp) => (sp.guideline === 'NG254' ? sp.risk : `${sp.risk} risk`);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // EPR fields are often not Unicode-safe: keep the note to plain characters.
-const plain = (s) => String(s ?? '').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/₂/g, '2').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/·/g, '-').replace(/­/g, '');
+const plain = (s) => String(s ?? '').replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/₂/g, '2').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/·/g, '-').replace(/°/g, '').replace(/­/g, '');
 const newSessionId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 function freshState() {
@@ -183,6 +183,14 @@ class TriageApp {
             floors.push({ level: 'Orange', reason: `${partial}local MEOWS ${ews.score}` });
         }
         if (pain && pain.floor) floors.push({ level: pain.floor, reason: `${pain.band} pain ${s.complaint.pain}/10 (MTS pain ruler)` });
+        // MTS general temperature discriminators (Hot child 38.5+ Orange; adult Very hot 41+ Orange, Hot 38.5+ Yellow).
+        // Not applied on injury flowcharts. Thresholds to be checked against the trust's licensed MTS edition.
+        if (C.has(o.temp) && p.age !== null && s.complaint.name && !/Injury|Wounds|Burns|Limb Problems|Falls|Major Trauma|Assault|Bites|Foreign Body|Needlestick/.test(s.complaint.name)) {
+            const t = Number(o.temp);
+            if (p.age < 16 && t >= 38.5) floors.push({ level: 'Orange', reason: `Hot child (${t}°C, MTS)` });
+            else if (p.age >= 16 && t >= 41) floors.push({ level: 'Orange', reason: `Very hot (${t}°C, MTS)` });
+            else if (p.age >= 16 && t >= 38.5) floors.push({ level: 'Yellow', reason: `Hot adult (${t}°C, MTS)` });
+        }
         if (s.assess.sepsisFactors.sepsis_rash || (feverRelevant && s.assess.ng143.ticks.non_blanching) || (sepsis.guideline === 'NG254' && s.assess.infection === 'yes' && s.assess.ng254.rash)) floors.push({ level: 'Orange', reason: 'Non-blanching rash' });
 
         const priority = C.triagePriority({ discriminator: disc, noneApply: s.complaint.noneApply, floors, override: s.triage.override });
@@ -212,6 +220,10 @@ class TriageApp {
         // a low partial score must never push the next obs hours away.
         let obsMins = newsSum ? newsSum.monitorMins : null;
         if (sepsis.status === 'assessed' && obsMins !== null && sepsis.reassessMins) obsMins = Math.min(obsMins, sepsis.reassessMins);
+        // RCEM Vital Signs in Adults standard 2: abnormal vital signs are repeated within 60 minutes of the
+        // first set. Any NEWS2 parameter scoring 1 or more counts as abnormal here (app interpretation).
+        let rcemRepeat = false;
+        if (newsSum && ews.complete && ews.score >= 1 && p.age !== null && p.age >= 16 && obsMins !== null && obsMins > 60) { obsMins = 60; rcemRepeat = true; }
         const obsBase = s.meta.obsAt ? new Date(s.meta.obsAt) : null;
         let nextObs = '-', nextObsAt = null;
         if (ews.type !== 'NEWS2') {
@@ -225,7 +237,7 @@ class TriageApp {
         // Partial NEWS2 that already escalates: finishing the obs comes first, then the frequency.
         else if (!ews.complete) nextObs = `Finish the obs now, then ${obsMins === 0 ? 'continuous monitoring' : `at least every ${obsMins >= 60 ? `${obsMins / 60} h` : `${obsMins} min`}`}`;
         else if (obsMins === 0) nextObs = 'Continuous';
-        else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt); }
+        else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt) + (rcemRepeat ? ' (abnormal obs: repeat within 60 min - RCEM standard; then per NEWS2)' : ''); }
 
         const tools = this.activeTools(flowchart, disc, p.age);
         const ng232 = tools.ng232 ? C.ng232({ age: p.age, answers: s.assess.ng232, anticoagulated: s.assess.ng232Anticoag === null ? anticoagDetected : s.assess.ng232Anticoag }) : null;
@@ -1341,7 +1353,7 @@ class TriageApp {
         if (doses) {
             if (a.blocked) doses.innerHTML = `<p class="tool-actions"><strong>${esc(a.blocked)}</strong></p>`;
             else if (!s.assess.paeds.recentDose) doses.innerHTML = '<p class="tool-actions">Answer the question above to see doses.</p>';
-            else doses.innerHTML = `<p class="tool-actions"><strong>Paracetamol ${a.paracetamol} mg</strong> (15 mg/kg) · <strong>${a.ibuprofen === null ? 'Ibuprofen: not suitable' : `Ibuprofen ${a.ibuprofen} mg`}</strong>${a.ibuprofen === null ? '' : ' (10 mg/kg)'}${a.ibuprofenNote ? ` - ${esc(a.ibuprofenNote)}` : ''}</p>${s.assess.paeds.recentDose !== 'no' ? '<p class="tool-note"><strong>Check the time and dose already given - do not exceed the maximum daily dose.</strong></p>' : ''}`;
+            else doses.innerHTML = `<p class="tool-actions"><strong>Paracetamol ${a.paracetamol} mg</strong> (15 mg/kg) · <strong>${a.ibuprofen === null ? 'Ibuprofen: not suitable' : `Ibuprofen ${a.ibuprofen} mg`}</strong>${a.ibuprofenNote ? ` - ${esc(a.ibuprofenNote)}` : ''}</p>${s.assess.paeds.recentDose !== 'no' ? '<p class="tool-note"><strong>Check the time and dose already given - do not exceed the maximum daily dose.</strong></p>' : ''}`;
         }
         const r = this.$('ng143-result');
         if (r) {

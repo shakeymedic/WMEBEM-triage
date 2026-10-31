@@ -52,7 +52,7 @@ test('Chest pain: ECG is "do now" with the 10-minute timing; bloods by venepunct
     assert.equal(y.cannula.decision, 'consider');
     assert.equal(y.cannula.venepuncture, true, 'stable cardiac chest pain: troponin by venepuncture, no idle cannula');
     const o = run({ age: 45, sex: 'Male', complaint: 'Chest Pain', discriminator: 'Severe respiratory distress', level: 'Orange' });
-    assert.equal(o.cannula.decision, 'recommended');
+    assert.equal(o.cannula.decision, 'consider', 'Orange alone does not need a cannula');
 });
 
 test('NICE NG253 high risk: cultures, gas and sepsis bundle now; cannula now', () => {
@@ -103,11 +103,11 @@ test('"Blocked Ear" does not count as loss of consciousness', () => {
     assert.equal(status(r, T.hcg, 'Universal'), 'suggested');
 });
 
-test('Cannula: Orange from severe pain alone is only "consider"; Orange from a discriminator is recommended', () => {
+test('Cannula: Orange on its own is only "consider" (from pain or from a discriminator)', () => {
     const pain = run({ age: 25, sex: 'Male', complaint: 'Limb Problems', discriminator: 'Severe Pain', level: 'Orange', painOnlyOrange: true, pain: 9 });
     assert.equal(pain.cannula.decision, 'consider');
     const disc = run({ age: 25, sex: 'Male', complaint: 'Abdominal Pain in Adults', discriminator: 'Peritonism', level: 'Orange' });
-    assert.equal(disc.cannula.decision, 'recommended');
+    assert.equal(disc.cannula.decision, 'consider');
 });
 
 test('Cannula: bleeding and shock need large-bore access now', () => {
@@ -348,4 +348,18 @@ test('v21.5: no standing BP when the patient cannot stand; adult-only heart rate
     assert.notEqual(item(run({ age: 50, complaint: 'Unwell Adult', obs: { hr: 140 } }), T.ecg), undefined, 'adult HR 140: ECG');
     assert.notEqual(item(run({ age: 2, complaint: 'Unwell Child' }), T.weight), undefined, 'weight asked for');
     assert.equal(item(run({ age: 2, complaint: 'Unwell Child', weight: 12 }), T.weight), undefined, 'weight already measured');
+});
+
+test('Pregnant with abdominal pain: abdominal pain bundle, pregnancy bundle and a blood gas, on any flowchart', () => {
+    for (const v of [
+        { complaint: 'Abdominal Pain in Adults', discriminator: 'Moderate pain', level: 'Yellow' },
+        { complaint: 'Pregnancy', discriminator: 'Abdo Pain', level: 'Yellow' }
+    ]) {
+        const r = run({ age: 28, sex: 'Female', pregnant: true, ...v });
+        assert.ok(['now', 'suggested'].includes(status(r, 'AE Abdominal Pain', 'Bloods')), v.complaint);
+        assert.ok(['now', 'suggested'].includes(status(r, 'AE - PV Bleed - Pregnant', 'Bloods')), v.complaint);
+        assert.ok(['now', 'suggested'].includes(status(r, T.vbg)), v.complaint);
+    }
+    const np = run({ age: 28, sex: 'Female', complaint: 'Pregnancy', discriminator: 'Minor symptoms', level: 'Green', pregnant: true });
+    assert.equal(item(np, T.vbg), undefined);
 });

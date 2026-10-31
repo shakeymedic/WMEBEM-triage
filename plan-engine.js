@@ -348,7 +348,15 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     // Weight for children (doses and fluids)
     if (isChild(f) && !has(f.weight)) bed(T.weight, 'suggested', 'Child - measured weight for doses and fluids', 'local');
 
+    // Pregnant with abdominal pain (any flowchart): both bundles and a blood gas (Jake, 31 October 2026).
+    const pregAbdo = f.pregnant && (complaint(f, /Abdominal Pain/) || disc(f, /abdo(minal)? pain/i));
+    if (pregAbdo) bed(T.vbg, 'suggested', 'Pregnant with abdominal pain - lactate, Hb and glucose', 'local');
+
     // ---- 3. Bloods: cross-cutting bundles ----
+    if (pregAbdo) {
+        blood('AE Abdominal Pain', 'suggested', 'Pregnant with abdominal pain - abdominal pain bundle', 'local');
+        blood('AE - PV Bleed - Pregnant', 'suggested', 'Pregnant with abdominal pain - also the pregnancy bundle (Hb, group and save, Rhesus)', 'local');
+    }
     if (isAdult(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis', 'now', `${sepsisName(f)} - NICE also lists LFTs and "consider procalcitonin"`, 'ng253');
     if (isChild(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis (Paediatric)', 'now', `${sepsisName(f)} - NICE lists FBC, CRP, U&E, creatinine, LFTs and clotting`, 'ng254');
     if (isAdult(f) && neut) blood('AE - Sepsis', 'now', `${neut} - possible neutropenic sepsis (add FBC differential per local pathway)`, 'cg151');
@@ -440,8 +448,6 @@ export function cannulaDecision(input, pre = null) {
     if (p.hypo && p.rc) fire('now', `${p.hypo} with reduced consciousness - cannot take oral glucose`, 'local', child ? null : '20G');
 
     // Recommended
-    const orangeLevel = f.level === 'Orange' && !f.painOnlyOrange;
-    if (orangeLevel) fire('recommended', 'Orange category', 'local', big);
     if (news(f) !== null && news(f) >= 5 && news(f) < 7) fire('recommended', `${ewsLabel(f)} (5-6) - urgent response`, 'local', big);
     if (f.ews.type === 'PEWS' && f.ews.score >= 5 && f.ews.score < 7) fire('recommended', `${ewsLabel(f)}`, 'local');
     if (f.ews.type === 'MEOWS' && f.ews.score >= 3) fire('recommended', `${ewsLabel(f)} - maternity review`, 'local');
@@ -457,6 +463,8 @@ export function cannulaDecision(input, pre = null) {
     if (complaint(f, /Torso Injury/) && disc(f, /stab|gunshot|flail/i)) fire('now', 'Penetrating torso injury or flail chest - trauma team, blood products possible', 'local', child ? null : '16G x2');
 
     // Consider
+    // Orange on its own does not need a cannula (Jake, 31 October 2026): like Yellow it is only "consider".
+    if (f.level === 'Orange' && !f.painOnlyOrange) fire('consider', 'Orange category - only if IV treatment is likely soon', 'local');
     if (f.level === 'Yellow') fire('consider', 'Yellow category', 'local');
     if (f.painOnlyOrange || (has(f.pain) && Number(f.pain) >= 8)) fire('consider', `Severe pain${has(f.pain) ? ` ${f.pain}/10` : ''} - only if IV analgesia is likely (offer oral, inhaled or intranasal first)`, 'local');
     if (f.flags.sickle && (has(f.pain) ? Number(f.pain) >= 1 : true)) fire('consider', 'Sickle cell painful episode - analgesia within 30 minutes of presentation; route per the patient\'s care plan', 'cg143');

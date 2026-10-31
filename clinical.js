@@ -611,13 +611,19 @@ export function paedsAnalgesia({ age, weight, weightCapKg = 50 }) {
     if (!has(weight) || weight <= 0) return { applicable: true, blocked: 'Enter the child\'s measured weight to see doses.' };
     const w = Math.min(weight, weightCapKg);
     const paracetamol = Math.min(Math.round(w * 15), 1000);
-    const ibuprofen = weight < 5 ? null : Math.min(Math.round(w * 10), 400);
+    // Ibuprofen: licensed age and weight bands (Nurofen for Children SmPC 4.2, 20-30 mg/kg/day in 3 doses);
+    // the lower of the age-band and weight-band dose is shown. 13 and over: up to 400 mg (BNFc 12-17 years: 300-400 mg).
+    const ibuBand = (bands, x) => (bands.find(b => x < b[0]) || bands[bands.length - 1])[1];
+    const byAge = ibuBand([[0.5, 50], [1, 50], [4, 100], [7, 150], [10, 200], [13, 300], [99, 400]], age);
+    const byWeight = ibuBand([[10, 50], [17, 100], [21, 150], [31, 200], [41, 300], [999, 400]], weight);
+    const ibuprofen = weight < 5 ? null : Math.min(byAge, byWeight);
+    const times = age < 1 ? '3-4 times' : '3 times';
     return {
         applicable: true,
         usedWeight: w,
         paracetamol,
         ibuprofen,
-        ibuprofenNote: ibuprofen === null ? 'Ibuprofen not suitable under 5 kg.' : ''
+        ibuprofenNote: ibuprofen === null ? 'Ibuprofen not suitable under 5 kg.' : `up to ${times} in 24 hours (licensed age/weight band)`
     };
 }
 
