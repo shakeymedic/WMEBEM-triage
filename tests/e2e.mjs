@@ -482,6 +482,23 @@ await p.locator('#ipc-panel label', { hasText: 'Diarrhoea' }).locator('input').c
 check('IPC: ticking a flag replaces "no flags"', await p.evaluate(() => window.app.state.assess.ipcNone === false) && (await note(p)).includes('Infection control: D&V'));
 allErrors.push(...p.errors); await p.context().close();
 
+// 27. High-risk medicine groups and child safeguarding need a positive "none" too.
+p = await fresh();
+await p.fill('#patient-age', '6');
+let ml = await p.textContent('#missing-list');
+check('High-risk groups: blank is listed as still to record', ml.includes('High-risk medicine groups'));
+check('Safeguarding: blank is listed for a child', ml.includes('Child safeguarding'));
+check('High-risk groups: note says NOT CHECKED', (await note(p)).includes('High-risk medicine groups: NOT CHECKED'));
+await p.click('#btn-hr-none');
+check('High-risk groups: "None of these" recorded', (await note(p)).includes('High-risk medicine groups: none of these (checked)') && !(await p.textContent('#missing-list')).includes('High-risk medicine groups'));
+await p.locator('#high-risk-meds-grid input').first().check();
+check('High-risk groups: ticking one hides "None" and clears it', await p.evaluate(() => !window.app.state.history.riskNone) && !(await p.isVisible('#btn-hr-none')));
+await p.click('#sg-result button');
+check('Safeguarding: "No safeguarding concerns" recorded', (await note(p)).includes('safeguarding concerns: none (checked)') && !(await p.textContent('#missing-list')).includes('Child safeguarding'));
+await p.locator('#paeds-content label', { hasText: 'non-mobile' }).locator('input').check();
+check('Safeguarding: ticking a concern replaces "no concerns"', await p.evaluate(() => !window.app.state.assess.paeds.safeguardingNone) && (await p.textContent('#sg-result')).includes('Concern recorded'));
+allErrors.push(...p.errors); await p.context().close();
+
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
 
 await browser.close();

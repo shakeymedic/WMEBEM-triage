@@ -37,7 +37,7 @@ function freshState() {
         prehospital: { obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
         obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, crt: null, avpu: null, gcsE: null, gcsV: null, gcsM: null, bm: null, ketones: null, pupils: '' },
         complaint: { name: '', raw: '', discriminator: null, noneApply: false, pain: null, painMethod: 'NRS', flacc: {} },
-        history: { allergies: '', allergyReaction: '', pmh: '', meds: '', manualRiskFlags: {}, treatmentNotes: '', planNarrative: '' },
+        history: { allergies: '', allergyReaction: '', pmh: '', meds: '', manualRiskFlags: {}, riskNone: false, treatmentNotes: '', planNarrative: '' },
         assess: {
             infection: null, sepsisFactors: {},
             headache: { trauma: null, sudden: null },
@@ -45,7 +45,7 @@ function freshState() {
             stroke: { lkw: '', rosier: {} }, ecgDoneAt: null,
             fourAT: {}, nof: {}, mh: {},
             ng143: { feverReported: false, ticks: {} },
-            paeds: { recentDose: null, accompaniedBy: '', safeguarding: {} },
+            paeds: { recentDose: null, accompaniedBy: '', safeguarding: {}, safeguardingNone: false },
             ipc: {}, ipcNone: false, corridor: {}, corridorCheckedAt: null
         },
         frailty: { cfs: null },
@@ -228,6 +228,10 @@ class TriageApp {
         if (p.age !== null && p.age >= 65 && !frailty) missing.push('Clinical Frailty Scale (65 and over)');
         if (isPaeds && !C.has(p.weight)) missing.push('Weight (child)');
         if (sepsis.status === 'not-asked' && (ews.score >= 3 || (C.has(o.temp) && (o.temp >= 38 || o.temp < 36)))) missing.push('Could this be an infection? (sepsis)');
+        const hrTicked = Object.values(s.history.manualRiskFlags).some(Boolean);
+        if (!hrTicked && !s.history.riskNone) missing.push('High-risk medicine groups - tick any that apply or tap "None of these"');
+        const sgConcern = !!(s.assess.paeds.safeguarding.nonmobile || s.assess.paeds.safeguarding.story || s.assess.paeds.safeguarding.notbrought);
+        if (isPaeds && !sgConcern && !s.assess.paeds.safeguardingNone) missing.push('Child safeguarding - tick a concern or tap "No safeguarding concerns"');
         if (!ipcFlag && !s.assess.ipcNone) missing.push('Infection control - tick what applies or tap "No IPC flags"');
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
@@ -420,6 +424,7 @@ class TriageApp {
             const id = e.target.dataset.catId;
             if (!id) return;
             e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
+            if (e.target.checked) this.state.history.riskNone = false;
             this.set(`history.manualRiskFlags.${id}`, e.target.checked);
         });
 
@@ -541,6 +546,7 @@ class TriageApp {
             let val = el.type === 'checkbox' ? el.checked : el.value;
             if (el.dataset.num !== undefined) val = C.toNumber(val);
             if (val === true && el.dataset.path.startsWith('assess.ipc.')) this.state.assess.ipcNone = false;
+            if (val === true && /^assess\.paeds\.safeguarding\.(nonmobile|story|notbrought)$/.test(el.dataset.path)) this.state.assess.paeds.safeguardingNone = false;
             this.set(el.dataset.path, val);
         });
         document.addEventListener('input', (e) => {
@@ -776,6 +782,8 @@ class TriageApp {
                 break;
             }
             case 'switch-head-injury': this.setComplaint('Head Injury'); break;
+            case 'hr-none': this.set('history.riskNone', !this.state.history.riskNone); break;
+            case 'sg-none': this.set('assess.paeds.safeguardingNone', !this.state.assess.paeds.safeguardingNone); break;
             case 'ipc-none': this.set('assess.ipcNone', !this.state.assess.ipcNone); break;
             case 'ecg-done': this.set('assess.ecgDoneAt', new Date().toISOString()); break;
             case 'ecg-undo': this.set('assess.ecgDoneAt', null); break;
@@ -1262,7 +1270,7 @@ class TriageApp {
                     <div id="ng143-auto" class="tool-note"></div>
                     ${d.feverRelevant ? `<h4>Red features</h4>${this.checksHTML(C.NG143_ITEMS.red, 'assess.ng143.ticks', s.assess.ng143.ticks)}<h4>Amber features</h4>${this.checksHTML(C.NG143_ITEMS.amber, 'assess.ng143.ticks', s.assess.ng143.ticks)}` : ''}</div>`;
             }
-            html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Safeguarding children</span></div>
+            html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Safeguarding children</span><span id="sg-result"></span></div>
                 <div class="q-row"><span>Accompanied by (name / relationship)</span><input type="text" data-path="assess.paeds.accompaniedBy" value="${esc(pa.accompaniedBy)}" autocomplete="off"></div>
                 ${this.checksHTML([['cpis', 'Child Protection - Information Sharing (CP-IS) checked'], ['pr', 'Person with parental responsibility identified'],
                     ['nonmobile', 'Injury or bruising in a non-mobile child'], ['story', 'Explanation inconsistent with injury or development'], ['notbrought', 'Concern about previous attendances or missed ("was not brought") appointments']], 'assess.paeds.safeguarding', pa.safeguarding)}
@@ -1286,7 +1294,17 @@ class TriageApp {
         }
         const sg = s.assess.paeds.safeguarding;
         const n = this.$('sg-note');
-        if (n) n.textContent = (sg.nonmobile || sg.story || sg.notbrought) ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '';
+        const concern = !!(sg.nonmobile || sg.story || sg.notbrought);
+        if (n) n.textContent = concern ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '';
+        const sr = this.$('sg-result');
+        if (sr) {
+            if (concern) { sr.className = 'tool-result res-amber'; sr.textContent = 'Concern recorded'; }
+            else {
+                const on = !!s.assess.paeds.safeguardingNone;
+                sr.className = 'tool-result-btn';
+                sr.innerHTML = `<div class="segmented-control yn"><button type="button" data-action="sg-none" class="${on ? 'active' : ''}" aria-pressed="${on}">No safeguarding concerns</button></div>`;
+            }
+        }
     }
 
     renderIpc() {
@@ -1349,6 +1367,11 @@ class TriageApp {
             cb.checked = on;
             cb.closest('.hr-med-chip').classList.toggle('checked', on);
         });
+        // "None of these" is a positive answer; it only shows while no group is ticked.
+        const hrNone = this.$('btn-hr-none'), anyTicked = Object.values(this.state.history.manualRiskFlags).some(Boolean);
+        hrNone.closest('.label-actions').classList.toggle('hidden', anyTicked);
+        hrNone.classList.toggle('active', !anyTicked && !!this.state.history.riskNone);
+        hrNone.setAttribute('aria-pressed', String(!anyTicked && !!this.state.history.riskNone));
     }
 
     renderPmhPrompts() {
@@ -1720,10 +1743,11 @@ class TriageApp {
         lines.push(`Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (reaction: ${h.allergyReaction})` : ''}`);
         lines.push(`PMH: ${h.pmh || 'Not recorded'}`);
         lines.push(`Medicines: ${h.meds || 'Not recorded'}`);
+        if (!Object.values(h.manualRiskFlags).some(Boolean)) lines.push(`High-risk medicine groups: ${h.riskNone ? 'none of these (checked)' : 'NOT CHECKED'}`);
         if (p.arrivalMode !== 'Ambulance' && h.treatmentNotes) lines.push(`Treatment before triage: ${h.treatmentNotes}`);
         if (d.isPaeds) {
             const pa = s.assess.paeds, sg = Object.entries(pa.safeguarding).filter(([, v]) => v).map(([k]) => ({ cpis: 'CP-IS checked', pr: 'parental responsibility identified', nonmobile: 'injury in non-mobile child', story: 'inconsistent explanation', notbrought: 'previous attendance / not brought concern' }[k]));
-            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}`);
+            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}${(pa.safeguarding.nonmobile || pa.safeguarding.story || pa.safeguarding.notbrought) ? '' : `; safeguarding concerns: ${pa.safeguardingNone ? 'none (checked)' : 'NOT CHECKED'}`}`);
         }
         section('SCREENING');
         const scr = Object.entries(this.data.screening).filter(([k]) => s.screening[k]).map(([k, def]) => `${def.label}: ${def.options ? (def.options.find(o2 => o2.val === s.screening[k]) || {}).text : s.screening[k]}`);
