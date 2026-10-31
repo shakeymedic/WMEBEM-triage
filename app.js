@@ -46,7 +46,7 @@ function freshState() {
             fourAT: {}, nof: {}, mh: {},
             ng143: { feverReported: false, ticks: {} },
             paeds: { recentDose: null, accompaniedBy: '', safeguarding: {} },
-            ipc: {}, corridor: {}, corridorCheckedAt: null
+            ipc: {}, ipcNone: false, corridor: {}, corridorCheckedAt: null
         },
         frailty: { cfs: null },
         screening: {},
@@ -228,6 +228,7 @@ class TriageApp {
         if (p.age !== null && p.age >= 65 && !frailty) missing.push('Clinical Frailty Scale (65 and over)');
         if (isPaeds && !C.has(p.weight)) missing.push('Weight (child)');
         if (sepsis.status === 'not-asked' && (ews.score >= 3 || (C.has(o.temp) && (o.temp >= 38 || o.temp < 36)))) missing.push('Could this be an infection? (sepsis)');
+        if (!ipcFlag && !s.assess.ipcNone) missing.push('Infection control - tick what applies or tap "No IPC flags"');
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
         this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, newsSum, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
@@ -539,6 +540,7 @@ class TriageApp {
             if (!el || el.tagName === 'DIV') return;
             let val = el.type === 'checkbox' ? el.checked : el.value;
             if (el.dataset.num !== undefined) val = C.toNumber(val);
+            if (val === true && el.dataset.path.startsWith('assess.ipc.')) this.state.assess.ipcNone = false;
             this.set(el.dataset.path, val);
         });
         document.addEventListener('input', (e) => {
@@ -774,6 +776,7 @@ class TriageApp {
                 break;
             }
             case 'switch-head-injury': this.setComplaint('Head Injury'); break;
+            case 'ipc-none': this.set('assess.ipcNone', !this.state.assess.ipcNone); break;
             case 'ecg-done': this.set('assess.ecgDoneAt', new Date().toISOString()); break;
             case 'ecg-undo': this.set('assess.ecgDoneAt', null); break;
             case 'corridor-checked': this.set('assess.corridorCheckedAt', new Date().toISOString()); break;
@@ -1294,9 +1297,18 @@ class TriageApp {
                 this.checksHTML([['dv', 'Diarrhoea and/or vomiting'], ['resp', 'New cough / respiratory infection symptoms'], ['rash', 'Rash with fever'],
                     ['travel', 'Travelled abroad recently (record where and when)'], ['mdro', 'Known MRSA / CPE / other resistant organism']], 'assess.ipc', s.assess.ipc);
         }
+        // "No IPC flags" is a positive answer the nurse taps, like every other section: leaving the
+        // boxes blank is "not asked", not "normal".
         const r = this.$('ipc-result');
-        r.textContent = this.derived.ipcFlag ? 'Side room / isolation - follow local IPC policy' : 'No IPC flags';
-        r.className = `tool-result ${this.derived.ipcFlag ? 'res-amber' : 'res-grey'}`;
+        if (this.derived.ipcFlag) {
+            r.innerHTML = '';
+            r.textContent = 'Side room / isolation - follow local IPC policy';
+            r.className = 'tool-result res-amber';
+        } else {
+            const on = !!s.assess.ipcNone;
+            r.className = 'tool-result-btn';
+            r.innerHTML = `<div class="segmented-control yn"><button type="button" data-action="ipc-none" class="${on ? 'active' : ''}" aria-pressed="${on}">No IPC flags</button></div>`;
+        }
     }
 
     renderScreeningDynamic() {
@@ -1716,6 +1728,7 @@ class TriageApp {
         section('SCREENING');
         const scr = Object.entries(this.data.screening).filter(([k]) => s.screening[k]).map(([k, def]) => `${def.label}: ${def.options ? (def.options.find(o2 => o2.val === s.screening[k]) || {}).text : s.screening[k]}`);
         if (scr.length) lines.push(`Screening: ${scr.join('; ')}`);
+        if (!d.ipcFlag) lines.push(`Infection control: ${s.assess.ipcNone ? 'no IPC flags (screened)' : 'NOT SCREENED'}`);
         if (d.ipcFlag) lines.push(`Infection control: ${Object.entries(s.assess.ipc).filter(([, v]) => v).map(([k]) => ({ dv: 'D&V', resp: 'respiratory symptoms', rash: 'rash with fever', travel: 'recent travel', mdro: 'resistant organism' }[k])).join(', ')} - side room / isolation per local policy`);
         section('PLAN');
         const cn = d.plan.cannula;

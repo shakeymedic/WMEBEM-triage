@@ -471,6 +471,17 @@ await p.fill('#patient-age', '4');
 check('Adult flowchart for a child is flagged', (await p.textContent('#missing-list')).includes('Check the flowchart'));
 allErrors.push(...p.errors); await p.context().close();
 
+// 26. IPC: "No IPC flags" is a button the nurse taps, not the default.
+p = await fresh();
+await p.fill('#patient-age', '40');
+check('IPC: not screened is listed as still to record', (await p.textContent('#missing-list')).includes('No IPC flags'));
+check('IPC: note says not screened', (await note(p)).includes('Infection control: NOT SCREENED'));
+await p.click('#ipc-result button');
+check('IPC: tapping "No IPC flags" records it', (await note(p)).includes('Infection control: no IPC flags (screened)') && !(await p.textContent('#missing-list')).includes('No IPC flags'));
+await p.locator('#ipc-panel label', { hasText: 'Diarrhoea' }).locator('input').check();
+check('IPC: ticking a flag replaces "no flags"', await p.evaluate(() => window.app.state.assess.ipcNone === false) && (await note(p)).includes('Infection control: D&V'));
+allErrors.push(...p.errors); await p.context().close();
+
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
 
 await browser.close();
