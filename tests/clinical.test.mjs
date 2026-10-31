@@ -408,3 +408,25 @@ test('v21.5: ROSIER is "not done" until marked complete', () => {
     assert.equal(C.rosier({ face: true }, false).text, 'ROSIER incomplete (score so far 1)');
     assert.equal(C.rosier({}, true).text, 'ROSIER 0: stroke unlikely but not excluded');
 });
+
+test('MTS v3.8 colour check (31 October 2026): key discriminators match the book', () => {
+    const pr = (chart, text) => { const d = clinicalData.mtsFlowcharts[chart].find(x => x.text === text); assert.ok(d, `${chart}: "${text}" missing`); return d.priority; };
+    assert.equal(pr('Allergy', 'Stridor'), 'Red');
+    assert.equal(pr('Shortness of Breath in Adults', 'Stridor'), 'Red');
+    assert.equal(pr('Shortness of Breath in Children', 'Stridor'), 'Red');
+    assert.equal(pr('Sore Throat', 'Drooling (unable to swallow saliva)'), 'Red');
+    assert.equal(pr('Diabetes', 'Hypoglycaemia (glucose under 3 mmol/L)'), 'Red');
+    assert.equal(pr('Abdominal Pain in Adults', 'Vomiting blood'), 'Orange');
+    assert.equal(pr('Diarrhoea and Vomiting', 'Passing fresh or altered blood PR'), 'Orange');
+    assert.equal(pr('Torso Injury', 'Stab or gunshot (significant mechanism)'), 'Orange');
+    assert.equal(pr('Limb Problems', 'Vascular compromise (pale, cold, numb or pulseless limb)'), 'Orange');
+    assert.equal(pr('Head Injury', 'Fitting now'), 'Red');
+    assert.equal(pr('Urinary Problems', 'Retention of urine'), 'Yellow');
+    assert.equal(pr('Dental Problems', 'Facial Swelling'), 'Green');
+    assert.equal(pr('Eye Problems', 'Penetrating eye injury'), 'Orange');
+    for (const [chart, list] of Object.entries(clinicalData.mtsFlowcharts)) {
+        const t = list.map(x => x.text);
+        assert.equal(new Set(t).size, t.length, `${chart}: duplicate discriminator`);
+        for (const x of list) assert.ok(['Red', 'Orange', 'Yellow', 'Green', 'Blue'].includes(x.priority), `${chart}: bad priority`);
+    }
+});

@@ -125,7 +125,7 @@ export function shocked(f) {
 }
 
 export function majorBleed(f) {
-    if (disc(f, /exsanguinat|catastrophic haemorrhage|uncontrolled bleeding|active bleeding|stab\/gunshot/i)) return f.discriminator;
+    if (disc(f, /exsanguinat|catastrophic haemorrhage|uncontrolled bleeding|active bleeding|stab\/gunshot|stab or gunshot|uncontrollable major haemorrhage/i)) return f.discriminator;
     if (complaint(f, /^Major Trauma$/)) return 'Major trauma';
     if (shocked(f) && complaint(f, /Gastrointestinal Bleeding|PV Bleeding|Torso Injury|Wounds|Self Harm|Assault|Falls/)) return `Shocked with a possible bleed (${shocked(f)})`;
     return '';
@@ -269,7 +269,7 @@ export function evaluatePlan(input, bloodProfiles = {}) {
 
     // Capillary glucose
     if (rc) bed(T.bm, 'now', `${rc} - exclude hypoglycaemia`, 'local');
-    if (complaint(f, /Fits and Seizures/) || disc(f, /seiz/i)) bed(T.bm, 'now', 'Seizure - hypoglycaemia is a possible underlying cause', 'ng217');
+    if (complaint(f, /Fits and Seizures/) || disc(f, /seiz|fitting now/i)) bed(T.bm, 'now', 'Seizure - hypoglycaemia is a possible underlying cause', 'ng217');
     if (complaint(f, /Suspected Stroke|Suspected TIA/) || f.rosierLikely) bed(T.bm, 'now', 'Sudden neurological symptoms - exclude hypoglycaemia', 'ng128');
     if (diab) bed(T.bm, 'suggested', diab, 'local');
     if (sepsisHigh(f) || sepsisMedium(f)) bed(T.bm, 'suggested', `${sepsisName(f)} - glucose is part of the blood tests`, sepsisSource(f));
@@ -441,7 +441,7 @@ export function cannulaDecision(input, pre = null) {
     if (sepsisHigh(f)) fire('now', `${sepsisName(f)} - antibiotics within 1 hour`, sepsisSource(f), big);
     if (p.neut) fire('now', `${p.neut} - possible neutropenic sepsis: empiric antibiotics immediately (medical emergency)`, 'cg151', big);
     if (f.feverTL === 'Red' && child) fire('recommended', 'NICE fever traffic light RED (under 5) - senior review; IV access likely', 'ng143');
-    if (disc(f, /actively seizing|status epilepticus/i)) fire('now', 'Actively seizing - IV lorazepam if access is immediately available; otherwise do not delay buccal midazolam or rectal diazepam to get it', 'ng217', big);
+    if (disc(f, /actively seizing|status epilepticus|fitting now/i)) fire('now', 'Actively seizing - IV lorazepam if access is immediately available; otherwise do not delay buccal midazolam or rectal diazepam to get it', 'ng217', big);
     if (complaint(f, /Suspected Stroke/) && (f.lkwHours === null || f.lkwHours <= 24)) fire('now', f.lkwHours === null ? 'Suspected stroke - time last known well not yet recorded' : `Suspected stroke, last known well ${Math.round(f.lkwHours * 10) / 10} h ago - possible thrombolysis or thrombectomy (the stroke team needs IV access)`, 'ng128', '18G');
     if (complaint(f, /^(Allergy|Bites and Stings|Rash)$/) && disc(f, /airway compromise|shock|stridor|anaphylaxis/i)) fire('now', 'Anaphylaxis - give IM adrenaline first; do not delay it for IV access', 'rcukAnaphylaxis', big);
     if (p.dka) fire('now', `${p.dka} - possible DKA: IV fluids and insulin`, child ? 'bspedDka' : 'jbdsDka', big);
@@ -455,6 +455,7 @@ export function cannulaDecision(input, pre = null) {
     if (disc(f, /neck of femur/i)) fire('recommended', 'Suspected hip fracture - fluids and bloods', 'local', '18G');
     if (f.headInjury && f.flags.anticoag && f.ng232 && f.ng232 !== 'none') fire('recommended', 'Anticoagulated head injury meeting NICE CT criteria - reversal may be needed', 'local', '18G');
     if (disc(f, /severe dehydration/i)) fire('recommended', 'Severe dehydration - IV fluids likely', 'local');
+    if (disc(f, /^signs of dehydration$/i)) fire('consider', 'Signs of dehydration - IV fluids only if oral or NG rehydration is not possible or fails', 'local');
     if (complaint(f, /^Asthma$/) && disc(f, /life threatening|severe distress/i)) fire('recommended', 'Acute severe or life-threatening asthma - IV magnesium sulphate (and IV steroid if unable to swallow) may follow nebulisers', 'sign158', big);
     if (complaint(f, /Shortness of Breath in Adults/) && (disc(f, /severe respiratory distress|moderate respiratory distress|stridor|new confusion/i) || (has(f.obs.sats) && Number(f.obs.sats) < 92))) fire('recommended', 'Hypoxic or in respiratory distress - IV treatment (diuretic, antibiotics, magnesium) is likely', 'local', big);
     if (complaint(f, /^Palpitations$/) && (disc(f, /rate\s*>\s*150/i) || (has(f.obs.hr) && Number(f.obs.hr) > 150))) fire('recommended', 'Tachyarrhythmia over 150 - IV adenosine or rate control is likely once the ECG is seen', 'local', big);
