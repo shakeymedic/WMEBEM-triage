@@ -183,13 +183,13 @@ class TriageApp {
             floors.push({ level: 'Orange', reason: `${partial}local MEOWS ${ews.score}` });
         }
         if (pain && pain.floor) floors.push({ level: pain.floor, reason: `${pain.band} pain ${s.complaint.pain}/10 (MTS pain ruler)` });
-        // MTS general temperature discriminators (Hot child 38.5+ Orange; adult Very hot 41+ Orange, Hot 38.5+ Yellow).
-        // Not applied on injury flowcharts. Thresholds to be checked against the trust's licensed MTS edition.
+        // MTS 3rd edition v3.8 (2023) temperature discriminators, checked in the book 31 October 2026:
+        // Hot baby (under 1 year, 38.5+) Orange; Very hot (41+) Orange; Hot (38.5+) Yellow. Not on injury flowcharts.
         if (C.has(o.temp) && p.age !== null && s.complaint.name && !/Injury|Wounds|Burns|Limb Problems|Falls|Major Trauma|Assault|Bites|Foreign Body|Needlestick/.test(s.complaint.name)) {
             const t = Number(o.temp);
-            if (p.age < 16 && t >= 38.5) floors.push({ level: 'Orange', reason: `Hot child (${t}°C, MTS)` });
-            else if (p.age >= 16 && t >= 41) floors.push({ level: 'Orange', reason: `Very hot (${t}°C, MTS)` });
-            else if (p.age >= 16 && t >= 38.5) floors.push({ level: 'Yellow', reason: `Hot adult (${t}°C, MTS)` });
+            if (p.age < 1 && t >= 38.5) floors.push({ level: 'Orange', reason: `Hot baby (${t}°C, MTS)` });
+            else if (t >= 41) floors.push({ level: 'Orange', reason: `Very hot (${t}°C, MTS)` });
+            else if (t >= 38.5) floors.push({ level: 'Yellow', reason: `Hot (${t}°C, MTS)` });
         }
         if (s.assess.sepsisFactors.sepsis_rash || (feverRelevant && s.assess.ng143.ticks.non_blanching) || (sepsis.guideline === 'NG254' && s.assess.infection === 'yes' && s.assess.ng254.rash)) floors.push({ level: 'Orange', reason: 'Non-blanching rash' });
 
