@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.5</title>
+    <title>EMEvidence Triage v21.6</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -88,8 +88,14 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.5</h3>
+            <h3 id="whatsnew-heading">What's new in v21.6</h3>
             <ul class="whatsnew-list">
+                <li><strong>v21.6 - checked against NICE guidance (31 October 2026).</strong></li>
+                <li><strong>Head injury (NICE NG232):</strong> an antiplatelet other than aspirin alone (clopidogrel, ticagrelor, prasugrel, dipyridamole, including brand names) now ticks "consider CT within 8 hours", as an anticoagulant already did. Aspirin on its own is not a high-risk medicine and no longer raises a bleeding alert. Children on an anticoagulant or antiplatelet get the same "consider CT within 8 hours" advice as adults, and "bleeding or clotting disorder" is now one of the children's risk factors. The warfarin / INR bundle stays for anticoagulants only.</li>
+                <li><strong>Sepsis (NICE NG253):</strong> medium risk now says that a lactate over 2 or acute kidney injury means treat as high risk. A single NEWS2 parameter scoring 3 at NEWS2 5-6 prompts "manage as high risk if due to the infection". Mottled skin or a non-blanching rash prompts "consider a higher risk than NEWS2 suggests". High risk adds senior referral and escalation if there is no response within 1 hour. Reassessment times are labelled as NICE, not app defaults.</li>
+                <li><strong>Neutropenic sepsis (NICE CG151):</strong> chemotherapy plus a low temperature (under 36°C) or an early warning score of 5 or more now triggers it, not only fever or suspected infection. The warning says antibiotics "immediately".</li>
+                <li><strong>Seizures (NICE NG217):</strong> benzodiazepine advice applies from 5 minutes of seizure activity (status epilepticus) and mentions the person's own emergency plan first.</li>
+                <li><strong>Small NICE wording fixes:</strong> fever at 6 months with 39°C or more is now Amber (NG143, age 3 to 6 months); #NOF checklist adds "pain reassessed within 30 minutes" (CG124); sickle cell analgesia is "within 30 minutes of presentation" (CG143).</li>
                 <li><strong>v21.5 - fixes from a full stress test.</strong></li>
                 <li><strong>Closer to MTS.</strong> Cardiac-type chest pain is now Orange. Stroke uses "acute neurological deficit (onset within 24 hours)" = Orange. Temperature follows MTS v3.8: a hot baby (under 1 year, 38.5°C or above) is Orange; anyone else is Yellow at 38.5°C and Orange at 41°C (not on injury flowcharts).</li>
                 <li><strong>Every flowchart checked against MTS v3.8 (31 October 2026).</strong> Wrong colours corrected, for example: stridor and drooling are Red; hypoglycaemia (glucose under 3) is Red; vomiting blood and fresh or altered blood PR are Orange; a stab or gunshot wound is Orange as a significant mechanism (Red only with airway, breathing, shock or catastrophic bleeding problems); a pulseless or cold limb is Orange; urinary retention is Yellow; dental and facial swelling are Green. Important missing discriminators added in our own wording (for example altered conscious level, possible sepsis, new neurological deficit within 24 hours, uncontrollable bleeding).</li>
@@ -144,7 +150,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.5 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.6 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -490,7 +496,7 @@
     </aside>
 
     <footer>
-        <p>v21.5 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.6 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>

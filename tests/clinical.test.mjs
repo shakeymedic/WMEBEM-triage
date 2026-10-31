@@ -175,6 +175,19 @@ test('NG232 children: >1 risk factor = CT 1h, exactly 1 = observe 4h', () => {
     assert.equal(C.ng232({ age: 8, answers: {} }).level, 'none');
 });
 
+test('NG232 children: anticoagulant / non-aspirin antiplatelet = consider CT within 8 h (same as adults)', () => {
+    assert.equal(C.ng232({ age: 8, answers: {}, anticoagulated: true }).level, 'consider8h');
+    const one = C.ng232({ age: 8, answers: { drowsy: true }, anticoagulated: true });
+    assert.equal(one.level, 'consider8h');
+    assert.match(one.text, /Observe in hospital for at least 4 hours/);
+    assert.equal(C.ng232({ age: 8, answers: { drowsy: true, vomit3: true }, anticoagulated: true }).level, '1h');
+});
+
+test('NG232 children: bleeding or clotting disorder is a risk factor', () => {
+    assert.equal(C.ng232({ age: 8, answers: { bleeding: true } }).level, 'observe4h');
+    assert.equal(C.ng232({ age: 8, answers: { bleeding: true, drowsy: true } }).level, '1h');
+});
+
 test('ROSIER', () => {
     assert.equal(C.rosier({}).score, 0);
     assert.equal(C.rosier({ face: true, arm: true }).likely, true);
@@ -429,4 +442,27 @@ test('MTS v3.8 colour check (31 October 2026): key discriminators match the book
         assert.equal(new Set(t).size, t.length, `${chart}: duplicate discriminator`);
         for (const x of list) assert.ok(['Red', 'Orange', 'Yellow', 'Green', 'Blue'].includes(x.priority), `${chart}: bad priority`);
     }
+});
+
+test('NG253: medium risk says lactate over 2 or AKI = treat as high risk; NICE (not app) reassessment times', () => {
+    const n = (score, redParam = false) => ({ score, complete: true, redParam });
+    const med = C.sepsisNG253({ age: 50, pregnant: false, infection: 'yes', news: n(5) });
+    assert.match(med.actions, /Lactate over 2 mmol\/L or acute kidney injury: treat as high risk/);
+    assert.doesNotMatch(med.actions, /App default/);
+    const high = C.sepsisNG253({ age: 50, pregnant: false, infection: 'yes', news: n(8) });
+    assert.match(high.actions, /senior clinical decision maker/);
+    assert.doesNotMatch(high.actions, /App default/);
+});
+
+test('NG253: single parameter scoring 3 at NEWS2 5-6 = manage as high risk if due to infection (1.8.18)', () => {
+    const r = C.sepsisNG253({ age: 50, pregnant: false, infection: 'yes', news: { score: 5, complete: true, redParam: true } });
+    assert.match(r.judgement, /manage as high risk/);
+    const r34 = C.sepsisNG253({ age: 50, pregnant: false, infection: 'yes', news: { score: 3, complete: true, redParam: true } });
+    assert.match(r34.judgement, /medium or high risk/);
+});
+
+test('NG253: mottled skin or non-blanching rash prompts a higher risk (1.6.3)', () => {
+    const r = C.sepsisNG253({ age: 50, pregnant: false, infection: 'yes', news: { score: 2, complete: true, redParam: false }, concerns: ['Mottled, ashen or cyanotic skin'] });
+    assert.match(r.judgement, /consider a higher risk/);
+    assert.equal(r.risk, 'Low');
 });

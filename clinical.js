@@ -183,7 +183,9 @@ export function localMeows(obs) {
 // Suspected sepsis, NICE NG253 (people 16+, not pregnant/recently pregnant) in acute hospital
 // settings: risk is stratified by NEWS2, and only once infection is suspected or confirmed.
 // ---------------------------------------------------------------------------------------------
-export function sepsisNG253({ age, pregnant, infection, news }) {
+// concerns: clinical signs from NG253 1.6.3 (mottled/ashen, non-blanching rash, cyanosis) that mean the
+// risk may be higher than NEWS2 alone suggests. They prompt a judgement; they do not change the band.
+export function sepsisNG253({ age, pregnant, infection, news, concerns = [] }) {
     if (age === null || age === undefined) return { applicable: false, status: 'no-age', text: 'Record age to use the NG253 sepsis tool.' };
     if (age < 16) return { applicable: false, status: 'paeds', text: 'Under 16s use NICE NG254.' };
     if (pregnant) return { applicable: false, status: 'pregnant', text: 'NG253 excludes pregnant or recently pregnant people - use the maternity sepsis pathway (NICE NG255).' };
@@ -196,11 +198,11 @@ export function sepsisNG253({ age, pregnant, infection, news }) {
     let risk, actions, reassessMins;
     if (s >= 7) {
         risk = 'High';
-        actions = 'Urgent assessment by a clinician FY2 or above. Venous bloods (gas with glucose and lactate, cultures, FBC, CRP, U&E, creatinine, LFTs, clotting). Broad-spectrum IV antibiotics within 1 hour of calculating NEWS2; IV fluid bolus within 1 hour unless contraindicated. App default: re-check NEWS2 every 30 minutes.';
+        actions = 'Urgent assessment by a clinician FY2 or above. Venous bloods (gas with glucose and lactate, cultures, FBC, CRP, U&E, creatinine, LFTs, clotting). Refer to the senior clinical decision maker as soon as possible. Broad-spectrum IV antibiotics within 1 hour of calculating NEWS2; IV fluid bolus within 1 hour unless contraindicated. Consider procalcitonin. No response within 1 hour of any intervention: senior clinical decision maker attends in person and the consultant is informed. NICE: re-check NEWS2 at least every 30 minutes.';
         reassessMins = 30;
     } else if (s >= 5) {
         risk = 'Medium';
-        actions = 'Same venous bloods as high risk; a clinician FY2 or above reviews the patient and the venous lactate within 1 hour. Antibiotics may be deferred for up to 3 hours after the first NEWS2 while the cause is clarified. App default: re-check NEWS2 hourly.';
+        actions = 'Same venous bloods as high risk; a clinician FY2 or above reviews the patient and the venous lactate within 1 hour. Lactate over 2 mmol/L or acute kidney injury: treat as high risk (antibiotics within 1 hour). Otherwise antibiotics may be deferred for up to 3 hours after the first NEWS2 while the cause is clarified. NICE: re-check NEWS2 at least hourly.';
         reassessMins = 60;
     } else if (s >= 1) {
         risk = 'Low';
@@ -211,9 +213,12 @@ export function sepsisNG253({ age, pregnant, infection, news }) {
         actions = 'Clinical judgement; routine monitoring.';
         reassessMins = 720;
     }
-    const judgement = news.redParam && s >= 3 && s <= 4
-        ? 'A single parameter scores 3: if that is caused by the infection, manage as medium or high risk.'
-        : '';
+    const judgements = [];
+    // NICE NG253 1.8.24 (NEWS2 3-4) and 1.8.18 (NEWS2 5-6) with a single parameter scoring 3.
+    if (news.redParam && s >= 3 && s <= 4) judgements.push('A single parameter scores 3: if that is caused by the infection, manage as medium or high risk.');
+    if (news.redParam && s >= 5 && s <= 6) judgements.push('A single parameter scores 3: if that is caused by the infection, manage as high risk (antibiotics within 1 hour).');
+    if (concerns.length && s < 7) judgements.push(`${concerns.join(', ')}: consider a higher risk than the NEWS2 alone suggests (NICE NG253 1.6.3).`);
+    const judgement = judgements.join(' ');
     const incomplete = !news.complete;
     // A partial NEWS2 of 7+ is already high risk; anything lower can only be provisional.
     const provisional = incomplete && risk !== 'High';
@@ -476,7 +481,7 @@ export function ng143TrafficLight({ age, obs, ticks = {} }) {
     const months = age * 12;
     if (has(obs.temp)) {
         if (months < 3 && obs.temp >= 38) red.push(`Age under 3 months with temperature ${obs.temp}°C (>=38°C)`);
-        else if (months >= 3 && months < 6 && obs.temp >= 39) amber.push(`Age 3-6 months with temperature ${obs.temp}°C (>=39°C)`);
+        else if (months >= 3 && months <= 6 && obs.temp >= 39) amber.push(`Age 3-6 months with temperature ${obs.temp}°C (>=39°C)`);
     }
     if (has(obs.rr)) {
         if (obs.rr > 60) red.push(`RR ${obs.rr} (>60)`);
@@ -532,9 +537,13 @@ export const NG232_CHILD_RISK = [
     ['drowsy', 'Abnormal drowsiness'],
     ['vomit3', '3 or more discrete episodes of vomiting'],
     ['mechanism', 'Dangerous mechanism of injury'],
-    ['amnesia5', 'Amnesia (anterograde or retrograde) lasting more than 5 minutes']
+    ['amnesia5', 'Amnesia (anterograde or retrograde) lasting more than 5 minutes'],
+    ['bleeding', 'Bleeding or clotting disorder']
 ];
 
+// anticoagulated: on an anticoagulant OR an antiplatelet other than aspirin alone (NG232 wording).
+// NICE makes the same "consider CT within 8 hours" recommendation for adults and children.
+const NG232_ANTI = { level: 'consider8h', text: 'Consider CT head within 8 hours of the injury (within 1 hour if presenting more than 8 hours after it)', because: ['Anticoagulant, or antiplatelet other than aspirin alone'] };
 export function ng232({ age, answers = {}, anticoagulated = false }) {
     if (age === null || age === undefined) return { applicable: false, text: 'Record age to apply NICE NG232.' };
     const yes = (k) => !!answers[k];
@@ -546,17 +555,17 @@ export function ng232({ age, answers = {}, anticoagulated = false }) {
         if (yes('loc_amnesia') && factors.length) {
             return { applicable: true, adult: true, level: '8h', text: 'CT head within 8 hours of the injury (within 1 hour if presenting more than 8 hours after it)', because: ['Loss of consciousness or amnesia since the injury', ...factors] };
         }
-        if (anticoagulated) {
-            return { applicable: true, adult: true, level: 'consider8h', text: 'Consider CT head within 8 hours of the injury (within 1 hour if presenting more than 8 hours after it)', because: ['Anticoagulant, or antiplatelet other than aspirin alone'] };
-        }
+        if (anticoagulated) return { applicable: true, adult: true, ...NG232_ANTI };
         return { applicable: true, adult: true, level: 'none', text: 'No NG232 CT indication from the answers so far - clinical judgement still applies', because: [] };
     }
     const oneHour = NG232_CHILD_1H.filter(([k]) => yes(k)).map(([, t]) => t);
     if (oneHour.length) return { applicable: true, adult: false, level: '1h', text: 'CT head within 1 hour', because: oneHour };
     const risks = NG232_CHILD_RISK.filter(([k]) => yes(k)).map(([, t]) => t);
     if (risks.length > 1) return { applicable: true, adult: false, level: '1h', text: 'CT head within 1 hour (more than 1 risk factor)', because: risks };
+    if (risks.length === 1 && anticoagulated) return { applicable: true, adult: false, level: 'consider8h', text: 'Observe in hospital for at least 4 hours (1 risk factor) and consider CT head within 8 hours of the injury', because: [...risks, ...NG232_ANTI.because] };
     if (risks.length === 1) return { applicable: true, adult: false, level: 'observe4h', text: 'Observe in hospital for at least 4 hours (1 risk factor)', because: risks };
-    return { applicable: true, adult: false, level: 'none', text: 'No NG232 CT indication from the answers so far - clinical judgement still applies', because: anticoagulated ? ['On anticoagulant - discuss with a senior'] : [] };
+    if (anticoagulated) return { applicable: true, adult: false, ...NG232_ANTI };
+    return { applicable: true, adult: false, level: 'none', text: 'No NG232 CT indication from the answers so far - clinical judgement still applies', because: [] };
 }
 
 // ---------------------------------------------------------------------------------------------

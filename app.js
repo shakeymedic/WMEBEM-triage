@@ -2,7 +2,7 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
 
-const VERSION = '21.5';
+const VERSION = '21.6';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const CURRENT_KEY = 'triage_current';
@@ -141,6 +141,10 @@ class TriageApp {
 
         const risks = this.computeRiskFlags();
         const anticoagDetected = !!(s.history.manualRiskFlags.anticoag || risks.some(r => /Anticoagulant|DOAC|LMWH/.test(r)));
+        // Antiplatelet other than aspirin alone (aspirin is not in the medicines scan; the tick-box says "not aspirin alone").
+        const antiplateletDetected = !!(s.history.manualRiskFlags.antiplatelet || risks.some(r => /Antiplatelet/.test(r)));
+        // NICE NG232: anticoagulant, or antiplatelet other than aspirin monotherapy, is a reason to consider CT.
+        const ng232DrugDetected = anticoagDetected || antiplateletDetected;
 
         let ews;
         if (p.pregnant) ews = { type: 'MEOWS', ...C.localMeows(o) };
@@ -156,7 +160,8 @@ class TriageApp {
                 obs: { ...o, gcs: [o.gcsE, o.gcsV, o.gcsM].every(C.has) ? Number(o.gcsE) + Number(o.gcsV) + Number(o.gcsM) : null },
                 immunosuppressed: !!(s.history.manualRiskFlags.immunosuppressant || s.history.manualRiskFlags.steroid || s.history.manualRiskFlags.chemo || risks.some(r => /Immunosuppressant|Biologic|Steroid/.test(r)))
             })
-            : C.sepsisNG253({ age: p.age, pregnant: p.pregnant, infection: s.assess.infection, news: ews.type === 'NEWS2' ? ews : { score: 0, complete: false, redParam: false } });
+            : C.sepsisNG253({ age: p.age, pregnant: p.pregnant, infection: s.assess.infection, news: ews.type === 'NEWS2' ? ews : { score: 0, complete: false, redParam: false },
+                concerns: [['sepsis_rash', 'Non-blanching rash'], ['sepsis_mottled', 'Mottled, ashen or cyanotic skin']].filter(([k]) => (s.assess.sepsisFactors || {})[k]).map(([, t]) => t) });
 
         const pain = C.mtsPain(s.complaint.pain);
         const feverTL = C.ng143TrafficLight({ age: p.age, obs: o, ticks: s.assess.ng143.ticks });
@@ -240,7 +245,7 @@ class TriageApp {
         else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt) + (rcemRepeat ? ' (abnormal obs: repeat within 60 min - RCEM standard; then per NEWS2)' : ''); }
 
         const tools = this.activeTools(flowchart, disc, p.age);
-        const ng232 = tools.ng232 ? C.ng232({ age: p.age, answers: s.assess.ng232, anticoagulated: s.assess.ng232Anticoag === null ? anticoagDetected : s.assess.ng232Anticoag }) : null;
+        const ng232 = tools.ng232 ? C.ng232({ age: p.age, answers: s.assess.ng232, anticoagulated: s.assess.ng232Anticoag === null ? ng232DrugDetected : s.assess.ng232Anticoag }) : null;
         const rosier = tools.stroke ? C.rosier(s.assess.stroke.rosier, !!s.assess.stroke.rosierDone) : null;
         const fourAT = tools.fourAT ? C.fourAT(s.assess.fourAT) : null;
         const analgesia = isPaeds ? C.paedsAnalgesia({ age: p.age, weight: p.weight, weightCapKg: d.scoring.paedsSafety.weightCapKg }) : null;
@@ -280,7 +285,7 @@ class TriageApp {
         }
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
-        this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, newsSum, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
+        this.derived = { frailty, isPaeds, risks, anticoagDetected, antiplateletDetected, ng232DrugDetected, ews, newsResp, newsSum, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
         this.derived.plan = evaluatePlan(this.planFacts(), d.bloodProfiles);
     }
 
@@ -1114,7 +1119,7 @@ class TriageApp {
 
     renderComplaintTools() {
         const d = this.derived, s = this.state, t = d.tools, box = this.$('complaint-tools');
-        const key = JSON.stringify([s.complaint.name, t, d.isPaeds, s.patient.age === null, s.assess.headache, s.complaint.discriminator, d.anticoagDetected, s.assess.ng232Anticoag]);
+        const key = JSON.stringify([s.complaint.name, t, d.isPaeds, s.patient.age === null, s.assess.headache, s.complaint.discriminator, d.anticoagDetected, d.antiplateletDetected, s.assess.ng232Anticoag]);
         if (this.built.toolsKey !== key) {
             this.built.toolsKey = key;
             let html = '';
@@ -1134,7 +1139,7 @@ class TriageApp {
             if (t.ecg) html += `<div class="tool-panel" id="ecg-panel"></div>`;
             if (t.nof) html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Suspected fractured neck of femur</span></div>${this.checksHTML([
                 ['analgesia', 'Analgesia given or offered (record in plan)'], ['block', 'Fascia iliaca block considered per local pathway'],
-                ['pressure', 'Pressure areas checked; pressure-relieving mattress'], ['fourat', '4AT delirium screen completed'], ['bloods', 'AE Fractured Neck of Femur bloods (includes G&S)']], 'assess.nof', s.assess.nof)}</div>`;
+                ['reassess', 'Pain reassessed within 30 minutes of analgesia (NICE CG124)'], ['pressure', 'Pressure areas checked; pressure-relieving mattress'], ['fourat', '4AT delirium screen completed'], ['bloods', 'AE Fractured Neck of Femur bloods (includes G&S)']], 'assess.nof', s.assess.nof)}</div>`;
             if (t.fourAT) html += this.fourATPanelHTML();
             if (t.mh) html += this.mhPanelHTML();
             box.innerHTML = html;
@@ -1156,8 +1161,10 @@ class TriageApp {
             html += `<h4>CT within 1 hour if any:</h4>${this.checksHTML(C.NG232_CHILD_1H, 'assess.ng232', a)}`;
             html += `<h4>Other risk factors (more than 1 = CT within 1 hour; exactly 1 = observe at least 4 hours):</h4>${this.checksHTML(C.NG232_CHILD_RISK, 'assess.ng232', a)}`;
         }
-        const anti = s.assess.ng232Anticoag === null ? this.derived.anticoagDetected : s.assess.ng232Anticoag;
-        html += `<label class="check-line mt-6"><input type="checkbox" id="ng232-anticoag"${anti ? ' checked' : ''}> On an anticoagulant, or an antiplatelet other than aspirin alone${this.derived.anticoagDetected ? ' <span class="text-muted">(anticoagulant detected in meds)</span>' : ''}</label>`;
+        const d = this.derived, anti = s.assess.ng232Anticoag === null ? d.ng232DrugDetected : s.assess.ng232Anticoag;
+        const found = [d.anticoagDetected ? 'anticoagulant' : '', d.antiplateletDetected ? 'antiplatelet' : ''].filter(Boolean).join(' and ');
+        html += `<label class="check-line mt-6"><input type="checkbox" id="ng232-anticoag"${anti ? ' checked' : ''}> On an anticoagulant, or an antiplatelet other than aspirin alone${found ? ` <span class="text-muted">(${found} found in the medicines)</span>` : ''}</label>`;
+        html += `<p class="tool-note">Aspirin on its own does not count (NICE NG232).</p>`;
         html += `<p class="tool-note" id="ng232-gcs"></p></div>`;
         setTimeout(() => {
             const cb = this.$('ng232-anticoag');
@@ -1547,7 +1554,8 @@ class TriageApp {
             ng232: d.ng232 ? d.ng232.level : null, headInjury: !!d.ng232,
             rosierLikely: !!(d.rosier && d.rosier.likely), lkwHours,
             flags: {
-                anticoag: s.assess.ng232Anticoag === null ? d.anticoagDetected : s.assess.ng232Anticoag,
+                // INR / reversal bundle: a real anticoagulant only. A manual NG232 tick counts as one unless an antiplatelet explains it.
+                anticoag: d.anticoagDetected || (s.assess.ng232Anticoag === true && !d.antiplateletDetected),
                 antiplatelet: !!mf.antiplatelet || /Antiplatelet/.test(risks),
                 insulin: /Insulin/.test(risks), sulphonylurea: /Sulphonylurea/.test(risks), sglt2: /SGLT2/.test(risks),
                 steroid: /Steroid/.test(risks), immunosuppressant: /Immunosuppressant|Biologic/.test(risks),

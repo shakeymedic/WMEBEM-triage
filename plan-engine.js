@@ -131,14 +131,17 @@ export function majorBleed(f) {
     return '';
 }
 
-// Fever is 38C or more measured, or a sepsis/fever discriminator. Chemotherapy in the last 6 weeks
-// with fever or suspected infection is treated as possible neutropenic sepsis (NICE CG151).
+// NICE CG151 1.3.1.1: suspect neutropenic sepsis in anyone having anticancer treatment who becomes
+// unwell. Here "unwell" is: temperature 38C or more or under 36C, suspected infection, a sepsis/fever
+// discriminator, or an early warning score of 5 or more (NEWS2, or the local PEWS/MEOWS).
 export function neutropenicSepsis(f) {
     if (!f.flags.chemo) return '';
-    const fever = has(f.obs.temp) && Number(f.obs.temp) >= 38;
-    if (fever) return `Chemotherapy in the last 6 weeks with temperature ${f.obs.temp}°C`;
+    const t = has(f.obs.temp) ? Number(f.obs.temp) : null;
+    if (t !== null && t >= 38) return `Chemotherapy in the last 6 weeks with temperature ${f.obs.temp}°C`;
+    if (t !== null && t < 36) return `Chemotherapy in the last 6 weeks with a low temperature (${f.obs.temp}°C)`;
     if (f.infection === 'yes') return 'Chemotherapy in the last 6 weeks with suspected infection';
     if (disc(f, /sepsis|fever/i)) return `Chemotherapy in the last 6 weeks with "${f.discriminator}"`;
+    if (f.ews && has(f.ews.score) && f.ews.score >= 5) return `Chemotherapy in the last 6 weeks and unwell (${f.ews.type} ${f.ews.score})`;
     return '';
 }
 
@@ -441,7 +444,7 @@ export function cannulaDecision(input, pre = null) {
     if (sepsisHigh(f)) fire('now', `${sepsisName(f)} - antibiotics within 1 hour`, sepsisSource(f), big);
     if (p.neut) fire('now', `${p.neut} - possible neutropenic sepsis: empiric antibiotics immediately (medical emergency)`, 'cg151', big);
     if (f.feverTL === 'Red' && child) fire('recommended', 'NICE fever traffic light RED (under 5) - senior review; IV access likely', 'ng143');
-    if (disc(f, /actively seizing|status epilepticus|fitting now/i)) fire('now', 'Actively seizing - IV lorazepam if access is immediately available; otherwise do not delay buccal midazolam or rectal diazepam to get it', 'ng217', big);
+    if (disc(f, /actively seizing|status epilepticus|fitting now/i)) fire('now', 'Actively seizing - if it has lasted 5 minutes or more (status epilepticus): use the person\'s emergency management plan if available; otherwise IV lorazepam if access is immediately available, or buccal midazolam / rectal diazepam without waiting for IV access', 'ng217', big);
     if (complaint(f, /Suspected Stroke/) && (f.lkwHours === null || f.lkwHours <= 24)) fire('now', f.lkwHours === null ? 'Suspected stroke - time last known well not yet recorded' : `Suspected stroke, last known well ${Math.round(f.lkwHours * 10) / 10} h ago - possible thrombolysis or thrombectomy (the stroke team needs IV access)`, 'ng128', '18G');
     if (complaint(f, /^(Allergy|Bites and Stings|Rash)$/) && disc(f, /airway compromise|shock|stridor|anaphylaxis/i)) fire('now', 'Anaphylaxis - give IM adrenaline first; do not delay it for IV access', 'rcukAnaphylaxis', big);
     if (p.dka) fire('now', `${p.dka} - possible DKA: IV fluids and insulin`, child ? 'bspedDka' : 'jbdsDka', big);

@@ -125,7 +125,7 @@ test('Cannula: anaphylaxis and status epilepticus say not to delay first-line tr
     const a = run({ age: 30, complaint: 'Allergy', discriminator: 'Stridor', level: 'Red' });
     assert.equal(a.cannula.decision, 'now');
     assert.ok(a.cannula.cautions.some(c => /Do not delay/.test(c)));
-    const s = run({ age: 30, complaint: 'Fits and Seizures', discriminator: 'Actively seizing now (status epilepticus)', level: 'Red' });
+    const s = run({ age: 30, complaint: 'Fits and Seizures', discriminator: 'Actively seizing now', level: 'Red' });
     assert.equal(s.cannula.decision, 'now');
     assert.equal(status(s, T.bm), 'now');
     assert.ok(s.cannula.reasons.some(x => x.source === 'ng217'));
@@ -191,6 +191,11 @@ test('Chemotherapy with fever or infection: possible neutropenic sepsis (NICE CG
     assert.ok(r.cannula.reasons.some(x => x.source === 'cg151'));
     const afebrile = run({ age: 55, complaint: 'Limb Problems', flags: { chemo: true }, obs: { temp: 37.2 } });
     assert.equal(item(afebrile, T.cultures), undefined);
+    // CG151 1.3.1.1: "becomes unwell" - also a low temperature or NEWS2 5 or more without fever.
+    const cold = run({ age: 55, complaint: 'Unwell Adult', flags: { chemo: true }, obs: { temp: 35.6 } });
+    assert.equal(cold.cannula.decision, 'now');
+    const unwell = run({ age: 55, complaint: 'Unwell Adult', flags: { chemo: true }, obs: { temp: 37.0 }, ews: news(5) });
+    assert.ok(unwell.cannula.reasons.some(x => x.source === 'cg151'));
 });
 
 test('Children: fever traffic light RED adds cultures, urine and paediatric sepsis bloods; cannula needs a senior', () => {
