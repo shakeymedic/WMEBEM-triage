@@ -122,7 +122,7 @@ test('Cannula: bleeding and shock need large-bore access now', () => {
 });
 
 test('Cannula: anaphylaxis and status epilepticus say not to delay first-line treatment', () => {
-    const a = run({ age: 30, complaint: 'Allergy', discriminator: 'Stridor', level: 'Orange' });
+    const a = run({ age: 30, complaint: 'Allergy', discriminator: 'Stridor', level: 'Red' });
     assert.equal(a.cannula.decision, 'now');
     assert.ok(a.cannula.cautions.some(c => /Do not delay/.test(c)));
     const s = run({ age: 30, complaint: 'Fits and Seizures', discriminator: 'Actively seizing now (status epilepticus)', level: 'Red' });
@@ -271,7 +271,7 @@ test('Three tiers: bloods without a cannula, a cannula, or nothing', () => {
     assert.equal(run({ age: 40, complaint: 'Palpitations', discriminator: 'Rate > 150', level: 'Orange', obs: { hr: 170 } }).cannula.decision, 'recommended');
     assert.equal(run({ age: 60, complaint: 'Gastrointestinal Bleeding', discriminator: 'Haematemesis', level: 'Orange' }).cannula.decision, 'recommended');
     assert.equal(run({ age: 30, complaint: 'Overdose and Poisoning', discriminator: 'High-risk substance', level: 'Orange' }).cannula.decision, 'recommended');
-    assert.equal(run({ age: 30, complaint: 'Torso Injury', discriminator: 'Stab/Gunshot', level: 'Red' }).cannula.decision, 'now');
+    assert.equal(run({ age: 30, complaint: 'Torso Injury', discriminator: 'Stab or gunshot (significant mechanism)', level: 'Red' }).cannula.decision, 'now');
     assert.equal(run({ age: 80, complaint: 'Falls', discriminator: 'Suspected neck of femur fracture', level: 'Orange' }).cannula.decision, 'recommended');
     // Nothing: no bloods and no cannula
     for (const f of [
@@ -326,7 +326,7 @@ test('VBG low threshold: lactate, gas or electrolytes wherever they would help',
     assert.equal(gas({ age: 40, complaint: 'Abdominal Pain in Adults', discriminator: 'Mild pain', level: 'Green' }), 'suggested');
     assert.equal(gas({ age: 20, complaint: 'Overdose and Poisoning', discriminator: 'Symptomatic but stable' }), 'suggested');
     assert.equal(gas({ age: 15, complaint: 'Overdose and Poisoning' }), 'suggested');
-    assert.equal(gas({ age: 30, complaint: 'Diarrhoea and Vomiting', discriminator: 'Mild Dehydration' }), 'suggested');
+    assert.equal(gas({ age: 30, complaint: 'Diarrhoea and Vomiting', discriminator: 'No signs of dehydration' }), 'suggested');
     assert.equal(gas({ age: 4, complaint: 'Abdominal Pain in Children', discriminator: 'Dehydration' }), 'suggested');
     assert.equal(gas({ age: 80, complaint: 'Confusion' }), 'suggested');
     assert.equal(gas({ age: 50, complaint: 'Limb Problems', obs: { avpu: 'C' } }), 'suggested');
