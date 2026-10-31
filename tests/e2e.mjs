@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.4');
+                localStorage.setItem('seenVersion', '21.5');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -52,6 +52,7 @@ const disc = (p, text) => p.locator('.discriminator', { hasText: text }).first()
 const setObs = async (p, o) => { for (const [k, v] of Object.entries(o)) await p.fill(`#obs-${k}`, String(v)); };
 const seg = (p, id, val) => p.click(`#${id} button[data-value="${val}"]`);
 const allErrors = [];
+let ml = '';
 
 // 1. Blank screen: nothing assumed.
 let p = await fresh();
@@ -351,7 +352,12 @@ allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
 await p.fill('#patient-age', '66');
 await pick(p, 'Suspected Stroke');
+check('ROSIER blank = not done, not 0', (await p.textContent('#rosier-result')).includes('ROSIER not done') && (await note(p)).includes('ROSIER not done'));
+ml = await p.textContent('#missing-list');
+check('Stroke: LKW, ROSIER and BM listed as still to record', ml.includes('time last known well') && ml.includes('ROSIER') && ml.includes('Stroke: BM'));
 await p.check('input[data-path="assess.stroke.rosier.face"]'); await p.check('input[data-path="assess.stroke.rosier.arm"]');
+check('ROSIER part-done shows score so far', (await p.textContent('#rosier-result')).includes('incomplete (score so far 2)'));
+await p.click('#btn-rosier-done');
 check('ROSIER 2 = stroke likely', (await p.textContent('#rosier-result')).includes('ROSIER 2'));
 allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
@@ -376,9 +382,10 @@ allErrors.push(...p.errors); await p.context().close();
 // 16. Section numbering follows what is on screen.
 p = await fresh();
 const order = () => p.evaluate(() => [...document.querySelectorAll('.workflow > .card')].filter(c => getComputedStyle(c).display !== 'none').map(c => c.id));
-check('Self order', JSON.stringify(await order()) === JSON.stringify(['card-patient', 'card-complaint', 'card-obs', 'card-history', 'card-screening', 'card-plan']), JSON.stringify(await order()));
+check('Self order (HPC card for walk-ins too)', JSON.stringify(await order()) === JSON.stringify(['card-patient', 'card-handover', 'card-complaint', 'card-obs', 'card-history', 'card-screening', 'card-plan']), JSON.stringify(await order()));
+check('Walk-in: HPC card titled for history, no crew-only fields', (await p.textContent('#handover-title')) === 'History of presenting complaint' && await p.isVisible('#ph-hpc') && !(await p.isVisible('#ph-tx')));
 await seg(p, 'seg-arrival', 'Ambulance');
-check('Ambulance adds crew handover as section 2', (await order())[1] === 'card-handover');
+check('Ambulance: crew handover as section 2 with crew fields', (await order())[1] === 'card-handover' && (await p.textContent('#handover-title')) === 'Crew handover' && await p.isVisible('#ph-tx'));
 allErrors.push(...p.errors); await p.context().close();
 
 // 16b. The decision panel stays on screen when scrolled (side-by-side, full screen, narrow).
@@ -417,7 +424,7 @@ allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
 await seg(p, 'seg-sex', 'Female'); await seg(p, 'seg-mobility', 'Walking');
 n = await note(p);
-check('One tap sets sex and mobility', n.includes('Female | Mobility: Walking'), n.split('\n').find(l => l.startsWith('Patient:')));
+check('One tap sets sex and mobility', n.includes('Female') && n.includes('\nMobility: Walking'), n.split('\n').find(l => l.startsWith('Patient:')));
 await seg(p, 'seg-sex', 'Female');
 check('Tapping the chosen sex again clears it', (await note(p)).includes('sex not recorded'));
 await seg(p, 'seg-o2', 'Air');
@@ -485,7 +492,7 @@ allErrors.push(...p.errors); await p.context().close();
 // 27. High-risk medicine groups and child safeguarding need a positive "none" too.
 p = await fresh();
 await p.fill('#patient-age', '6');
-let ml = await p.textContent('#missing-list');
+ml = await p.textContent('#missing-list');
 check('High-risk groups: blank is listed as still to record', ml.includes('High-risk medicine groups'));
 check('Safeguarding: blank is listed for a child', ml.includes('Child safeguarding'));
 check('High-risk groups: note says NOT CHECKED', (await note(p)).includes('High-risk medicine groups: NOT CHECKED'));
@@ -513,6 +520,64 @@ await p.locator('#card-history .quick-more').click();
 check('Fast triage: "Show" opens one folded section', await p.isVisible('#pmh') && !(await p.isVisible('#cfs-btn-container')));
 await p.click('#btn-quick-mode');
 check('Fast triage off: everything back, no mode line in note', await p.isVisible('#cfs-btn-container') && !(await note(p)).includes('Triage mode'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 29. v21.5 stress-test fixes.
+p = await fresh();
+await p.fill('#patient-age', '-3');
+check('Impossible age refused', await p.evaluate(() => window.app.state.patient.ageValue === null) && (await p.textContent('#missing-list')).includes('Age: -3 is not possible'));
+await p.fill('#patient-age', '58'); await seg(p, 'seg-sex', 'Male');
+await p.fill('#obs-sats', '150'); await p.fill('#obs-hr', '-5');
+n = await note(p);
+check('SpO2 150 and HR -5 not scored or in the note', await p.evaluate(() => window.app.state.obs.sats === null && window.app.state.obs.hr === null) && !n.includes('SpO2 150') && !n.includes('HR -5'));
+check('Impossible obs: box says re-enter and listed', (await p.textContent('#card-obs')).includes('Not possible - re-enter') && (await p.textContent('#missing-list')).includes('SpO2: 150 is not possible'));
+await p.fill('#obs-sats', '97');
+check('Corrected value accepted and message cleared', await p.evaluate(() => window.app.state.obs.sats === 97) && !(await p.textContent('#missing-list')).includes('SpO2: 150'));
+await p.fill('#obs-hr', '');
+await p.fill('#obs-rr', '28'); await p.fill('#obs-hr', '130');
+check('Partial NEWS2 that escalates: finish the obs first', (await p.textContent('#next-obs-display')).startsWith('Finish the obs now'));
+await pick(p, 'Chest Pain');
+await p.fill('#meds', 'aspirin, ramipril');
+check('High-risk button becomes "No other groups" when the list found one', (await p.textContent('#btn-hr-none')) === 'No other groups');
+await p.click('#btn-hr-none');
+n = await note(p);
+check('No contradiction between ALERTS and high-risk groups', n.includes('found in the medicines list (see ALERTS); other groups none (checked)') && !n.includes('none of these (checked)'));
+const sb = await p.evaluate(() => window.app.sbarText());
+check('SBAR flags the outstanding ECG', sb.includes('ECG not yet done'));
+await p.click('#btn-override-toggle');
+await p.selectOption('#sel-override', 'Orange');
+check('Override without a reason says what it needs', (await p.textContent('#override-msg')).includes('Type a reason'));
+// Reload keeps the patient
+await p.reload(); await p.waitForFunction(() => !!window.app);
+check('Reload keeps the patient being triaged', await p.evaluate(() => window.app.state.complaint.name === 'Chest Pain' && window.app.state.patient.ageValue === 58) && (await p.inputValue('#meds')) === 'aspirin, ramipril');
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await seg(p, 'seg-arrival', 'Ambulance'); await p.fill('#patient-age', '40');
+n = await note(p);
+check('Ambulance note: triage decision comes before the crew handover', n.indexOf('TRIAGE NOTE') < n.indexOf('RAA - AMBULANCE HANDOVER') && n.startsWith('TRIAGE NOTE'));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '30'); await seg(p, 'seg-sex', 'Female');
+await pick(p, 'Abdominal Pain in Adults');
+check('Testicular torsion not offered for a female patient', !(await p.textContent('#discriminator-container')).includes('Testicular'));
+await seg(p, 'seg-sex', 'Male');
+check('...but offered for a male patient', (await p.textContent('#discriminator-container')).includes('Testicular'));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '28'); await seg(p, 'seg-sex', 'Female'); await p.check('#check-pregnant');
+const lmp = await p.evaluate(() => { const d = new Date(); d.setDate(d.getDate() - 30 * 7); return d.toISOString().slice(0, 10); });
+await p.fill('#date-lmp', lmp);
+await pick(p, 'Pregnancy'); await disc(p, 'Abdo Pain');
+check('30 weeks: maternity triage, not EPU', (await p.textContent('#placement-suggest')).includes('Maternity triage') && !(await p.textContent('#placement-suggest')).includes('Early pregnancy unit'));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '2');
+await pick(p, 'Unwell Child');
+check('Child: temperature listed as still to record', (await p.textContent('#missing-list')).includes('Temp (child'));
 allErrors.push(...p.errors); await p.context().close();
 
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));

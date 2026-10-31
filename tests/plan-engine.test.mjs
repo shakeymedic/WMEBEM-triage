@@ -339,3 +339,13 @@ test('VBG low threshold: lactate, gas or electrolytes wherever they would help',
         assert.equal(item(run(f), T.vbg), undefined, f.complaint);
     }
 });
+
+test('v21.5: no standing BP when the patient cannot stand; adult-only heart rate triggers; weight once measured', () => {
+    assert.equal(item(run({ age: 84, complaint: 'Falls', discriminator: 'Suspected neck of femur fracture' }), T.lsbp), undefined, 'suspected #NOF');
+    assert.equal(item(run({ age: 84, complaint: 'Falls', discriminator: 'Inability to weight bear' }), T.lsbp), undefined, 'cannot weight bear');
+    assert.notEqual(item(run({ age: 84, complaint: 'Falls', discriminator: 'Able to weight bear' }), T.lsbp), undefined, 'can stand: still suggested');
+    assert.equal(item(run({ age: 2, complaint: 'Unwell Child', obs: { hr: 165 } }), T.ecg), undefined, 'child HR 165: no ECG from adult bands');
+    assert.notEqual(item(run({ age: 50, complaint: 'Unwell Adult', obs: { hr: 140 } }), T.ecg), undefined, 'adult HR 140: ECG');
+    assert.notEqual(item(run({ age: 2, complaint: 'Unwell Child' }), T.weight), undefined, 'weight asked for');
+    assert.equal(item(run({ age: 2, complaint: 'Unwell Child', weight: 12 }), T.weight), undefined, 'weight already measured');
+});

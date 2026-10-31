@@ -572,9 +572,13 @@ export const ROSIER_ITEMS = [
     ['visual', 'Visual field defect', 1]
 ];
 
-export function rosier(answers = {}) {
+// Unticked boxes are not "no": until the nurse marks the ROSIER as complete it is reported as not done
+// (or incomplete, with the score so far), never as a score of 0.
+export function rosier(answers = {}, complete = true) {
     const score = ROSIER_ITEMS.reduce((s, [k, , pts]) => s + (answers[k] ? pts : 0), 0);
-    return { score, likely: score > 0, text: score > 0 ? `ROSIER ${score}: stroke likely` : `ROSIER ${score}: stroke unlikely but not excluded` };
+    const any = ROSIER_ITEMS.some(([k]) => answers[k]);
+    if (!complete) return { score, complete: false, likely: score > 0, text: any ? `ROSIER incomplete (score so far ${score})` : 'ROSIER not done' };
+    return { score, complete: true, likely: score > 0, text: score > 0 ? `ROSIER ${score}: stroke likely` : `ROSIER ${score}: stroke unlikely but not excluded` };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -632,7 +636,8 @@ export function gestationFromLmp(lmp, now = new Date()) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const days = Math.round((today - start) / 86400000);
     if (days < 0 || days > 45 * 7) return { valid: false };
-    const edd = new Date(start.getTime() + 280 * 86400000);
+    // Calendar days, not 280 x 24 h: adding milliseconds goes a day early across the October clock change.
+    const edd = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 280);
     return { valid: true, weeks: Math.floor(days / 7), days: days % 7, edd };
 }
 

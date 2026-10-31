@@ -256,6 +256,10 @@ export function evaluatePlan(input, bloodProfiles = {}) {
         });
         fromList(proto.bedside, 'Bedside');
         fromList(proto.bloods, 'Bloods');
+        // Standing BP needs a patient who can safely stand: not with a suspected hip fracture,
+        // inability to weight bear, major trauma or shock.
+        if (disc(f, /neck of femur|inability to weight bear|unable to weight bear|major trauma|shock|catastrophic/i)) items.delete(`Bedside|${T.lsbp}`);
+        if (has(f.weight)) items.delete(`Bedside|${T.weight}`); // already measured
     }
 
     // ---- 2. Cross-cutting rules ----
@@ -279,7 +283,8 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (complaint(f, /^Chest Pain$/)) bed(T.ecg, 'now', 'Chest pain - resting 12-lead ECG as soon as possible to look for STEMI', 'cg95', { timing: 'Within 10 minutes of arrival (ESC standard; NICE CG95 says as soon as possible)' });
     if (complaint(f, /^Collapse$/) || disc(f, LOC_RE)) bed(T.ecg, 'suggested', 'Transient loss of consciousness - 12-lead ECG for everyone', isAdult(f) ? 'cg109' : 'local');
     if (complaint(f, /^Palpitations$/)) bed(T.ecg, 'now', 'Palpitations - capture the rhythm, ideally while symptomatic', 'local');
-    if (has(f.obs.hr) && (Number(f.obs.hr) <= 40 || Number(f.obs.hr) >= 131)) bed(T.ecg, 'suggested', `Heart rate ${f.obs.hr} (NEWS2 3 points)`, 'local');
+    // NEWS2 heart rate bands are for adults only; a fast heart rate is normal-ish in young children.
+    if (isAdult(f) && has(f.obs.hr) && (Number(f.obs.hr) <= 40 || Number(f.obs.hr) >= 131)) bed(T.ecg, 'suggested', `Heart rate ${f.obs.hr} (NEWS2 3 points)`, 'local');
     if (shock) bed(T.ecg, 'suggested', `Shocked (${shock})`, 'local');
     if (f.flags.dialysis && (f.ews.score >= 1 || f.infection === 'yes' || disc(f, /weak|vomit|palpit/i))) bed(T.ecg, 'suggested', 'Dialysis patient who is unwell - potassium risk', 'local');
     if ((f.flags.digoxin || f.flags.lithium) && (f.ews.score >= 3 || complaint(f, /Overdose|Confusion|Diarrhoea and Vomiting|Collapse|Palpitations/))) bed(T.ecg, 'suggested', `On ${f.flags.digoxin ? 'digoxin' : 'lithium'} and unwell - toxicity can cause arrhythmia`, 'local');
@@ -308,7 +313,7 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (isAdult(f) && complaint(f, /^(Collapse|Unwell Adult|Confusion|Elderly Care \/ Off Legs|Shortness of Breath in Adults|Gastrointestinal Bleeding|Diabetes)$/)) bed(T.vbg, 'suggested', `${f.complaint} - lactate, potassium, glucose and haemoglobin in minutes`, 'local');
     if (isAdult(f) && o2) bed(T.vbg, 'suggested', `New oxygen requirement (${o2}) - pH and CO2`, 'local');
     if (has(f.obs.temp) && (Number(f.obs.temp) < 35 || Number(f.obs.temp) >= 40)) bed(T.vbg, 'suggested', `Temperature ${f.obs.temp}°C - lactate, glucose and potassium`, 'local');
-    if (has(f.obs.hr) && (Number(f.obs.hr) <= 40 || Number(f.obs.hr) >= 131)) bed(T.vbg, 'suggested', `Heart rate ${f.obs.hr} - potassium`, 'local');
+    if (isAdult(f) && has(f.obs.hr) && (Number(f.obs.hr) <= 40 || Number(f.obs.hr) >= 131)) bed(T.vbg, 'suggested', `Heart rate ${f.obs.hr} - potassium`, 'local');
     if (f.flags.dialysis && (f.ews.score >= 1 || f.infection === 'yes' || disc(f, /weak|vomit|palpit/i))) bed(T.vbg, 'suggested', 'Dialysis patient who is unwell - potassium in minutes', 'local');
     if (dka) bed(T.vbg, 'now', `${dka} - pH and bicarbonate grade DKA`, isChild(f) ? 'bspedDka' : 'jbdsDka');
     else if (ketoNeed && toNumber(f.obs.ketones) === null) bed(T.vbg, 'consider', '', 'local', { when: 'ketones are above 3.0 (DKA - pH and bicarbonate)' });
@@ -341,7 +346,7 @@ export function evaluatePlan(input, bloodProfiles = {}) {
     if (f.headInjury && f.ng232 && f.ng232 !== 'none') bed(T.neuro, 'suggested', 'Head injury meeting NICE criteria', 'ng232', { timing: 'NICE NG232: half-hourly until GCS 15, then half-hourly for 2 hours, hourly for 4 hours, then 2-hourly' });
 
     // Weight for children (doses and fluids)
-    if (isChild(f)) bed(T.weight, 'suggested', 'Child - measured weight for doses and fluids', 'local');
+    if (isChild(f) && !has(f.weight)) bed(T.weight, 'suggested', 'Child - measured weight for doses and fluids', 'local');
 
     // ---- 3. Bloods: cross-cutting bundles ----
     if (isAdult(f) && (sepsisHigh(f) || sepsisMedium(f))) blood('AE - Sepsis', 'now', `${sepsisName(f)} - NICE also lists LFTs and "consider procalcitonin"`, 'ng253');

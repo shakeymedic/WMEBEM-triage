@@ -391,3 +391,16 @@ test('NG254 sepsis table 1 (under 5s): age-band RR/HR, sats, CRT, temperature an
     assert.doesNotMatch(r(1, {}).actions, /Under 3 months/);
     assert.equal(C.sepsisNG253({ age: 3, infection: 'yes', news: { score: 0, complete: true } }).applicable, false);
 });
+
+test('v21.5: EDD is LMP + 280 calendar days across the clock change', () => {
+    const g = C.gestationFromLmp('2026-04-04', new Date(2026, 9, 31));
+    assert.equal(g.edd.getFullYear(), 2027); assert.equal(g.edd.getMonth(), 0); assert.equal(g.edd.getDate(), 9);
+    const g2 = C.gestationFromLmp('2026-01-31', new Date(2026, 5, 1));
+    assert.equal(g2.edd.getMonth(), 10); assert.equal(g2.edd.getDate(), 7);
+});
+
+test('v21.5: ROSIER is "not done" until marked complete', () => {
+    assert.equal(C.rosier({}, false).text, 'ROSIER not done');
+    assert.equal(C.rosier({ face: true }, false).text, 'ROSIER incomplete (score so far 1)');
+    assert.equal(C.rosier({}, true).text, 'ROSIER 0: stroke unlikely but not excluded');
+});

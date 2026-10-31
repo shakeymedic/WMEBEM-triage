@@ -175,7 +175,7 @@ export const clinicalData = {
         { id: "antiepileptic", label: "Anti-epileptic", hint: "Any AED", warning: "E: Anticonvulsant (Seizure Risk if delayed/missed)" },
         { id: "opioid", label: "Opioid / Substitution Rx", hint: "Methadone, buprenorphine, strong opioids", warning: "Opioid (Resp Depression Risk)" },
         { id: "lithium_clozapine", label: "Lithium / Clozapine", hint: "Toxicity/agranulocytosis risk", warning: "Toxicity Risk (Check Lithium Level / FBC if Clozapine)" },
-        { id: "chemo", label: "Chemotherapy (last 6 weeks)", hint: "Systemic anti-cancer treatment", warning: "Chemotherapy in last 6 weeks - if unwell or febrile, treat as possible neutropenic sepsis: medical emergency, empiric antibiotics per local pathway (NICE NG151)" },
+        { id: "chemo", label: "Chemotherapy (last 6 weeks)", hint: "Systemic anti-cancer treatment", warning: "Chemotherapy in last 6 weeks - if unwell or febrile, treat as possible neutropenic sepsis: medical emergency, empiric antibiotics per local pathway (NICE CG151)" },
         { id: "sickle", label: "Sickle cell disease", hint: "Painful crisis", warning: "Sickle cell - painful crisis: analgesia within 30 minutes of arrival (NICE CG143)" },
         { id: "dialysis", label: "Renal dialysis / fistula", hint: "Haemo- or peritoneal dialysis", warning: "Dialysis - no BP cuff, cannula or bloods on the fistula arm; check potassium" },
         { id: "neck_breather", label: "Altered airway (tracheostomy / laryngectomy)", hint: "Breathes through a neck stoma", warning: "Altered airway (tracheostomy / laryngectomy) - give oxygen to the face AND the stoma; a laryngectomy patient cannot be oxygenated via the mouth" }
@@ -596,7 +596,7 @@ export const clinicalData = {
         'Direct to unit / pathway': {
             EDAA: 'EDAA (ED ambulatory area)', SDEC: 'SDEC (same day emergency care)', FSDEC: 'FSDEC (frailty SDEC)',
             MAU: 'MAU (medical assessment unit)', SAU: 'SAU (surgical assessment unit)',
-            EPU: 'Early pregnancy unit / maternity triage', Stroke: 'Stroke team / hyperacute stroke pathway',
+            EPU: 'Early pregnancy unit (per local gestation criteria)', Maternity: 'Maternity triage (per local gestation criteria)', Stroke: 'Stroke team / hyperacute stroke pathway',
             TIA: 'TIA clinic', Eye: 'Eye casualty / ophthalmology', UTC: 'Urgent treatment centre / primary care (streamed)'
         }
     }
