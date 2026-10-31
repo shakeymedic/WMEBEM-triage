@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.3</title>
+    <title>EMEvidence Triage v21.4</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -78,6 +78,7 @@
             <h3 id="settings-heading">Settings for this computer</h3>
             <label class="check-row" for="set-shared"><input type="checkbox" id="set-shared"> <span>Shared / generic login computer <small class="text-muted">Recent Patients is switched off and cleared</small></span></label>
             <label class="check-row mt-10" for="set-dictation"><input type="checkbox" id="set-dictation"> <span>Show dictation (microphone) buttons <small class="text-muted">Only if this computer has a microphone</small></span></label>
+            <label class="check-row mt-10" for="set-plain-copy"><input type="checkbox" id="set-plain-copy"> <span>Copy the EPR note as plain text only <small class="text-muted">Use this if your EPR pastes the bold headings badly</small></span></label>
             <label class="check-row mt-10" for="set-dark"><input type="checkbox" id="set-dark"> <span>Dark mode</span></label>
             <button type="button" id="btn-clear-history" class="btn-secondary mt-15">Clear recent patients now</button>
             <p class="hint mt-10">Recent patients are kept on this computer only and deleted automatically after 12 hours.</p>
@@ -87,8 +88,14 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.3</h3>
+            <h3 id="whatsnew-heading">What's new in v21.4</h3>
             <ul class="whatsnew-list">
+                <li><strong>The EPR note now pastes with bold headings.</strong> "Copy EPR note" copies a formatted version (bold, underlined section headings and bold labels) and a plain text version together. A note box that accepts formatting keeps the bold; a plain box gets the plain text, now split into sections with a blank line between them. If your EPR pastes the formatting badly, tick <em>Copy the EPR note as plain text only</em> in Settings. SBAR copies the same way.</li>
+                <li><strong>The triage category is now near the top of the note</strong>, straight after the patient details, with the stream, reasons and next obs time. The note then runs: presenting complaint, observations and assessment, alerts, history, screening, plan.</li>
+                <li><strong>Ambulance arrivals:</strong> Trolley is still filled in for you, but it now says it was assumed. Tapping Trolley confirms it (before, that tap cleared it). Switching back to Self clears an assumed Trolley.</li>
+                <li><strong>"⚡ Quick" is now "⚡ Fast triage".</strong> It shows only what decides the category - arrival and patient, complaint, discriminator, pain, obs, allergies, infection control and the plan - and folds away the local ref, pre-hospital obs and treatment, Clinical Frailty Scale, PMH, medicines and high-risk groups, child analgesia and safeguarding, and the screening questions. Each folded card has its own "Show ..." button. Anything still missing from a folded section is listed under "Fast triage - for later", and the note says fast triage was used.</li>
+                <li><strong>Blank no longer means "normal".</strong> "No IPC flags", high-risk medicine groups "None of these" and (for children) "No safeguarding concerns" are now buttons you tap. Until you tick something or tap the button, the note says NOT SCREENED / NOT CHECKED and it shows in "Still to record". The #NOF and corridor care lists are things done, so blank there still reads "none recorded".</li>
+                <li><strong>Fixes:</strong> choosing Male now clears a ticked pregnancy box (it was hidden but still switched the score to MEOWS). If the age and the flowchart don't match (an adult flowchart for a child, or the other way round), "Still to record" now asks you to check the flowchart.</li>
                 <li><strong>Sepsis in under 5s now follows NICE NG254 too.</strong> The sepsis panel uses NG254 table 1 for children under 5: breathing rate and heart rate by age band (under 1, 1 to 2, 3 to 4), SpO2 in air, capillary refill and temperature are scored from the obs (under 36°C is high risk; 38°C or more under 3 months is high risk; 39°C or more at 3 to 6 months is moderate to high), with tick boxes for behaviour, cry, grunting, apnoea, skin and the rest. ACVPU P or U counts as "does not wake". Under 3 months, the panel adds NICE's advice on parenteral antibiotics for fever. The fever traffic light (NG143) still shows in the Paediatric card.</li>
                 <li><strong>Provisional NEWS2 from the obs you have.</strong> As soon as one obs is in, you see "Provisional NEWS2 at least X (n of 7 obs)" with the risk it already shows (for example "Medium risk or higher"), in the obs section, the decision panel and the bar pinned at the top on phones. Missing obs are listed and are <strong>not</strong> counted as 0, so the full score can only be the same or higher. A low provisional score never says "low risk" and never sets the next obs hours away - it asks you to finish the obs.</li>
                 <li><strong>Fewer taps:</strong> Sex and Mobility are one-tap buttons instead of drop-downs (tap again to clear). Choosing Air or O₂ jumps straight to the blood pressure. On a phone the keyboard's Next key moves through the obs. On a keyboard, type the obs and press Enter between them; at Air/O₂ press <kbd>A</kbd> or <kbd>O</kbd>, and at ACVPU press the letter - both move straight on.</li>
@@ -122,12 +129,12 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.3 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.4 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
             <label class="initials" for="nurse-initials">Triage nurse <input type="text" id="nurse-initials" maxlength="6" placeholder="Initials" autocomplete="off"></label>
-            <button type="button" id="btn-quick-mode" class="btn-ghost" title="Hide the screening questions">⚡ Quick</button>
+            <button type="button" id="btn-quick-mode" class="btn-ghost" title="Fast triage: show only what decides the category; fold the rest" aria-pressed="false">⚡ Fast triage</button>
             <button type="button" id="btn-history" class="btn-ghost" title="Recent patients (Alt+H)">🕒 Recent</button>
             <button type="button" id="btn-settings" class="btn-ghost" title="Settings">⚙ Settings</button>
             <button type="button" id="btn-help" class="btn-ghost" title="Keyboard shortcuts (?)">?</button>
@@ -153,7 +160,7 @@
                         <label for="arrival-time">Arrival time</label>
                         <input type="time" id="arrival-time">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group quick-hide">
                         <label for="patient-ref">Local ref <span class="text-muted">optional</span></label>
                         <input type="text" id="patient-ref" maxlength="12" placeholder="Chair / cubicle" autocomplete="off">
                     </div>
@@ -164,6 +171,7 @@
                             <button data-value="Wheelchair" type="button" title="Wheelchair">Chair</button>
                             <button data-value="Trolley" type="button" title="Trolley / bed bound">Trolley</button>
                         </div>
+                        <small class="hint hidden" id="mobility-hint">Set from ambulance arrival - tap to confirm or change</small>
                     </div>
                     <div class="form-group">
                         <label for="patient-age">Age</label>
@@ -223,7 +231,7 @@
                     </div>
                     <textarea id="ph-hpc" rows="3" placeholder="Onset, associated symptoms, relevant context…"></textarea>
                 </div>
-                <button type="button" class="subsection-toggle" id="ph-obs-toggle" aria-expanded="false" aria-controls="ph-obs-collapsible"><span>Pre-hospital observations <span class="text-muted">only if not already in the EPR</span></span><span class="chevron" aria-hidden="true">▾</span></button>
+                <button type="button" class="subsection-toggle quick-hide" id="ph-obs-toggle" aria-expanded="false" aria-controls="ph-obs-collapsible"><span>Pre-hospital observations <span class="text-muted">only if not already in the EPR</span></span><span class="chevron" aria-hidden="true">▾</span></button>
                 <div id="ph-obs-collapsible" class="hidden">
                     <div class="obs-grid">
                         <div class="obs-item"><label for="ph-obs-rr">RR</label><input type="number" id="ph-obs-rr" inputmode="numeric"></div>
@@ -238,17 +246,18 @@
                         <div class="obs-item"><label for="ph-obs-pupils">Pupils</label><input type="text" id="ph-obs-pupils" placeholder="PEARL" autocomplete="off"></div>
                     </div>
                 </div>
-                <div class="form-group">
+                <div class="form-group quick-hide">
                     <div class="label-row">
                         <label for="ph-tx">Pre-hospital medications / treatment</label>
                         <div class="label-actions"><button type="button" class="mic-btn" data-target="ph-tx" aria-label="Dictate pre-hospital treatment">🎤</button></div>
                     </div>
                     <textarea id="ph-tx" rows="2" placeholder="e.g. IV paracetamol 1g, O₂ 2L via nasal cannula…"></textarea>
                 </div>
-                <div class="form-grid">
+                <div class="form-grid quick-hide">
                     <div class="form-group"><label for="ph-tx-time">Time given <span class="text-muted">if known</span></label><input type="time" id="ph-tx-time"></div>
                     <div class="form-group"><label for="ph-social">Social <span class="text-muted">optional</span></label><input type="text" id="ph-social" placeholder="e.g. Frame, PoC 3x daily" autocomplete="off"></div>
                 </div>
+                <button type="button" class="quick-more btn-tiny" data-action="quick-more" aria-expanded="false" data-label="pre-hospital obs, treatment and social">Show pre-hospital obs, treatment and social</button>
             </section>
 
             <section class="card" id="card-complaint">
@@ -276,7 +285,7 @@
                     <div class="pain-btn-group" id="pain-btn-container" role="radiogroup" aria-labelledby="pain-label"></div>
                     <div id="flacc-panel" class="tool-panel hidden"></div>
                 </div>
-                <div class="form-group" id="frailty-section">
+                <div class="form-group quick-hide" id="frailty-section">
                     <div class="label-row">
                         <label id="cfs-label">Clinical Frailty Scale <span id="cfs-readout" class="pain-readout">not assessed</span></label>
                         <div class="label-actions"><button type="button" class="btn-tiny" id="btn-cfs-guide" aria-expanded="false" aria-controls="cfs-guide">Show criteria</button></div>
@@ -286,6 +295,7 @@
                     <div id="cfs-guide" class="tool-panel hidden"></div>
                 </div>
                 <div id="complaint-tools"></div>
+                <button type="button" class="quick-more btn-tiny" data-action="quick-more" aria-expanded="false" data-label="Clinical Frailty Scale">Show Clinical Frailty Scale</button>
             </section>
 
             <section class="card" id="card-obs">
@@ -337,7 +347,7 @@
                         <textarea id="allergies" rows="2" placeholder="Drug / substance"></textarea>
                         <input type="text" id="allergy-reaction" class="mt-6" placeholder="Reaction (e.g. rash, anaphylaxis, intolerance)" autocomplete="off">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group quick-hide">
                         <div class="label-row">
                             <label for="pmh">PMH</label>
                             <div class="label-actions">
@@ -349,7 +359,7 @@
                         <div id="pmh-prompts" class="hidden pmh-prompt-banner"></div>
                     </div>
                 </div>
-                <div class="form-group position-relative">
+                <div class="form-group position-relative quick-hide">
                     <div class="label-row">
                         <label for="meds">Medicines <span class="text-muted">RCEM 'MISSED' scan</span></label>
                         <div class="label-actions">
@@ -360,21 +370,24 @@
                     <textarea id="meds" rows="2" placeholder="e.g. Warfarin, Sinemet, Insulin…"></textarea>
                     <div id="meds-suggestions" class="suggestions-box hidden" role="listbox"></div>
                     <div id="meds-alert" class="meds-status-bar"></div>
-                    <span class="label-small-title">High-risk groups <span class="text-muted">tick if applicable – not spelling dependent</span></span>
+                    <div class="label-row"><span class="label-small-title">High-risk groups <span class="text-muted">tick if applicable – not spelling dependent</span></span>
+                    <div class="label-actions"><div class="segmented-control yn"><button type="button" id="btn-hr-none" data-action="hr-none" aria-pressed="false">None of these</button></div></div></div>
                     <div id="high-risk-meds-grid" class="high-risk-meds-grid"></div>
                 </div>
-                <div class="form-group" id="card-treatment-given">
+                <div class="form-group quick-hide" id="card-treatment-given">
                     <div class="label-row">
                         <label for="treatment-notes">Treatment already given <span class="text-muted">before triage, with times</span></label>
                         <div class="label-actions"><button type="button" class="mic-btn" data-target="treatment-notes" aria-label="Dictate treatment given">🎤</button></div>
                     </div>
                     <textarea id="treatment-notes" rows="2" placeholder="e.g. Paracetamol 1g PO at 14:20 (by parent / self)…"></textarea>
                 </div>
+                <button type="button" class="quick-more btn-tiny" data-action="quick-more" aria-expanded="false" data-label="PMH, medicines and high-risk groups">Show PMH, medicines and high-risk groups</button>
             </section>
 
             <section class="card card-paeds hidden" id="card-paeds">
                 <h2 class="section-title">Child safety</h2>
-                <div id="paeds-content" class="stack"></div>
+                <div id="paeds-content" class="stack quick-hide"></div>
+                <button type="button" class="quick-more btn-tiny" data-action="quick-more" aria-expanded="false" data-label="child analgesia and safeguarding">Show child analgesia and safeguarding</button>
             </section>
 
             <section class="card" id="card-screening">
@@ -386,8 +399,9 @@
                 </h2>
                 <div id="screening-body" class="stack">
                     <div id="ipc-panel" class="tool-panel"></div>
-                    <div id="screening-container" class="screening-grid"></div>
+                    <div id="screening-container" class="screening-grid quick-hide"></div>
                 </div>
+                <button type="button" class="quick-more btn-tiny" data-action="quick-more" aria-expanded="false" data-label="screening questions">Show screening questions</button>
             </section>
 
             <section class="card" id="card-plan">
@@ -445,7 +459,8 @@
             </div>
             <details class="note-preview">
                 <summary>Preview EPR note</summary>
-                <textarea id="epr-note" rows="16" readonly class="code-font" aria-label="EPR note"></textarea>
+                <div id="epr-note-formatted" class="epr-note-formatted" aria-label="EPR note (formatted)"></div>
+                <textarea id="epr-note" rows="16" readonly class="code-font hidden" aria-label="EPR note"></textarea>
             </details>
         </aside>
     </div>
@@ -458,7 +473,7 @@
     </aside>
 
     <footer>
-        <p>v21.3 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.4 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>

@@ -2,12 +2,14 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
 
-const VERSION = '21.3';
+const VERSION = '21.4';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
 const CHILD_CHART = /Child|Baby|Neonate|Worried Parent/;
 const ADULT_CHART = /Adult/;
+// "Still to record" items that belong to sections folded away in fast triage.
+const LATER_IN_FAST = /^(Clinical Frailty Scale|High-risk medicine groups|Child safeguarding)/;
 const MIC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 
 // localStorage/sessionStorage can throw (private windows, locked-down profiles) - never let that break triage.
@@ -33,11 +35,11 @@ const newSessionId = () => `${Date.now().toString(36)}-${Math.random().toString(
 function freshState() {
     return {
         meta: { sessionId: newSessionId(), arrivalAt: new Date().toISOString(), startedAt: null, categorySetAt: null, lastCategory: null, obsAt: null, noteCopiedAt: null },
-        patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, lmp: '', mobility: '', arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '', localRef: '' },
+        patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, lmp: '', mobility: '', mobilityAssumed: false, arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '', localRef: '' },
         prehospital: { obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
         obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, crt: null, avpu: null, gcsE: null, gcsV: null, gcsM: null, bm: null, ketones: null, pupils: '' },
         complaint: { name: '', raw: '', discriminator: null, noneApply: false, pain: null, painMethod: 'NRS', flacc: {} },
-        history: { allergies: '', allergyReaction: '', pmh: '', meds: '', manualRiskFlags: {}, treatmentNotes: '', planNarrative: '' },
+        history: { allergies: '', allergyReaction: '', pmh: '', meds: '', manualRiskFlags: {}, riskNone: false, treatmentNotes: '', planNarrative: '' },
         assess: {
             infection: null, sepsisFactors: {},
             headache: { trauma: null, sudden: null },
@@ -45,8 +47,8 @@ function freshState() {
             stroke: { lkw: '', rosier: {} }, ecgDoneAt: null,
             fourAT: {}, nof: {}, mh: {},
             ng143: { feverReported: false, ticks: {} },
-            paeds: { recentDose: null, accompaniedBy: '', safeguarding: {} },
-            ipc: {}, corridor: {}, corridorCheckedAt: null
+            paeds: { recentDose: null, accompaniedBy: '', safeguarding: {}, safeguardingNone: false },
+            ipc: {}, ipcNone: false, corridor: {}, corridorCheckedAt: null
         },
         frailty: { cfs: null },
         screening: {},
@@ -85,13 +87,15 @@ class TriageApp {
     // ------------------------------------------------------------------ preferences & settings
     initPreferences() {
         if (store.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-        if (store.get('quickMode') === 'on') { document.body.classList.add('quick-mode'); this.$('btn-quick-mode').classList.add('active'); }
+        if (store.get('quickMode') === 'on') { document.body.classList.add('quick-mode'); this.$('btn-quick-mode').classList.add('active'); this.$('btn-quick-mode').setAttribute('aria-pressed', 'true'); }
         this.shared = store.get('sharedComputer') === 'on';
+        this.plainCopy = store.get('plainCopy') === 'on';
         this.dictation = store.get('dictation') === 'on';
         this.$('nurse-initials').value = store.get('initials', '', true) || '';
         this.$('set-shared').checked = this.shared;
         this.$('set-dictation').checked = this.dictation;
         this.$('set-dark').checked = store.get('theme') === 'dark';
+        this.$('set-plain-copy').checked = this.plainCopy;
         this.$('btn-history').classList.toggle('hidden', this.shared);
     }
 
@@ -215,6 +219,9 @@ class TriageApp {
         if (!p.sex) missing.push('Sex');
         if (!s.complaint.name) missing.push('Presenting complaint (choose a flowchart)');
         else if (!priority.triaged) missing.push('Discriminator - choose one, or "None of these apply"');
+        // Age changed after the flowchart was chosen (or the wrong one was picked): flag it.
+        if (s.complaint.name && p.age !== null && isPaeds && ADULT_CHART.test(s.complaint.name)) missing.push('Check the flowchart - it is for adults but the patient is under 16');
+        if (s.complaint.name && p.age !== null && !isPaeds && CHILD_CHART.test(s.complaint.name)) missing.push('Check the flowchart - it is for children but the patient is 16 or over');
         if (ews.missing.length) missing.push(`Obs: ${ews.missing.join(', ')}`);
         if (!C.has(s.complaint.pain)) missing.push('Pain score');
         if (!s.history.allergies.trim()) missing.push('Allergies');
@@ -223,6 +230,11 @@ class TriageApp {
         if (p.age !== null && p.age >= 65 && !frailty) missing.push('Clinical Frailty Scale (65 and over)');
         if (isPaeds && !C.has(p.weight)) missing.push('Weight (child)');
         if (sepsis.status === 'not-asked' && (ews.score >= 3 || (C.has(o.temp) && (o.temp >= 38 || o.temp < 36)))) missing.push('Could this be an infection? (sepsis)');
+        const hrTicked = Object.values(s.history.manualRiskFlags).some(Boolean);
+        if (!hrTicked && !s.history.riskNone) missing.push('High-risk medicine groups - tick any that apply or tap "None of these"');
+        const sgConcern = !!(s.assess.paeds.safeguarding.nonmobile || s.assess.paeds.safeguarding.story || s.assess.paeds.safeguarding.notbrought);
+        if (isPaeds && !sgConcern && !s.assess.paeds.safeguardingNone) missing.push('Child safeguarding - tick a concern or tap "No safeguarding concerns"');
+        if (!ipcFlag && !s.assess.ipcNone) missing.push('Infection control - tick what applies or tap "No IPC flags"');
         if (tools.ecg && !s.assess.ecgDoneAt) missing.push('ECG (within 10 minutes of arrival)');
 
         this.derived = { frailty, isPaeds, risks, anticoagDetected, ews, newsResp, newsSum, sepsis, pain, feverTL, feverRelevant, flowchart, disc, autoDisc, floors, priority, level, seeBy, stream, nextObs, nextObsAt, tools, ng232, rosier, fourAT, analgesia, gestation, gcsTotal, ipcFlag, missing };
@@ -414,6 +426,7 @@ class TriageApp {
             const id = e.target.dataset.catId;
             if (!id) return;
             e.target.closest('.hr-med-chip').classList.toggle('checked', e.target.checked);
+            if (e.target.checked) this.state.history.riskNone = false;
             this.set(`history.manualRiskFlags.${id}`, e.target.checked);
         });
 
@@ -534,6 +547,8 @@ class TriageApp {
             if (!el || el.tagName === 'DIV') return;
             let val = el.type === 'checkbox' ? el.checked : el.value;
             if (el.dataset.num !== undefined) val = C.toNumber(val);
+            if (val === true && el.dataset.path.startsWith('assess.ipc.')) this.state.assess.ipcNone = false;
+            if (val === true && /^assess\.paeds\.safeguarding\.(nonmobile|story|notbrought)$/.test(el.dataset.path)) this.state.assess.paeds.safeguardingNone = false;
             this.set(el.dataset.path, val);
         });
         document.addEventListener('input', (e) => {
@@ -584,7 +599,11 @@ class TriageApp {
             const on = !document.body.classList.contains('quick-mode');
             document.body.classList.toggle('quick-mode', on);
             this.$('btn-quick-mode').classList.toggle('active', on);
+            this.$('btn-quick-mode').setAttribute('aria-pressed', String(on));
             store.set('quickMode', on ? 'on' : 'off');
+            if (!on) document.querySelectorAll('.card.quick-open').forEach(c => this.setQuickOpen(c, false));
+            this.toast(on ? 'Fast triage on: only what decides the category is shown. "Show ..." opens a folded section.' : 'Fast triage off: all sections shown');
+            this.update();
         });
         this.$('btn-history').addEventListener('click', () => this.openHistory());
         this.$('btn-close-history').addEventListener('click', () => this.$('history-sidebar').classList.remove('open'));
@@ -595,7 +614,7 @@ class TriageApp {
         this.$('btn-copy').addEventListener('click', () => this.copyNote());
         this.$('btn-sbar').addEventListener('click', () => this.openSbar());
         this.$('btn-close-sbar').addEventListener('click', () => this.closeModal('modal-sbar'));
-        this.$('btn-copy-sbar').addEventListener('click', () => this.copyText(this.sbarText(), 'SBAR copied'));
+        this.$('btn-copy-sbar').addEventListener('click', () => this.copyText(this.sbarText(), 'SBAR copied', this.sbarHtml()));
         document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', () => this.closeModal(b.closest('.modal').id)));
 
         // Settings
@@ -609,6 +628,11 @@ class TriageApp {
             this.dictation = e.target.checked;
             store.set('dictation', this.dictation ? 'on' : 'off');
             this.applyDictation();
+        });
+        this.$('set-plain-copy').addEventListener('change', (e) => {
+            this.plainCopy = e.target.checked;
+            store.set('plainCopy', this.plainCopy ? 'on' : 'off');
+            this.renderNote();
         });
         this.$('set-dark').addEventListener('change', (e) => {
             if (e.target.checked) document.documentElement.setAttribute('data-theme', 'dark');
@@ -675,15 +699,34 @@ class TriageApp {
         switch (group.id) {
             case 'seg-arrival': {
                 const amb = value === 'Ambulance';
-                if (amb && !this.state.patient.mobility) this.state.patient.mobility = 'Trolley';
+                const pt = this.state.patient;
+                // Ambulance arrivals start as Trolley, marked as assumed until the nurse confirms it.
+                if (amb && !pt.mobility) { pt.mobility = 'Trolley'; pt.mobilityAssumed = true; }
+                if (!amb && pt.mobilityAssumed) { pt.mobility = ''; pt.mobilityAssumed = false; }
                 this.set('patient.arrivalMode', value);
                 this.setSectionCollapsed('obs-section-toggle', 'obs-collapsible-body', false);
                 break;
             }
             case 'seg-age-unit': this.set('patient.ageUnit', value); break;
             // One tap instead of opening a drop-down; tapping the chosen answer again clears it.
-            case 'seg-sex': this.set('patient.sex', this.state.patient.sex === value ? '' : value); break;
-            case 'seg-mobility': this.set('patient.mobility', this.state.patient.mobility === value ? '' : value); break;
+            case 'seg-sex': {
+                const sex = this.state.patient.sex === value ? '' : value;
+                // The pregnancy box is hidden for males: never leave a hidden "pregnant" (it switches the score to MEOWS).
+                if (sex === 'Male' && this.state.patient.pregnant) {
+                    this.state.patient.pregnant = false; this.state.patient.lmp = '';
+                    this.$('check-pregnant').checked = false; this.$('date-lmp').value = '';
+                }
+                this.set('patient.sex', sex);
+                break;
+            }
+            case 'seg-mobility': {
+                // Tapping the assumed ambulance Trolley confirms it rather than clearing it.
+                const pt = this.state.patient;
+                const next = pt.mobility === value && !pt.mobilityAssumed ? '' : value;
+                pt.mobilityAssumed = false;
+                this.set('patient.mobility', next);
+                break;
+            }
             case 'seg-o2':
                 this.set('obs.o2', this.state.obs.o2 === value ? null : value);
                 // Fewer taps: once Air/O2 is chosen, go straight on to the blood pressure.
@@ -736,6 +779,12 @@ class TriageApp {
         }
     }
 
+    setQuickOpen(card, open) {
+        card.classList.toggle('quick-open', open);
+        const b = card.querySelector('.quick-more');
+        if (b) { b.textContent = `${open ? 'Hide' : 'Show'} ${b.dataset.label}`; b.setAttribute('aria-expanded', String(open)); }
+    }
+
     onAction(action, el) {
         switch (action) {
             case 'quickText': {
@@ -745,6 +794,10 @@ class TriageApp {
                 break;
             }
             case 'switch-head-injury': this.setComplaint('Head Injury'); break;
+            case 'quick-more': { const card = el.closest('.card'); this.setQuickOpen(card, !card.classList.contains('quick-open')); break; }
+            case 'hr-none': this.set('history.riskNone', !this.state.history.riskNone); break;
+            case 'sg-none': this.set('assess.paeds.safeguardingNone', !this.state.assess.paeds.safeguardingNone); break;
+            case 'ipc-none': this.set('assess.ipcNone', !this.state.assess.ipcNone); break;
             case 'ecg-done': this.set('assess.ecgDoneAt', new Date().toISOString()); break;
             case 'ecg-undo': this.set('assess.ecgDoneAt', null); break;
             case 'corridor-checked': this.set('assess.corridorCheckedAt', new Date().toISOString()); break;
@@ -884,6 +937,7 @@ class TriageApp {
         document.querySelectorAll('#seg-age-unit button').forEach(b => b.classList.toggle('active', b.dataset.value === p.ageUnit));
         document.querySelectorAll('#seg-sex button').forEach(b => b.classList.toggle('active', b.dataset.value === p.sex));
         document.querySelectorAll('#seg-mobility button').forEach(b => b.classList.toggle('active', b.dataset.value === p.mobility));
+        this.$('mobility-hint').classList.toggle('hidden', !p.mobilityAssumed);
         this.$('female-health-section').classList.toggle('hidden', p.sex === 'Male');
         this.$('pregnancy-details').classList.toggle('hidden', !p.pregnant);
         const g = d.gestation;
@@ -1229,7 +1283,7 @@ class TriageApp {
                     <div id="ng143-auto" class="tool-note"></div>
                     ${d.feverRelevant ? `<h4>Red features</h4>${this.checksHTML(C.NG143_ITEMS.red, 'assess.ng143.ticks', s.assess.ng143.ticks)}<h4>Amber features</h4>${this.checksHTML(C.NG143_ITEMS.amber, 'assess.ng143.ticks', s.assess.ng143.ticks)}` : ''}</div>`;
             }
-            html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Safeguarding children</span></div>
+            html += `<div class="tool-panel"><div class="tool-head"><span class="tool-title">Safeguarding children</span><span id="sg-result"></span></div>
                 <div class="q-row"><span>Accompanied by (name / relationship)</span><input type="text" data-path="assess.paeds.accompaniedBy" value="${esc(pa.accompaniedBy)}" autocomplete="off"></div>
                 ${this.checksHTML([['cpis', 'Child Protection - Information Sharing (CP-IS) checked'], ['pr', 'Person with parental responsibility identified'],
                     ['nonmobile', 'Injury or bruising in a non-mobile child'], ['story', 'Explanation inconsistent with injury or development'], ['notbrought', 'Concern about previous attendances or missed ("was not brought") appointments']], 'assess.paeds.safeguarding', pa.safeguarding)}
@@ -1253,7 +1307,17 @@ class TriageApp {
         }
         const sg = s.assess.paeds.safeguarding;
         const n = this.$('sg-note');
-        if (n) n.textContent = (sg.nonmobile || sg.story || sg.notbrought) ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '';
+        const concern = !!(sg.nonmobile || sg.story || sg.notbrought);
+        if (n) n.textContent = concern ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '';
+        const sr = this.$('sg-result');
+        if (sr) {
+            if (concern) { sr.className = 'tool-result res-amber'; sr.textContent = 'Concern recorded'; }
+            else {
+                const on = !!s.assess.paeds.safeguardingNone;
+                sr.className = 'tool-result-btn';
+                sr.innerHTML = `<div class="segmented-control yn"><button type="button" data-action="sg-none" class="${on ? 'active' : ''}" aria-pressed="${on}">No safeguarding concerns</button></div>`;
+            }
+        }
     }
 
     renderIpc() {
@@ -1264,9 +1328,18 @@ class TriageApp {
                 this.checksHTML([['dv', 'Diarrhoea and/or vomiting'], ['resp', 'New cough / respiratory infection symptoms'], ['rash', 'Rash with fever'],
                     ['travel', 'Travelled abroad recently (record where and when)'], ['mdro', 'Known MRSA / CPE / other resistant organism']], 'assess.ipc', s.assess.ipc);
         }
+        // "No IPC flags" is a positive answer the nurse taps, like every other section: leaving the
+        // boxes blank is "not asked", not "normal".
         const r = this.$('ipc-result');
-        r.textContent = this.derived.ipcFlag ? 'Side room / isolation - follow local IPC policy' : 'No IPC flags';
-        r.className = `tool-result ${this.derived.ipcFlag ? 'res-amber' : 'res-grey'}`;
+        if (this.derived.ipcFlag) {
+            r.innerHTML = '';
+            r.textContent = 'Side room / isolation - follow local IPC policy';
+            r.className = 'tool-result res-amber';
+        } else {
+            const on = !!s.assess.ipcNone;
+            r.className = 'tool-result-btn';
+            r.innerHTML = `<div class="segmented-control yn"><button type="button" data-action="ipc-none" class="${on ? 'active' : ''}" aria-pressed="${on}">No IPC flags</button></div>`;
+        }
     }
 
     renderScreeningDynamic() {
@@ -1307,6 +1380,11 @@ class TriageApp {
             cb.checked = on;
             cb.closest('.hr-med-chip').classList.toggle('checked', on);
         });
+        // "None of these" is a positive answer; it only shows while no group is ticked.
+        const hrNone = this.$('btn-hr-none'), anyTicked = Object.values(this.state.history.manualRiskFlags).some(Boolean);
+        hrNone.closest('.label-actions').classList.toggle('hidden', anyTicked);
+        hrNone.classList.toggle('active', !anyTicked && !!this.state.history.riskNone);
+        hrNone.setAttribute('aria-pressed', String(!anyTicked && !!this.state.history.riskNone));
     }
 
     renderPmhPrompts() {
@@ -1376,7 +1454,11 @@ class TriageApp {
         if (d.ipcFlag) rows.push(['IPC', ['Isolation / side room needed', 'st-amber']]);
         this.$('status-list').innerHTML = rows.map(([k, [v, cls]]) => `<li><strong>${esc(k)}</strong><span class="${cls}">${esc(v)}</span></li>`).join('');
 
-        this.$('missing-list').innerHTML = d.missing.length ? `<strong>Still to record (${d.missing.length})</strong><ul>${d.missing.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '';
+        // Fast triage: items for folded sections are listed separately as "for later", not hidden.
+        const later = document.body.classList.contains('quick-mode') ? d.missing.filter(m => LATER_IN_FAST.test(m)) : [];
+        const now = d.missing.filter(m => !later.includes(m));
+        this.$('missing-list').innerHTML = (now.length ? `<strong>Still to record (${now.length})</strong><ul>${now.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '') +
+            (later.length ? `<div class="missing-later">Fast triage - for later (${later.length}): ${later.map(esc).join('; ')}</div>` : '');
     }
 
     // ------------------------------------------------------------------ plan / protocols
@@ -1592,12 +1674,17 @@ class TriageApp {
     }
 
     // ------------------------------------------------------------------ note, SBAR, copy
-    composeNote() {
+    // The note is built as sections so it can be copied both as plain text and as formatted
+    // text (bold headings and labels) for EPRs whose note box accepts formatting.
+    noteSections() {
         const s = this.state, d = this.derived, p = s.patient, h = s.history, ph = s.prehospital, o = s.obs;
         const f = (v, unit = '') => C.has(v) ? `${v}${unit}` : '-';
-        const lines = [];
+        const sections = [];
+        let lines = null;
+        const section = (title) => { lines = []; sections.push({ title, lines }); };
         if (p.arrivalMode === 'Ambulance') {
-            lines.push('RAA - AMBULANCE HANDOVER', `Call sign: ${p.ambulanceCallSign || 'Not recorded'} | Case ID: ${p.ambulanceCaseId || 'Not recorded'}`, `PC: ${s.complaint.name || s.complaint.raw || 'Not recorded'}`, `HPC: ${ph.hpc || 'Not recorded'}`);
+            section('RAA - AMBULANCE HANDOVER');
+            lines.push(`Call sign: ${p.ambulanceCallSign || 'Not recorded'} | Case ID: ${p.ambulanceCaseId || 'Not recorded'}`, `HPC: ${ph.hpc || 'Not recorded'}`);
             if (ph.social) lines.push(`Social: ${ph.social}`);
             lines.push(`Pre-hospital treatment${ph.txTime ? ` (given ${ph.txTime})` : ''}: ${ph.tx || 'None recorded'}`);
             const pho = ph.obs, parts = [];
@@ -1610,24 +1697,32 @@ class TriageApp {
             if (pho.ecg) parts.push(`ECG ${pho.ecg}`);
             if (pho.pupils) parts.push(`Pupils ${pho.pupils}`);
             if (parts.length) lines.push(`Pre-hospital obs: ${parts.join(' | ')}`);
-            lines.push('---');
         }
-        lines.push('TRIAGE NOTE');
-        lines.push(`Arrival ${hhmm(s.meta.arrivalAt)} ${ddmmyyyy(s.meta.arrivalAt)} (${p.arrivalMode === 'Ambulance' ? 'ambulance' : 'self-presented'}) | Triage started ${s.meta.startedAt ? hhmm(s.meta.startedAt) : '-'} | Category set ${s.meta.categorySetAt ? hhmm(s.meta.categorySetAt) : '-'}`);
+        section('TRIAGE NOTE');
+        lines.push(`Arrival: ${hhmm(s.meta.arrivalAt)} ${ddmmyyyy(s.meta.arrivalAt)} (${p.arrivalMode === 'Ambulance' ? 'ambulance' : 'self-presented'}) | Triage started ${s.meta.startedAt ? hhmm(s.meta.startedAt) : '-'} | Category set ${s.meta.categorySetAt ? hhmm(s.meta.categorySetAt) : '-'}`);
         lines.push(`Triage nurse: ${store.get('initials', '', true) || 'Not recorded'}`);
+        if (document.body.classList.contains('quick-mode')) lines.push('Triage mode: fast triage - PMH, medicines and screening may not be complete');
         const age = !C.has(p.ageValue) ? 'Age not recorded' : (p.ageUnit === 'Months' ? `${p.ageValue} months` : `${p.ageValue}y`);
-        lines.push(`Patient: ${age} ${p.sex || 'sex not recorded'} | Mobility: ${p.mobility || 'not recorded'}${p.localRef ? ` | Ref: ${p.localRef}` : ''}`);
+        lines.push(`Patient: ${age} ${p.sex || 'sex not recorded'} | Mobility: ${p.mobility ? `${p.mobility}${p.mobilityAssumed ? ' (assumed from ambulance arrival, not confirmed)' : ''}` : 'not recorded'}${p.localRef ? ` | Ref: ${p.localRef}` : ''}`);
         if (C.has(p.weight)) lines.push(`Weight: ${p.weight} kg (measured)`);
         if (p.pregnant) {
             const g = d.gestation;
             lines.push(`Pregnant / <6 weeks postpartum: yes${g && g.valid ? ` - ${g.weeks}+${g.days} weeks by LMP ${ddmmyyyy(p.lmp)} (EDD ${ddmmyyyy(g.edd)})` : (p.lmp ? ` - LMP ${p.lmp}` : '')}`);
         }
+        const lvl = d.level;
+        if (!lvl) lines.push({ text: 'TRIAGE CATEGORY: NOT YET TRIAGED', strong: true });
+        else lines.push({ strong: true, text: `TRIAGE CATEGORY: ${lvl.toUpperCase()}${d.priority.provisional ? ' (PROVISIONAL - no discriminator selected)' : ''}${lvl === 'Red' ? ' - see immediately' : ` - see by ${hhmm(d.seeBy)} (${this.data.targetMinutes[lvl]} min target)`}` });
+        lines.push(`Stream: ${d.stream}`);
+        if (d.priority.reasons.length) lines.push(`Reasons: ${d.priority.reasons.join('; ')}`);
+        lines.push(`Next obs due: ${d.nextObs}`);
+        section('PRESENTING COMPLAINT');
         lines.push(`PC: ${s.complaint.name || (s.complaint.raw ? `${s.complaint.raw} (no flowchart selected)` : 'Not recorded')}`);
         const disc = d.disc ? `${d.disc.text} (${d.disc.priority})` : (s.complaint.noneApply ? 'None of the discriminators apply (Blue)' : 'Not selected');
         lines.push(`Discriminator: ${disc}`);
         if (d.frailty) lines.push(`Clinical Frailty Scale: ${d.frailty.score} - ${d.frailty.title} (baseline, about 2 weeks before this illness)`);
         else if (p.age !== null && p.age >= 65) lines.push('Clinical Frailty Scale: NOT RECORDED');
         lines.push(`Pain: ${C.has(s.complaint.pain) ? `${s.complaint.pain}/10 - ${d.pain.band.toLowerCase()}${s.complaint.painMethod === 'FLACC' ? ' (FLACC)' : ''}` : 'Not assessed'}`);
+        section('OBSERVATIONS AND ASSESSMENT');
         const gcs = d.gcsTotal !== null ? `${d.gcsTotal} (E${o.gcsE} V${o.gcsV} M${o.gcsM})` : '-';
         lines.push(`Obs: RR ${f(o.rr)} | SpO2 ${f(o.sats, '%')} ${o.o2 ? (o.o2 === 'O2' ? 'on O2' : 'air') : '(air/O2 not recorded)'}${o.scale2 ? ' [scale 2]' : ''} | BP ${f(o.sbp)}/${f(o.dbp)} | HR ${f(o.hr)} | ACVPU ${o.avpu || '-'} | Temp ${f(o.temp)} | CRT ${f(o.crt, 's')} | GCS ${gcs} | BM ${f(o.bm)}${C.has(o.ketones) ? ` | Ketones ${o.ketones}` : ''} | Pupils ${o.pupils || '-'}`);
         const e = d.ews;
@@ -1661,24 +1756,28 @@ class TriageApp {
             const m = s.assess.mh;
             lines.push(`Mental health: MHA ${m.mha || 'not recorded'}; leaving risk ${m.abscond || 'not recorded'}; observation ${m.observation || 'not recorded'}; capacity concern ${m.capacity || 'not recorded'}${m.liaison ? '; liaison referred' : ''}${m.saferoom ? '; safer room checked' : ''}`);
         }
-        if (d.risks.length) { lines.push('ALERTS:'); d.risks.forEach(r => lines.push(`- ${r}`)); }
+        if (d.risks.length) { section('ALERTS'); d.risks.forEach(r => lines.push({ bullet: r })); }
+        section('HISTORY');
         lines.push(`Allergies: ${h.allergies.trim() || 'NOT RECORDED'}${h.allergyReaction ? ` (reaction: ${h.allergyReaction})` : ''}`);
         lines.push(`PMH: ${h.pmh || 'Not recorded'}`);
         lines.push(`Medicines: ${h.meds || 'Not recorded'}`);
+        if (!Object.values(h.manualRiskFlags).some(Boolean)) lines.push(`High-risk medicine groups: ${h.riskNone ? 'none of these (checked)' : 'NOT CHECKED'}`);
         if (p.arrivalMode !== 'Ambulance' && h.treatmentNotes) lines.push(`Treatment before triage: ${h.treatmentNotes}`);
         if (d.isPaeds) {
             const pa = s.assess.paeds, sg = Object.entries(pa.safeguarding).filter(([, v]) => v).map(([k]) => ({ cpis: 'CP-IS checked', pr: 'parental responsibility identified', nonmobile: 'injury in non-mobile child', story: 'inconsistent explanation', notbrought: 'previous attendance / not brought concern' }[k]));
-            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}`);
+            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}${(pa.safeguarding.nonmobile || pa.safeguarding.story || pa.safeguarding.notbrought) ? '' : `; safeguarding concerns: ${pa.safeguardingNone ? 'none (checked)' : 'NOT CHECKED'}`}`);
         }
+        section('SCREENING');
         const scr = Object.entries(this.data.screening).filter(([k]) => s.screening[k]).map(([k, def]) => `${def.label}: ${def.options ? (def.options.find(o2 => o2.val === s.screening[k]) || {}).text : s.screening[k]}`);
         if (scr.length) lines.push(`Screening: ${scr.join('; ')}`);
+        if (!d.ipcFlag) lines.push(`Infection control: ${s.assess.ipcNone ? 'no IPC flags (screened)' : 'NOT SCREENED'}`);
         if (d.ipcFlag) lines.push(`Infection control: ${Object.entries(s.assess.ipc).filter(([, v]) => v).map(([k]) => ({ dv: 'D&V', resp: 'respiratory symptoms', rash: 'rash with fever', travel: 'recent travel', mdro: 'resistant organism' }[k])).join(', ')} - side room / isolation per local policy`);
+        section('PLAN');
         const cn = d.plan.cannula;
         if (s.complaint.name || cn.decision !== 'not-needed') lines.push(`Cannula decision support: ${cn.label}${cn.size ? ` (${cn.size})` : ''}${cn.reasons.length ? ` - ${cn.reasons.filter(r => r.level === cn.decision || cn.decision === 'consider').map(r => r.text).join('; ')}` : ''}`);
         if (s.plan.length) {
             const g = {};
             s.plan.forEach(i => { (g[i.category] = g[i.category] || []).push(`${i.name} (${i.status})`); });
-            lines.push('PLAN:');
             ['Universal', 'Cannula', 'Bedside', 'Bloods'].filter(c => g[c]).forEach(cat => lines.push(`${cat}: ${g[cat].join(', ')}`));
         }
         if (h.planNarrative) lines.push(`Narrative: ${h.planNarrative}`);
@@ -1687,20 +1786,52 @@ class TriageApp {
             const done = Object.entries(s.assess.corridor).filter(([, v]) => v).map(([k]) => k);
             lines.push(`Corridor care: ${done.length ? done.join(', ') : 'no checks recorded'}${s.assess.corridorCheckedAt ? ` - last check ${hhmm(s.assess.corridorCheckedAt)}` : ''}`);
         }
-        const lvl = d.level;
-        if (!lvl) lines.push('TRIAGE CATEGORY: NOT YET TRIAGED');
-        else lines.push(`TRIAGE CATEGORY: ${lvl.toUpperCase()}${d.priority.provisional ? ' (PROVISIONAL - no discriminator selected)' : ''}${lvl === 'Red' ? ' - see immediately' : ` - see by ${hhmm(d.seeBy)} (${this.data.targetMinutes[lvl]} min target)`}`);
-        lines.push(`Stream: ${d.stream}`);
-        if (d.priority.reasons.length) lines.push(`Reasons: ${d.priority.reasons.join('; ')}`);
-        lines.push(`Next obs due: ${d.nextObs}`);
-        return plain(lines.join('\n'));
+        return sections.filter(x => x.lines.length);
     }
 
-    renderNote() { this.$('epr-note').value = this.composeNote(); }
+    composeNote() {
+        const out = [];
+        this.noteSections().forEach((sec, i) => {
+            if (i) out.push('');
+            out.push(sec.title);
+            sec.lines.forEach(l => out.push(typeof l === 'string' ? l : (l.bullet !== undefined ? `- ${l.bullet}` : l.text)));
+        });
+        return plain(out.join('\n'));
+    }
+
+    // Formatted version: bold section headings and bold labels, nothing else (no colours, tables or
+    // fonts), so it takes on the EPR's own style. Characters are kept plain as in the text version.
+    composeNoteHtml() {
+        const label = /^([#A-Za-z][A-Za-z0-9 #/()'&.,-]{0,48}):\s([\s\S]*)$/;
+        const line = (l) => {
+            if (typeof l !== 'string') {
+                if (l.bullet !== undefined) return `&bull; ${esc(plain(l.bullet))}`;
+                return `<strong>${esc(plain(l.text))}</strong>`;
+            }
+            const m = plain(l).match(label);
+            return m ? `<strong>${esc(m[1])}:</strong> ${esc(m[2])}` : esc(plain(l));
+        };
+        const body = this.noteSections().map(sec => `<p><strong><u>${esc(plain(sec.title))}</u></strong><br>${sec.lines.map(line).join('<br>')}</p>`).join('');
+        return `<div>${body}</div>`;
+    }
+
+    renderNote() {
+        this.$('epr-note').value = this.composeNote();
+        const prev = this.$('epr-note-formatted');
+        if (prev) prev.innerHTML = this.composeNoteHtml();
+        const plainOnly = this.plainCopy;
+        if (prev) prev.classList.toggle('hidden', plainOnly);
+        this.$('epr-note').classList.toggle('hidden', !plainOnly);
+    }
 
     sbarText() {
         const x = this.sbarParts();
         return `S: ${x.S}\nB: ${x.B}\nA: ${x.A}\nR: ${x.R}`;
+    }
+
+    sbarHtml() {
+        const x = this.sbarParts();
+        return `<div><p><strong><u>SBAR HANDOVER</u></strong><br>${['S', 'B', 'A', 'R'].map(k => `<strong>${k}:</strong> ${esc(x[k])}`).join('<br>')}</p></div>`;
     }
 
     sbarParts() {
@@ -1727,22 +1858,45 @@ class TriageApp {
         this.openModal('modal-sbar');
     }
 
-    async copyText(text, msg) {
-        try { await navigator.clipboard.writeText(text); this.toast(msg); return true; } catch {
-            const ta = document.createElement('textarea');
-            ta.value = text; document.body.appendChild(ta); ta.select();
-            let ok = false;
-            try { ok = document.execCommand('copy'); } catch { ok = false; }
-            ta.remove();
-            this.toast(ok ? msg : 'Copy failed - open "Preview EPR note" and copy manually', ok ? 'info' : 'error');
-            return ok;
+    // Copies plain text and, unless "plain text only" is set, a formatted (HTML) copy as well.
+    // The EPR decides which it uses: a rich text note box keeps the bold headings, a plain box
+    // gets the plain text, laid out with headings and blank lines.
+    async copyText(text, msg, html = null) {
+        const rich = html && !this.plainCopy;
+        if (rich && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+            try {
+                await navigator.clipboard.write([new ClipboardItem({
+                    'text/plain': new Blob([text], { type: 'text/plain' }),
+                    'text/html': new Blob([html], { type: 'text/html' })
+                })]);
+                this.toast(msg); return true;
+            } catch { /* fall through to the older routes */ }
         }
+        if (!rich && navigator.clipboard && navigator.clipboard.writeText) {
+            try { await navigator.clipboard.writeText(text); this.toast(msg); return true; } catch { /* fall through */ }
+        }
+        // Older browsers and locked-down profiles: a copy event can still carry both formats.
+        let ok = false;
+        const onCopy = (ev) => {
+            ev.clipboardData.setData('text/plain', text);
+            if (rich) ev.clipboardData.setData('text/html', html);
+            ev.preventDefault();
+        };
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.addEventListener('copy', onCopy);
+        try { ok = document.execCommand('copy'); } catch { ok = false; }
+        document.removeEventListener('copy', onCopy);
+        ta.remove();
+        this.toast(ok ? msg : 'Copy failed - open "Preview EPR note", select it and copy by hand', ok ? 'info' : 'error');
+        return ok;
     }
 
     async copyNote() {
         this.state.meta.noteCopiedAt = new Date().toISOString();
         this.renderNote();
-        const ok = await this.copyText(this.$('epr-note').value, 'EPR note copied');
+        const ok = await this.copyText(this.composeNote(), this.plainCopy ? 'EPR note copied (plain text)' : 'EPR note copied', this.composeNoteHtml());
         if (ok && this.derived.missing.length) this.toast(`Copied - still to record: ${this.derived.missing.length} item${this.derived.missing.length > 1 ? 's' : ''} (see panel)`, 'error');
         this.debouncedSave();
     }

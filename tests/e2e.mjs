@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.3');
+                localStorage.setItem('seenVersion', '21.4');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -97,6 +97,9 @@ await pick(p, 'Falls');
 await disc(p, 'Able to weight bear');
 n = await note(p);
 check('Ambulance: mobility defaults to Trolley', (await p.getAttribute('#seg-mobility button.active', 'data-value')) === 'Trolley');
+check('Ambulance: assumed Trolley is labelled in the note', n.includes('Mobility: Trolley (assumed from ambulance arrival, not confirmed)'));
+await seg(p, 'seg-mobility', 'Trolley');
+check('Ambulance: tapping the assumed Trolley confirms it', (await p.getAttribute('#seg-mobility button.active', 'data-value')) === 'Trolley' && !(await note(p)).includes('assumed'));
 check('Ambulance fall: stream not Minors', !(await p.textContent('#stream-display')).includes('Minors'), await p.textContent('#stream-display'));
 check('No obs: note says NEWS2 not calculated', n.includes('NEWS2: NOT CALCULATED'));
 check('No obs: missing list asks for obs', (await p.textContent('#missing-list')).includes('Obs:'));
@@ -436,6 +439,80 @@ allErrors.push(...p.errors); await p.context().close();
 // 17. Missing initials is flagged.
 p = await fresh(943, { initials: '' });
 check('Missing initials flagged', (await p.textContent('#missing-list')).includes('initials'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 25. EPR note formatting (v21.4): plain + formatted copies, sections, settings switch; workflow fixes.
+p = await fresh();
+await seg(p, 'seg-arrival', 'Ambulance');
+await seg(p, 'seg-arrival', 'Self');
+check('Back to Self clears an assumed Trolley', await p.evaluate(() => window.app.state.patient.mobility === ''));
+await p.fill('#patient-age', '30'); await seg(p, 'seg-sex', 'Female');
+await p.check('#check-pregnant');
+await seg(p, 'seg-sex', 'Male');
+check('Male clears a hidden pregnancy tick (no MEOWS)', await p.evaluate(() => !window.app.state.patient.pregnant && window.app.derived.ews.type === 'NEWS2'));
+await pick(p, 'Chest Pain'); await disc(p, 'Pleuritic chest pain');
+await p.fill('#allergies', 'Penicillin <test> & co');
+n = await note(p);
+check('Note: category sits above the complaint', n.indexOf('TRIAGE CATEGORY:') > 0 && n.indexOf('TRIAGE CATEGORY:') < n.indexOf('PRESENTING COMPLAINT'));
+check('Note: sections separated by a blank line', n.includes('\n\nPRESENTING COMPLAINT\n') && n.includes('\n\nHISTORY\n'));
+await p.click('#btn-copy'); await p.waitForTimeout(200);
+const fmt = await p.evaluate(async () => { const o = {}; for (const it of await navigator.clipboard.read()) for (const t of it.types) o[t] = await (await it.getType(t)).text(); return o; });
+check('Copy puts plain text and HTML on the clipboard', !!fmt['text/plain'] && !!fmt['text/html'], Object.keys(fmt).join(','));
+check('Plain copy matches the note', (fmt['text/plain'] || '').includes('TRIAGE NOTE') && !(fmt['text/plain'] || '').includes('<strong>'));
+check('HTML copy has bold headings and labels', /<strong><u>PRESENTING COMPLAINT<\/u><\/strong>/.test(fmt['text/html'] || '') && (fmt['text/html'] || '').includes('<strong>Allergies:</strong>'));
+check('HTML copy escapes typed text', (fmt['text/html'] || '').includes('Penicillin &lt;test&gt; &amp; co'));
+check('Formatted preview is shown', (await p.innerHTML('#epr-note-formatted')).includes('<strong>'));
+await p.click('#btn-settings'); await p.check('#set-plain-copy'); await p.click('#modal-settings [data-close-modal]');
+await p.click('#btn-copy'); await p.waitForTimeout(200);
+const plainOnly = await p.evaluate(async () => { const o = []; for (const it of await navigator.clipboard.read()) o.push(...it.types); return o; });
+check('"Plain text only" copies no HTML', !plainOnly.includes('text/html'), plainOnly.join(','));
+await pick(p, 'Shortness of Breath in Adults');
+await p.fill('#patient-age', '4');
+check('Adult flowchart for a child is flagged', (await p.textContent('#missing-list')).includes('Check the flowchart'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 26. IPC: "No IPC flags" is a button the nurse taps, not the default.
+p = await fresh();
+await p.fill('#patient-age', '40');
+check('IPC: not screened is listed as still to record', (await p.textContent('#missing-list')).includes('No IPC flags'));
+check('IPC: note says not screened', (await note(p)).includes('Infection control: NOT SCREENED'));
+await p.click('#ipc-result button');
+check('IPC: tapping "No IPC flags" records it', (await note(p)).includes('Infection control: no IPC flags (screened)') && !(await p.textContent('#missing-list')).includes('No IPC flags'));
+await p.locator('#ipc-panel label', { hasText: 'Diarrhoea' }).locator('input').check();
+check('IPC: ticking a flag replaces "no flags"', await p.evaluate(() => window.app.state.assess.ipcNone === false) && (await note(p)).includes('Infection control: D&V'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 27. High-risk medicine groups and child safeguarding need a positive "none" too.
+p = await fresh();
+await p.fill('#patient-age', '6');
+let ml = await p.textContent('#missing-list');
+check('High-risk groups: blank is listed as still to record', ml.includes('High-risk medicine groups'));
+check('Safeguarding: blank is listed for a child', ml.includes('Child safeguarding'));
+check('High-risk groups: note says NOT CHECKED', (await note(p)).includes('High-risk medicine groups: NOT CHECKED'));
+await p.click('#btn-hr-none');
+check('High-risk groups: "None of these" recorded', (await note(p)).includes('High-risk medicine groups: none of these (checked)') && !(await p.textContent('#missing-list')).includes('High-risk medicine groups'));
+await p.locator('#high-risk-meds-grid input').first().check();
+check('High-risk groups: ticking one hides "None" and clears it', await p.evaluate(() => !window.app.state.history.riskNone) && !(await p.isVisible('#btn-hr-none')));
+await p.click('#sg-result button');
+check('Safeguarding: "No safeguarding concerns" recorded', (await note(p)).includes('safeguarding concerns: none (checked)') && !(await p.textContent('#missing-list')).includes('Child safeguarding'));
+await p.locator('#paeds-content label', { hasText: 'non-mobile' }).locator('input').check();
+check('Safeguarding: ticking a concern replaces "no concerns"', await p.evaluate(() => !window.app.state.assess.paeds.safeguardingNone) && (await p.textContent('#sg-result')).includes('Concern recorded'));
+allErrors.push(...p.errors); await p.context().close();
+
+// 28. Fast triage mode folds what doesn't decide the category, and the note says so.
+p = await fresh();
+check('Fast triage: full form by default', await p.isVisible('#pmh') && await p.isVisible('#cfs-btn-container'));
+await p.click('#btn-quick-mode');
+check('Fast triage: PMH, medicines, CFS, local ref and screening folded', !(await p.isVisible('#pmh')) && !(await p.isVisible('#meds')) && !(await p.isVisible('#cfs-btn-container')) && !(await p.isVisible('#patient-ref')) && !(await p.isVisible('#screening-container')));
+check('Fast triage: essentials still shown', await p.isVisible('#allergies') && await p.isVisible('#obs-rr') && await p.isVisible('#input-complaint') && await p.isVisible('#ipc-panel') && await p.isVisible('#pain-btn-container'));
+await p.fill('#patient-age', '80');
+ml = await p.textContent('#missing-list');
+check('Fast triage: folded items listed "for later", not dropped', ml.includes('Fast triage - for later') && ml.includes('Clinical Frailty Scale'));
+check('Fast triage: note records the mode', (await note(p)).includes('Triage mode: fast triage'));
+await p.locator('#card-history .quick-more').click();
+check('Fast triage: "Show" opens one folded section', await p.isVisible('#pmh') && !(await p.isVisible('#cfs-btn-container')));
+await p.click('#btn-quick-mode');
+check('Fast triage off: everything back, no mode line in note', await p.isVisible('#cfs-btn-container') && !(await note(p)).includes('Triage mode'));
 allErrors.push(...p.errors); await p.context().close();
 
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
