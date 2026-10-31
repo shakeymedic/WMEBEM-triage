@@ -8,6 +8,8 @@ const HISTORY_KEY = 'triage_history_v20';
 const HISTORY_TTL_MS = 12 * 60 * 60 * 1000;
 const CHILD_CHART = /Child|Baby|Neonate|Worried Parent/;
 const ADULT_CHART = /Adult/;
+// "Still to record" items that belong to sections folded away in fast triage.
+const LATER_IN_FAST = /^(Clinical Frailty Scale|High-risk medicine groups|Child safeguarding)/;
 const MIC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 
 // localStorage/sessionStorage can throw (private windows, locked-down profiles) - never let that break triage.
@@ -85,7 +87,7 @@ class TriageApp {
     // ------------------------------------------------------------------ preferences & settings
     initPreferences() {
         if (store.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-        if (store.get('quickMode') === 'on') { document.body.classList.add('quick-mode'); this.$('btn-quick-mode').classList.add('active'); }
+        if (store.get('quickMode') === 'on') { document.body.classList.add('quick-mode'); this.$('btn-quick-mode').classList.add('active'); this.$('btn-quick-mode').setAttribute('aria-pressed', 'true'); }
         this.shared = store.get('sharedComputer') === 'on';
         this.plainCopy = store.get('plainCopy') === 'on';
         this.dictation = store.get('dictation') === 'on';
@@ -597,7 +599,11 @@ class TriageApp {
             const on = !document.body.classList.contains('quick-mode');
             document.body.classList.toggle('quick-mode', on);
             this.$('btn-quick-mode').classList.toggle('active', on);
+            this.$('btn-quick-mode').setAttribute('aria-pressed', String(on));
             store.set('quickMode', on ? 'on' : 'off');
+            if (!on) document.querySelectorAll('.card.quick-open').forEach(c => this.setQuickOpen(c, false));
+            this.toast(on ? 'Fast triage on: only what decides the category is shown. "Show ..." opens a folded section.' : 'Fast triage off: all sections shown');
+            this.update();
         });
         this.$('btn-history').addEventListener('click', () => this.openHistory());
         this.$('btn-close-history').addEventListener('click', () => this.$('history-sidebar').classList.remove('open'));
@@ -773,6 +779,12 @@ class TriageApp {
         }
     }
 
+    setQuickOpen(card, open) {
+        card.classList.toggle('quick-open', open);
+        const b = card.querySelector('.quick-more');
+        if (b) { b.textContent = `${open ? 'Hide' : 'Show'} ${b.dataset.label}`; b.setAttribute('aria-expanded', String(open)); }
+    }
+
     onAction(action, el) {
         switch (action) {
             case 'quickText': {
@@ -782,6 +794,7 @@ class TriageApp {
                 break;
             }
             case 'switch-head-injury': this.setComplaint('Head Injury'); break;
+            case 'quick-more': { const card = el.closest('.card'); this.setQuickOpen(card, !card.classList.contains('quick-open')); break; }
             case 'hr-none': this.set('history.riskNone', !this.state.history.riskNone); break;
             case 'sg-none': this.set('assess.paeds.safeguardingNone', !this.state.assess.paeds.safeguardingNone); break;
             case 'ipc-none': this.set('assess.ipcNone', !this.state.assess.ipcNone); break;
@@ -1441,7 +1454,11 @@ class TriageApp {
         if (d.ipcFlag) rows.push(['IPC', ['Isolation / side room needed', 'st-amber']]);
         this.$('status-list').innerHTML = rows.map(([k, [v, cls]]) => `<li><strong>${esc(k)}</strong><span class="${cls}">${esc(v)}</span></li>`).join('');
 
-        this.$('missing-list').innerHTML = d.missing.length ? `<strong>Still to record (${d.missing.length})</strong><ul>${d.missing.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '';
+        // Fast triage: items for folded sections are listed separately as "for later", not hidden.
+        const later = document.body.classList.contains('quick-mode') ? d.missing.filter(m => LATER_IN_FAST.test(m)) : [];
+        const now = d.missing.filter(m => !later.includes(m));
+        this.$('missing-list').innerHTML = (now.length ? `<strong>Still to record (${now.length})</strong><ul>${now.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '') +
+            (later.length ? `<div class="missing-later">Fast triage - for later (${later.length}): ${later.map(esc).join('; ')}</div>` : '');
     }
 
     // ------------------------------------------------------------------ plan / protocols
@@ -1684,6 +1701,7 @@ class TriageApp {
         section('TRIAGE NOTE');
         lines.push(`Arrival: ${hhmm(s.meta.arrivalAt)} ${ddmmyyyy(s.meta.arrivalAt)} (${p.arrivalMode === 'Ambulance' ? 'ambulance' : 'self-presented'}) | Triage started ${s.meta.startedAt ? hhmm(s.meta.startedAt) : '-'} | Category set ${s.meta.categorySetAt ? hhmm(s.meta.categorySetAt) : '-'}`);
         lines.push(`Triage nurse: ${store.get('initials', '', true) || 'Not recorded'}`);
+        if (document.body.classList.contains('quick-mode')) lines.push('Triage mode: fast triage - PMH, medicines and screening may not be complete');
         const age = !C.has(p.ageValue) ? 'Age not recorded' : (p.ageUnit === 'Months' ? `${p.ageValue} months` : `${p.ageValue}y`);
         lines.push(`Patient: ${age} ${p.sex || 'sex not recorded'} | Mobility: ${p.mobility ? `${p.mobility}${p.mobilityAssumed ? ' (assumed from ambulance arrival, not confirmed)' : ''}` : 'not recorded'}${p.localRef ? ` | Ref: ${p.localRef}` : ''}`);
         if (C.has(p.weight)) lines.push(`Weight: ${p.weight} kg (measured)`);

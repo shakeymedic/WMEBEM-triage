@@ -499,6 +499,22 @@ await p.locator('#paeds-content label', { hasText: 'non-mobile' }).locator('inpu
 check('Safeguarding: ticking a concern replaces "no concerns"', await p.evaluate(() => !window.app.state.assess.paeds.safeguardingNone) && (await p.textContent('#sg-result')).includes('Concern recorded'));
 allErrors.push(...p.errors); await p.context().close();
 
+// 28. Fast triage mode folds what doesn't decide the category, and the note says so.
+p = await fresh();
+check('Fast triage: full form by default', await p.isVisible('#pmh') && await p.isVisible('#cfs-btn-container'));
+await p.click('#btn-quick-mode');
+check('Fast triage: PMH, medicines, CFS, local ref and screening folded', !(await p.isVisible('#pmh')) && !(await p.isVisible('#meds')) && !(await p.isVisible('#cfs-btn-container')) && !(await p.isVisible('#patient-ref')) && !(await p.isVisible('#screening-container')));
+check('Fast triage: essentials still shown', await p.isVisible('#allergies') && await p.isVisible('#obs-rr') && await p.isVisible('#input-complaint') && await p.isVisible('#ipc-panel') && await p.isVisible('#pain-btn-container'));
+await p.fill('#patient-age', '80');
+ml = await p.textContent('#missing-list');
+check('Fast triage: folded items listed "for later", not dropped', ml.includes('Fast triage - for later') && ml.includes('Clinical Frailty Scale'));
+check('Fast triage: note records the mode', (await note(p)).includes('Triage mode: fast triage'));
+await p.locator('#card-history .quick-more').click();
+check('Fast triage: "Show" opens one folded section', await p.isVisible('#pmh') && !(await p.isVisible('#cfs-btn-container')));
+await p.click('#btn-quick-mode');
+check('Fast triage off: everything back, no mode line in note', await p.isVisible('#cfs-btn-container') && !(await note(p)).includes('Triage mode'));
+allErrors.push(...p.errors); await p.context().close();
+
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
 
 await browser.close();

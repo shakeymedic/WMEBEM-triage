@@ -370,7 +370,12 @@ details.tool-panel[open] > summary { margin-bottom: 6px; }
 .info-pop.open .info-bubble { display: block; }
 
 /* ---------- Quick mode ---------- */
-body.quick-mode #card-screening .screening-grid { display: none !important; }
+/* Fast triage: fold away what doesn't decide the category; each card has its own "Show ..." button. */
+.quick-more { display: none; }
+body.quick-mode .quick-more { display: inline-flex; align-self: flex-start; margin-top: 8px; }
+body.quick-mode .card:not(.quick-open) .quick-hide { display: none !important; }
+body.quick-mode #btn-quick-mode { background: var(--primary); color: #fff; }
+.missing-later { margin-top: 6px; font-size: 0.78rem; color: var(--secondary); }
 
 /* ---------- Modals, toasts, sidebar ---------- */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 4000; display: flex; justify-content: center; align-items: center; padding: 16px; }
