@@ -417,3 +417,8 @@ footer a { color: var(--primary); }
     .decision { position: static; max-height: none; }
     .card { box-shadow: none; break-inside: avoid; }
 }
+
+/* Formatted EPR note preview: what a rich-text EPR note box will receive. */
+.epr-note-formatted { margin-top: 6px; max-height: 420px; overflow: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); font-size: 0.8rem; line-height: 1.4; user-select: text; }
+.epr-note-formatted p { margin: 0 0 8px; }
+.epr-note-formatted p:last-child { margin-bottom: 0; }
