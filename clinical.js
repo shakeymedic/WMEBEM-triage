@@ -538,7 +538,7 @@ export const NG232_CHILD_RISK = [
     ['vomit3', '3 or more discrete episodes of vomiting'],
     ['mechanism', 'Dangerous mechanism of injury'],
     ['amnesia5', 'Amnesia (anterograde or retrograde) lasting more than 5 minutes'],
-    ['bleeding', 'Bleeding or clotting disorder']
+    ['clotting', 'Bleeding or clotting disorder']
 ];
 
 // anticoagulated: on an anticoagulant OR an antiplatelet other than aspirin alone (NG232 wording).

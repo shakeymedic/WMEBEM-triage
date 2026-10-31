@@ -180,7 +180,7 @@ check('Child 1 risk factor -> observe 4 hours', (await p.textContent('#ng232-res
 allErrors.push(...p.errors); await p.context().close();
 
 // 10b. NG232 and antiplatelets: aspirin alone is not a criterion; other antiplatelets are (adults and children).
-for (const [meds, expectCT, label] of [['aspirin 75mg OD', false, 'aspirin alone'], ['clopidogrel 75mg OD', true, 'clopidogrel'], ['aspirin, clopidogrel', true, 'aspirin + clopidogrel'], ['Brilique 90mg BD', true, 'ticagrelor (brand)']]) {
+for (const [meds, expectCT, label] of [['aspirin 75mg once per day', false, 'aspirin alone'], ['ASA 75mg, paracetamol 1g QDS per GP', false, 'ASA + paracetamol'], ['clopidogrel 75mg OD', true, 'clopidogrel'], ['aspirin, clopidogrel', true, 'aspirin + clopidogrel'], ['Brilique 90mg BD', true, 'ticagrelor (brand)']]) {
     p = await fresh();
     await p.fill('#patient-age', '70'); await p.fill('#meds', meds);
     await pick(p, 'Head Injury');
@@ -196,7 +196,7 @@ p = await fresh();
 await p.fill('#patient-age', '6'); await p.fill('#meds', 'warfarin');
 await pick(p, 'Head Injury');
 check('NG232 child on an anticoagulant: consider CT within 8 h', (await p.textContent('#ng232-result')).includes('Consider CT head within 8 hours'));
-await p.check('input[data-path="assess.ng232.bleeding"]');
+await p.check('input[data-path="assess.ng232.clotting"]');
 check('NG232 child: 1 risk factor + anticoagulant: observe 4 h and consider CT', /4 hours.*consider CT/i.test(await p.textContent('#ng232-result')));
 allErrors.push(...p.errors); await p.context().close();
 

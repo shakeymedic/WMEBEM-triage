@@ -136,6 +136,8 @@ class TriageApp {
     // ------------------------------------------------------------------ clinical computation
     compute() {
         const s = this.state, p = s.patient, o = s.obs, d = this.data;
+        // v21.6 renamed this discriminator: patients saved or in Recent with the old text keep it.
+        if (s.complaint.discriminator === 'Actively seizing now (status epilepticus)') s.complaint.discriminator = 'Actively seizing now';
         p.age = !C.has(p.ageValue) ? null : (p.ageUnit === 'Months' ? p.ageValue / 12 : p.ageValue);
         const isPaeds = p.age !== null && p.age < 16;
 
@@ -335,10 +337,15 @@ class TriageApp {
     static fuzzyMatch(word, target) {
         if (!word || !target) return false;
         word = word.toLowerCase(); target = target.toLowerCase();
-        if (word.length < 3) return word === target;
-        if (target.startsWith(word) || target.includes(word)) return true;
-        if (Math.abs(word.length - target.length) > 3) return false;
-        const tol = word.length <= 5 ? 1 : (word.length <= 9 ? 2 : 3);
+        // Short words ("per", "ant", "dog", "asa") must not match inside drug names: a word of 3-4
+        // letters only matches exactly; a prefix needs 4+ letters; a fragment from the middle needs 6+.
+        if (word.length < 5 && word === target) return true;
+        if (word.length < 4) return false;
+        if (target.startsWith(word)) return true;
+        if (word.length < 5) return false;
+        if (word.length >= 6 && target.includes(word)) return true;
+        if (Math.abs(word.length - target.length) > 2) return false;
+        const tol = word.length <= 8 ? 1 : (word.length <= 11 ? 2 : 3);
         return TriageApp.levenshtein(word, target) <= tol;
     }
 
@@ -1163,7 +1170,7 @@ class TriageApp {
         }
         const d = this.derived, anti = s.assess.ng232Anticoag === null ? d.ng232DrugDetected : s.assess.ng232Anticoag;
         const found = [d.anticoagDetected ? 'anticoagulant' : '', d.antiplateletDetected ? 'antiplatelet' : ''].filter(Boolean).join(' and ');
-        html += `<label class="check-line mt-6"><input type="checkbox" id="ng232-anticoag"${anti ? ' checked' : ''}> On an anticoagulant, or an antiplatelet other than aspirin alone${found ? ` <span class="text-muted">(${found} found in the medicines)</span>` : ''}</label>`;
+        html += `<label class="check-line mt-6"><input type="checkbox" id="ng232-anticoag"${anti ? ' checked' : ''}> On an anticoagulant, or an antiplatelet other than aspirin alone${found ? ` <span class="text-muted">(${found} recorded in History &amp; medicines)</span>` : ''}</label>`;
         html += `<p class="tool-note">Aspirin on its own does not count (NICE NG232).</p>`;
         html += `<p class="tool-note" id="ng232-gcs"></p></div>`;
         setTimeout(() => {
@@ -1554,8 +1561,9 @@ class TriageApp {
             ng232: d.ng232 ? d.ng232.level : null, headInjury: !!d.ng232,
             rosierLikely: !!(d.rosier && d.rosier.likely), lkwHours,
             flags: {
-                // INR / reversal bundle: a real anticoagulant only. A manual NG232 tick counts as one unless an antiplatelet explains it.
-                anticoag: d.anticoagDetected || (s.assess.ng232Anticoag === true && !d.antiplateletDetected),
+                // INR / reversal bundle: a real anticoagulant only (medicines list or the Anticoagulant group tick).
+                // The NG232 box also covers antiplatelets, so ticking it does not imply an anticoagulant.
+                anticoag: d.anticoagDetected,
                 antiplatelet: !!mf.antiplatelet || /Antiplatelet/.test(risks),
                 insulin: /Insulin/.test(risks), sulphonylurea: /Sulphonylurea/.test(risks), sglt2: /SGLT2/.test(risks),
                 steroid: /Steroid/.test(risks), immunosuppressant: /Immunosuppressant|Biologic/.test(risks),

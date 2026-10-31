@@ -184,8 +184,8 @@ test('NG232 children: anticoagulant / non-aspirin antiplatelet = consider CT wit
 });
 
 test('NG232 children: bleeding or clotting disorder is a risk factor', () => {
-    assert.equal(C.ng232({ age: 8, answers: { bleeding: true } }).level, 'observe4h');
-    assert.equal(C.ng232({ age: 8, answers: { bleeding: true, drowsy: true } }).level, '1h');
+    assert.equal(C.ng232({ age: 8, answers: { clotting: true } }).level, 'observe4h');
+    assert.equal(C.ng232({ age: 8, answers: { clotting: true, drowsy: true } }).level, '1h');
 });
 
 test('ROSIER', () => {
