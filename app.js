@@ -2,7 +2,7 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
 
-const VERSION = '21.6';
+const VERSION = '21.7';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const CURRENT_KEY = 'triage_current';
