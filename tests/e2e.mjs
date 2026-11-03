@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.6');
+                localStorage.setItem('seenVersion', '21.7');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
