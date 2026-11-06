@@ -466,3 +466,17 @@ test('NG253: mottled skin or non-blanching rash prompts a higher risk (1.6.3)', 
     assert.match(r.judgement, /consider a higher risk/);
     assert.equal(r.risk, 'Low');
 });
+
+test('Ibuprofen frequency: 3 times at 3-6 months, 3-4 times at 6-12 months (SmPC 4.2)', () => {
+    assert.match(C.paedsAnalgesia({ age: 4 / 12, weight: 6.5 }).ibuprofenNote, /up to 3 times/);
+    assert.match(C.paedsAnalgesia({ age: 8 / 12, weight: 8.5 }).ibuprofenNote, /3-4 times/);
+    assert.match(C.paedsAnalgesia({ age: 3, weight: 14 }).ibuprofenNote, /up to 3 times/);
+});
+
+test('NG253: NEWS2 0 with a cause for clinical concern is low risk, not very low (1.8.21)', () => {
+    const news = { score: 0, complete: true, redParam: false };
+    assert.equal(C.sepsisNG253({ age: 40, pregnant: false, infection: 'yes', news }).risk, 'Very low');
+    const r = C.sepsisNG253({ age: 40, pregnant: false, infection: 'yes', news, concerns: ['Non-blanching rash'] });
+    assert.equal(r.risk, 'Low');
+    assert.match(r.judgement, /low risk rather than very low/);
+});
