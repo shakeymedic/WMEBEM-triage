@@ -140,43 +140,51 @@ export function localPews(obs, age, rules) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Local MEOWS trigger chart, translated to a score. Unset fields never score. Any altered
-// consciousness is treated as a red trigger (conservative - the previous version ignored it).
+// National Maternity Early Warning Score (MEWS), NHS England / DREAMED, chart "National MEWS Final
+// version" (2023), checked line by line on 6 November 2026. Six scored vital signs (0-2 points each);
+// consciousness and oxygen are NOT scored - they are "additional concerns". Missing obs never score.
+// Levels: 0-1 low, 2-4 low-medium, 5-7 medium, 8+ high. With one or more additional concerns: escalate
+// at least as low-medium even if MEWS is under 2, and if MEWS is greater than 2 raise to the next level.
+// postnatal48: from 48 hours after birth the postnatal pulse bands are used.
 // ---------------------------------------------------------------------------------------------
-export function localMeows(obs) {
+export const MEWS_LEVELS = ['Low', 'Low-medium', 'Medium', 'High'];
+export const MEWS_RESPONSE = {
+    Low: { review: '', obs: 'Continue current observation frequency', obsMins: null },
+    'Low-medium': { review: 'Review by midwife in charge; request review by ST1/2 or equivalent within 30 minutes', obs: 'Reassess obs within 30 minutes', obsMins: 30 },
+    Medium: { review: 'Urgent review by midwife in charge and ST3+ or equivalent within 15 minutes, consultant made aware; consider anaesthetic review', obs: 'Reassess obs within 15 minutes', obsMins: 15 },
+    High: { review: 'Immediate review by midwife in charge, ST3+ or equivalent, consultant and anaesthetic team; consider outreach', obs: 'Continuous observations', obsMins: 0 }
+};
+const mewsRr = (v) => (v <= 6 ? 2 : v <= 8 ? 1 : v <= 21 ? 0 : v <= 24 ? 1 : 2);
+const mewsSats = (v) => (v <= 92 ? 2 : v <= 94 ? 1 : 0);
+const mewsTemp = (v) => (v <= 35.6 ? 2 : v <= 36.1 ? 1 : v <= 37.2 ? 0 : v <= 37.4 ? 1 : 2);
+const mewsHr = (v) => (v <= 62 ? 2 : v <= 70 ? 1 : v <= 112 ? 0 : v <= 121 ? 1 : 2);
+const mewsHrPostnatal = (v) => (v <= 50 ? 2 : v <= 57 ? 1 : v <= 98 ? 0 : v <= 107 ? 1 : 2);
+const mewsSbp = (v) => (v <= 93 ? 2 : v <= 100 ? 1 : v <= 135 ? 0 : v <= 144 ? 1 : 2);
+const mewsDbp = (v) => (v <= 56 ? 2 : v <= 61 ? 1 : v <= 88 ? 0 : v <= 96 ? 1 : 2);
+const mewsLevel = (score) => (score >= 8 ? 'High' : score >= 5 ? 'Medium' : score >= 2 ? 'Low-medium' : 'Low');
+
+export function nationalMews(obs, { postnatal48 = false } = {}) {
     const params = [];
     const missing = [];
-    const add = (key, label, value, points, tag) => params.push({ key, label, value, points, tag });
-    if (has(obs.rr)) {
-        if (obs.rr < 10 || obs.rr > 30) add('rr', 'RR', obs.rr, 3, 'Red');
-        else if (obs.rr > 20) add('rr', 'RR', obs.rr, 1, 'Yellow');
-        else add('rr', 'RR', obs.rr, 0);
-    } else missing.push('RR');
-    if (has(obs.hr)) {
-        if (obs.hr < 40 || obs.hr > 120) add('hr', 'HR', obs.hr, 3, 'Red');
-        else if (obs.hr > 100) add('hr', 'HR', obs.hr, 1, 'Yellow');
-        else add('hr', 'HR', obs.hr, 0);
-    } else missing.push('HR');
-    if (has(obs.sbp)) {
-        if (obs.sbp < 90 || obs.sbp > 160) add('sbp', 'SBP', obs.sbp, 3, 'Red');
-        else if (obs.sbp > 150) add('sbp', 'SBP', obs.sbp, 1, 'Yellow');
-        else add('sbp', 'SBP', obs.sbp, 0);
-    } else missing.push('Systolic BP');
-    if (has(obs.dbp)) {
-        if (obs.dbp > 100) add('dbp', 'DBP', obs.dbp, 3, 'Red');
-        else if (obs.dbp >= 90) add('dbp', 'DBP', obs.dbp, 1, 'Yellow');
-        else add('dbp', 'DBP', obs.dbp, 0);
-    } else missing.push('Diastolic BP');
-    if (has(obs.sats)) add('sats', 'SpO2', obs.sats, obs.sats < 95 ? 3 : 0, obs.sats < 95 ? 'Red' : undefined); else missing.push('SpO2');
-    if (has(obs.temp)) {
-        if (obs.temp > 38 || obs.temp < 35) add('temp', 'Temp', obs.temp, 3, 'Red');
-        else if (obs.temp > 37.5 || obs.temp < 36) add('temp', 'Temp', obs.temp, 1, 'Yellow');
-        else add('temp', 'Temp', obs.temp, 0);
-    } else missing.push('Temp');
-    if (has(obs.avpu)) add('avpu', 'ACVPU', obs.avpu, obs.avpu === 'A' ? 0 : 3, obs.avpu === 'A' ? undefined : 'Red');
-    else missing.push('Consciousness');
-    const score = params.reduce((s, p) => s + p.points, 0);
-    return { score, params, missing, complete: missing.length === 0, redParam: params.some(p => p.points === 3), recorded: params.length };
+    const add = (key, label, value, points) => params.push({ key, label, value, points });
+    if (has(obs.rr)) add('rr', 'RR', obs.rr, mewsRr(Number(obs.rr))); else missing.push('RR');
+    if (has(obs.sats)) add('sats', 'SpO2', obs.sats, mewsSats(Number(obs.sats))); else missing.push('SpO2');
+    if (has(obs.temp)) add('temp', 'Temp', obs.temp, mewsTemp(Number(obs.temp))); else missing.push('Temp');
+    if (has(obs.hr)) add('hr', postnatal48 ? 'Pulse (48 h+ after birth)' : 'Pulse', obs.hr, postnatal48 ? mewsHrPostnatal(Number(obs.hr)) : mewsHr(Number(obs.hr))); else missing.push('HR');
+    if (has(obs.sbp)) add('sbp', 'SBP', obs.sbp, mewsSbp(Number(obs.sbp))); else missing.push('Systolic BP');
+    if (has(obs.dbp)) add('dbp', 'DBP', obs.dbp, mewsDbp(Number(obs.dbp))); else missing.push('Diastolic BP');
+    const score = params.reduce((t, x) => t + x.points, 0);
+    // Additional concerns the app can see from the obs (the chart lists others for the clinician to judge).
+    const concerns = [];
+    if (has(obs.avpu) && obs.avpu !== 'A') concerns.push(`Altered level of consciousness (ACVPU ${obs.avpu})`);
+    if (obs.o2 === 'O2') concerns.push('Significant additional therapy (oxygen)');
+    let level = mewsLevel(score);
+    let raised = '';
+    if (concerns.length) {
+        if (score < 2) { level = 'Low-medium'; raised = 'additional concern: escalate as low-medium even though MEWS is under 2'; }
+        else if (score > 2 && level !== 'High') { level = MEWS_LEVELS[MEWS_LEVELS.indexOf(level) + 1]; raised = 'additional concern with MEWS over 2: raised to the next level'; }
+    }
+    return { score, params, missing, complete: missing.length === 0, recorded: params.length, level, raised, concerns, response: MEWS_RESPONSE[level], postnatal48, redParam: false };
 }
 
 // ---------------------------------------------------------------------------------------------

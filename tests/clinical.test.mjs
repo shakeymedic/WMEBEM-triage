@@ -87,11 +87,44 @@ test('NEWS2 response frequency (RCP)', () => {
     assert.equal(C.news2Response(7, false).monitorMins, 0);
 });
 
-test('Local MEOWS: blank obs score 0 and are incomplete; altered consciousness is red', () => {
-    const blank = C.localMeows({});
+test('National MEWS: blank obs never score and are incomplete', () => {
+    const blank = C.nationalMews({});
     assert.equal(blank.score, 0);
     assert.equal(blank.complete, false);
-    assert.equal(C.localMeows({ avpu: 'U' }).score, 3);
+    assert.equal(blank.level, 'Low');
+});
+
+test('National MEWS bands match the NHS England chart (2023) at every edge', () => {
+    const one = (k, v, extra) => C.nationalMews({ [k]: v }, extra).params[0].points;
+    // Respirations: <=6 2, 7-8 1, 9-21 0, 22-24 1, >=25 2
+    [[6, 2], [7, 1], [8, 1], [9, 0], [21, 0], [22, 1], [24, 1], [25, 2]].forEach(([v, pt]) => assert.equal(one('rr', v), pt, `RR ${v}`));
+    // SpO2: <=92 2, 93-94 1, >=95 0
+    [[92, 2], [93, 1], [94, 1], [95, 0]].forEach(([v, pt]) => assert.equal(one('sats', v), pt, `SpO2 ${v}`));
+    // Temperature: <=35.6 2, 35.7-36.1 1, 36.2-37.2 0, 37.3-37.4 1, >=37.5 2
+    [[35.6, 2], [35.7, 1], [36.1, 1], [36.2, 0], [37.2, 0], [37.3, 1], [37.4, 1], [37.5, 2]].forEach(([v, pt]) => assert.equal(one('temp', v), pt, `Temp ${v}`));
+    // Pulse: <=62 2, 63-70 1, 71-112 0, 113-121 1, >=122 2
+    [[62, 2], [63, 1], [70, 1], [71, 0], [112, 0], [113, 1], [121, 1], [122, 2]].forEach(([v, pt]) => assert.equal(one('hr', v), pt, `HR ${v}`));
+    // Pulse from 48 h after birth: <=50 2, 51-57 1, 58-98 0, 99-107 1, >=108 2
+    [[50, 2], [51, 1], [57, 1], [58, 0], [98, 0], [99, 1], [107, 1], [108, 2]].forEach(([v, pt]) => assert.equal(one('hr', v, { postnatal48: true }), pt, `postnatal HR ${v}`));
+    // Systolic: <=93 2, 94-100 1, 101-135 0, 136-144 1, >=145 2
+    [[93, 2], [94, 1], [100, 1], [101, 0], [135, 0], [136, 1], [144, 1], [145, 2]].forEach(([v, pt]) => assert.equal(one('sbp', v), pt, `SBP ${v}`));
+    // Diastolic: <=56 2, 57-61 1, 62-88 0, 89-96 1, >=97 2
+    [[56, 2], [57, 1], [61, 1], [62, 0], [88, 0], [89, 1], [96, 1], [97, 2]].forEach(([v, pt]) => assert.equal(one('dbp', v), pt, `DBP ${v}`));
+});
+
+test('National MEWS levels and additional concerns', () => {
+    const normal = { rr: 16, sats: 98, temp: 36.8, hr: 85, sbp: 115, dbp: 70 };
+    assert.equal(C.nationalMews(normal).level, 'Low');
+    assert.equal(C.nationalMews({ ...normal, temp: 37.6 }).level, 'Low-medium'); // 2
+    assert.equal(C.nationalMews({ ...normal, temp: 37.6, sbp: 150, hr: 115 }).level, 'Medium'); // 5
+    assert.equal(C.nationalMews({ ...normal, temp: 37.6, sbp: 150, hr: 125, rr: 26 }).level, 'High'); // 8
+    // Consciousness is not scored; it is an additional concern: under 2 -> at least low-medium.
+    const v = C.nationalMews({ ...normal, avpu: 'V' });
+    assert.equal(v.score, 0); assert.equal(v.level, 'Low-medium'); assert.match(v.concerns[0], /consciousness/);
+    // MEWS greater than 2 with a concern goes up one level (3 low-medium -> medium); exactly 2 stays.
+    assert.equal(C.nationalMews({ ...normal, temp: 37.6, rr: 23, o2: 'O2' }).level, 'Medium');
+    assert.equal(C.nationalMews({ ...normal, temp: 37.6, o2: 'O2' }).level, 'Low-medium');
+    assert.equal(C.nationalMews({ ...normal, temp: 37.6, sbp: 150, hr: 125, rr: 26, o2: 'O2' }).level, 'High');
 });
 
 test('Local PEWS: blank obs never score; RR 0 does', () => {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.8</title>
+    <title>EMEvidence Triage v21.9</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -88,8 +88,11 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.8</h3>
+            <h3 id="whatsnew-heading">What's new in v21.9</h3>
             <ul class="whatsnew-list">
+                <li><strong>v21.9 - national MEWS and a 4-hour obs minimum (6 November 2026).</strong></li>
+                <li><strong>Pregnancy now uses the national Maternity Early Warning Score (MEWS)</strong> (NHS England, 2023 chart), replacing the app's own MEOWS. Six vital signs score 0-2; consciousness and oxygen are additional concerns. Level of concern sets the floor: high RED, medium ORANGE, low-medium YELLOW, and the next obs (continuous, 15 or 30 minutes). Tick "48 hours or more after birth" for the postnatal pulse bands. Altered consciousness in pregnancy stays at least ORANGE.</li>
+                <li><strong>ED minimum obs every 4 hours:</strong> a low NEWS2 no longer puts the next obs 12 hours away.</li>
                 <li><strong>v21.8 - fixes from a full stress test (6 November 2026).</strong></li>
                 <li><strong>Sepsis safety floors:</strong> a child at NICE NG254 high risk, a baby or toddler with a NICE NG143 RED fever result, or a patient with possible neutropenic sepsis (chemotherapy, NICE CG151) is now at least ORANGE. Before, choosing "None of these apply" could leave them BLUE. These floors are app defaults, like the NEWS2 floors.</li>
                 <li><strong>NICE NG253:</strong> NEWS2 0 with a non-blanching rash or mottled/ashen skin is now low risk, not very low (1.8.21).</li>
@@ -145,7 +148,7 @@
                 <li><strong>New nurse tools:</strong> NICE head injury criteria (tells you when to tell the ED doctor), NICE fever traffic light (under 5s), ROSIER and time last known well, ECG-in-10-minutes, 4AT, mental health risk, infection control, corridor care, children's safeguarding.</li>
                 <li><strong>Keyboard:</strong> press <kbd>?</kbd> for shortcuts. Complaint search understands "cp", "sob", "dib", "od", "fall", etc.</li>
             </ul>
-            <p class="hint">Local MEOWS and PEWS are still the app's own versions, not the national MEWS/PEWS charts - use your trust chart where they differ.</p>
+            <p class="hint">Pregnancy uses the national MEWS (NHS England, 2023). PEWS is still the app's own version, not the national PEWS chart - use your trust chart where they differ.</p>
             <div class="modal-actions"><button type="button" class="btn-primary" data-close-modal>Got it</button></div>
         </div>
     </div>
@@ -157,7 +160,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.8 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.9 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -236,6 +239,10 @@
                     <div class="form-group">
                         <label>Gestation</label>
                         <div class="readout" id="gestation-readout">Enter LMP</div>
+                    </div>
+                    <div class="form-group">
+                        <span class="label-text">After birth</span>
+                        <label class="check-row" for="check-postnatal48"><input type="checkbox" id="check-postnatal48"> <span>48 hours or more after birth (MEWS postnatal pulse)</span></label>
                     </div>
                 </div>
                 <div id="amb-fields" class="form-grid hidden">
@@ -503,7 +510,7 @@
     </aside>
 
     <footer>
-        <p>v21.8 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.9 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>
