@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.7</title>
+    <title>EMEvidence Triage v21.8</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -88,8 +88,14 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.7</h3>
+            <h3 id="whatsnew-heading">What's new in v21.8</h3>
             <ul class="whatsnew-list">
+                <li><strong>v21.8 - fixes from a full stress test (6 November 2026).</strong></li>
+                <li><strong>Sepsis safety floors:</strong> a child at NICE NG254 high risk, a baby or toddler with a NICE NG143 RED fever result, or a patient with possible neutropenic sepsis (chemotherapy, NICE CG151) is now at least ORANGE. Before, choosing "None of these apply" could leave them BLUE. These floors are app defaults, like the NEWS2 floors.</li>
+                <li><strong>NICE NG253:</strong> NEWS2 0 with a non-blanching rash or mottled/ashen skin is now low risk, not very low (1.8.21).</li>
+                <li><strong>"Hot baby"</strong> (under 1 year) is no longer offered once the age is 1 year or more.</li>
+                <li><strong>Pregnant and under 16:</strong> the safeguarding panel and the note now prompt a safeguarding discussion (under 13: always refer).</li>
+                <li><strong>Small fixes:</strong> ibuprofen at 3 to 6 months says up to 3 times a day (SmPC); child head injury "observe for at least 4 hours from the time of injury" (NG232 1.5.12); cardiac history shown as typed; "Age not recorded, sex not recorded".</li>
                 <li><strong>v21.7 - anti-D (NICE NG126, June 2026).</strong> The pregnant PV bleed bloods no longer say anti-D is always needed if RhD-negative. NICE now says anti-D is not needed up to and including 11+6 weeks for miscarriage, threatened miscarriage or ectopic pregnancy.</li>
                 <li><strong>v21.6 - checked against NICE guidance (31 October 2026).</strong></li>
                 <li><strong>Head injury (NICE NG232):</strong> an antiplatelet other than aspirin alone (clopidogrel, ticagrelor, prasugrel, dipyridamole, including brand names) now ticks "consider CT within 8 hours", as an anticoagulant already did. Aspirin on its own is not a high-risk medicine and no longer raises a bleeding alert. Children on an anticoagulant or antiplatelet get the same "consider CT within 8 hours" advice as adults, and "bleeding or clotting disorder" is now one of the children's risk factors. The warfarin / INR bundle stays for anticoagulants only.</li>
@@ -151,7 +157,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.7 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.8 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -497,7 +503,7 @@
     </aside>
 
     <footer>
-        <p>v21.7 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.8 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>

@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.7');
+                localStorage.setItem('seenVersion', '21.8');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -625,6 +625,49 @@ await p.fill('#obs-temp', '38.7'); await p.fill('#patient-age', '8'); await seg(
 check('MTS v3.8: hot baby (under 1 year, 38.5 or above) is ORANGE', (await badge(p)).startsWith('ORANGE'), await badge(p));
 n = await note(p);
 check('Note stays ASCII with a temperature reason', !/[^\x00-\x7f]/.test(n), n.match(/[^\x00-\x7f]/g)?.join(''));
+allErrors.push(...p.errors); await p.context().close();
+
+// v21.8: sepsis safety floors - a high-risk sepsis result never sits in Blue/Green on "None of these apply".
+p = await fresh();
+await p.fill('#patient-age', '55'); await seg(p, 'seg-sex', 'Female');
+await pick(p, 'Unwell Adult');
+await p.check('#high-risk-meds-grid input[data-cat-id="chemo"]');
+await setObs(p, { rr: 18, sats: 97, sbp: 120, hr: 98, temp: 35.9 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+await p.click('.none-apply');
+check('Chemotherapy + temp 35.9 + none apply: ORANGE (CG151 floor), not Blue', (await badge(p)).startsWith('ORANGE'), await badge(p));
+check('Neutropenic floor reason in the note', (await note(p)).includes('Possible neutropenic sepsis'));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '1'); await seg(p, 'seg-age-unit', 'Months'); await seg(p, 'seg-sex', 'Male');
+await pick(p, 'Unwell Child');
+await setObs(p, { rr: 45, sats: 98, hr: 150, temp: 38.1, crt: 2 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+await p.click('.none-apply');
+check('1 month old 38.1C + none apply: ORANGE (NG143 red floor), not Blue', (await badge(p)).startsWith('ORANGE'), await badge(p));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '8'); await seg(p, 'seg-sex', 'Male');
+await pick(p, 'Unwell Child');
+check('8-year-old: "Hot baby" (under 1 year) not offered', await p.locator('.discriminator', { hasText: 'Hot baby' }).count() === 0);
+await setObs(p, { rr: 20, sats: 97, hr: 100, temp: 38.0, crt: 2 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+await p.click('#yn-assess-infection button[data-value="yes"]');
+await p.check('input[data-path="assess.ng254.appears_ill"]');
+await p.click('.none-apply');
+check('8-year-old NG254 high risk + none apply: ORANGE, not Blue', (await badge(p)).startsWith('ORANGE'), await badge(p));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '12'); await seg(p, 'seg-sex', 'Female');
+await p.click('#check-pregnant');
+await pick(p, 'Abdominal Pain in Children');
+check('Pregnant 12-year-old: safeguarding referral prompt', (await p.textContent('#sg-note')).includes('under 13'));
+check('Pregnant 12-year-old: in the note', (await note(p)).includes('PREGNANT AND UNDER 13'));
+await p.fill('#patient-age', '');
+check('No age: patient line reads "Age not recorded, Female"', (await note(p)).includes('Patient: Age not recorded, Female'));
 allErrors.push(...p.errors); await p.context().close();
 
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));

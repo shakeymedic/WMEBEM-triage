@@ -1,8 +1,8 @@
 import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
-import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom } from './plan-engine.js';
+import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom, neutropenicSepsis } from './plan-engine.js';
 
-const VERSION = '21.7';
+const VERSION = '21.8';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const CURRENT_KEY = 'triage_current';
@@ -199,6 +199,14 @@ class TriageApp {
             else if (t >= 38.5) floors.push({ level: 'Yellow', reason: `Hot (${t}°C, MTS)` });
         }
         if (s.assess.sepsisFactors.sepsis_rash || (feverRelevant && s.assess.ng143.ticks.non_blanching) || (sepsis.guideline === 'NG254' && s.assess.infection === 'yes' && s.assess.ng254.rash)) floors.push({ level: 'Orange', reason: 'Non-blanching rash' });
+
+        // Safety floors from the sepsis tools (app defaults, not MTS discriminators): a high-risk result must not
+        // sit in Green or Blue because "None of these apply" was chosen. Adult NG253 high/medium risk is already
+        // covered by the NEWS2 floors above.
+        if (sepsis.guideline === 'NG254' && sepsis.status === 'assessed' && sepsis.band === 'High') floors.push({ level: 'Orange', reason: 'NICE NG254 high risk sepsis (app safety floor)' });
+        if (feverRelevant && feverTL.level === 'Red') floors.push({ level: 'Orange', reason: 'NICE NG143 fever traffic light RED (app safety floor)' });
+        const neutReason = neutropenicSepsis({ flags: { chemo: !!s.history.manualRiskFlags.chemo }, obs: o, infection: s.assess.infection, discriminator: s.complaint.discriminator, ews: { type: ews.type, score: ews.score } });
+        if (neutReason) floors.push({ level: 'Orange', reason: `Possible neutropenic sepsis - ${neutReason} (NICE CG151; app safety floor)` });
 
         const priority = C.triagePriority({ discriminator: disc, noneApply: s.complaint.noneApply, floors, override: s.triage.override });
         const level = priority.final;
@@ -1041,13 +1049,16 @@ class TriageApp {
         }
         const autoOn = d.floors.some(f => f.reason.startsWith(AUTO_DISCRIMINATOR_TEXT));
         const sex = this.state.patient.sex;
-        const key = JSON.stringify([c.name, c.discriminator, c.noneApply, autoOn, sex]);
+        const overOne = this.state.patient.age !== null && this.state.patient.age >= 1;
+        const key = JSON.stringify([c.name, c.discriminator, c.noneApply, autoOn, sex, overOne]);
         if (this.built.discKey === key) return;
         const hadFocus = box.contains(document.activeElement);
         this.built.discKey = key;
         const order = { Red: 1, Orange: 2, Yellow: 3, Green: 4, Blue: 5 };
         // Male-only discriminators are not offered for a female patient (unless already chosen).
-        const sorted = [...d.flowchart].filter(x => !(sex === 'Female' && /testic/i.test(x.text) && x.text !== c.discriminator)).sort((a, b) => order[a.priority] - order[b.priority]);
+        const sorted = [...d.flowchart].filter(x => !(sex === 'Female' && /testic/i.test(x.text) && x.text !== c.discriminator))
+            // "Hot baby" is for under 1 year only (MTS): not offered once the age is 1 or more (unless already chosen).
+            .filter(x => !(overOne && /^Hot baby/i.test(x.text) && x.text !== c.discriminator)).sort((a, b) => order[a.priority] - order[b.priority]);
         const selIndex = c.noneApply ? sorted.length : sorted.findIndex(x => x.text === c.discriminator);
         const tabTarget = selIndex >= 0 ? selIndex : 0;
         box.innerHTML = sorted.map((x, i) => {
@@ -1381,7 +1392,9 @@ class TriageApp {
         const sg = s.assess.paeds.safeguarding;
         const n = this.$('sg-note');
         const concern = !!(sg.nonmobile || sg.story || sg.notbrought);
-        if (n) n.textContent = concern ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '';
+        const pregnantChild = s.patient.pregnant && s.patient.age !== null && s.patient.age < 16;
+        if (n) n.textContent = [concern ? 'Safeguarding concern - follow your local child safeguarding procedure and inform the senior clinician.' : '',
+            pregnantChild ? (s.patient.age < 13 ? 'Pregnant and under 13: a child under 13 cannot consent to sexual activity in law - always make a child safeguarding referral.' : 'Pregnant and under 16: discuss with the child safeguarding team in line with local procedure.') : ''].filter(Boolean).join(' ');
         const sr = this.$('sg-result');
         if (sr) {
             if (concern) { sr.className = 'tool-result res-amber'; sr.textContent = 'Concern recorded'; }
@@ -1571,7 +1584,7 @@ class TriageApp {
                 lithium: /lithium|priadel|camcolit/.test(meds), digoxin: /digoxin/.test(meds)
             },
             diabetes: /diabet|\bt[12]dm\b|\biddm\b|\bniddm\b/.test(pmh),
-            cardiacHistory: cardiacHistoryFrom(pmh),
+            cardiacHistory: cardiacHistoryFrom(h.pmh),
             pain: s.complaint.pain,
             protocol: this.data.protocols[s.complaint.name] || null
         };
@@ -1806,7 +1819,7 @@ class TriageApp {
         lines.push(`Triage nurse: ${store.get('initials', '', true) || 'Not recorded'}`);
         if (document.body.classList.contains('quick-mode')) lines.push('Triage mode: fast triage - PMH, medicines and screening may not be complete');
         const age = !C.has(p.ageValue) ? 'Age not recorded' : (p.ageUnit === 'Months' ? `${p.ageValue} months` : `${p.ageValue}y`);
-        lines.push(`Patient: ${age} ${p.sex || 'sex not recorded'}${p.localRef ? ` | Ref: ${p.localRef}` : ''}`);
+        lines.push(`Patient: ${age}${C.has(p.ageValue) ? ' ' : ', '}${p.sex || 'sex not recorded'}${p.localRef ? ` | Ref: ${p.localRef}` : ''}`);
         lines.push(`Mobility: ${p.mobility ? `${p.mobility}${p.mobilityAssumed ? ' (assumed from ambulance arrival, not confirmed)' : ''}` : 'not recorded'}`);
         if (C.has(p.weight)) lines.push(`Weight: ${p.weight} kg (measured)`);
         if (p.pregnant) {
@@ -1874,7 +1887,7 @@ class TriageApp {
         if (p.arrivalMode !== 'Ambulance' && h.treatmentNotes) lines.push(`Treatment before triage: ${h.treatmentNotes}`);
         if (d.isPaeds) {
             const pa = s.assess.paeds, sg = Object.entries(pa.safeguarding).filter(([, v]) => v).map(([k]) => ({ cpis: 'CP-IS checked', pr: 'parental responsibility identified', nonmobile: 'injury in non-mobile child', story: 'inconsistent explanation', notbrought: 'previous attendance / not brought concern' }[k]));
-            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}${(pa.safeguarding.nonmobile || pa.safeguarding.story || pa.safeguarding.notbrought) ? '' : `; safeguarding concerns: ${pa.safeguardingNone ? 'none (checked)' : 'NOT CHECKED'}`}`);
+            lines.push(`Child: accompanied by ${pa.accompaniedBy || 'not recorded'}; analgesia in last 4-6h: ${pa.recentDose || 'not asked'}${sg.length ? `; safeguarding: ${sg.join(', ')}` : ''}${(pa.safeguarding.nonmobile || pa.safeguarding.story || pa.safeguarding.notbrought) ? '' : `; safeguarding concerns: ${pa.safeguardingNone ? 'none (checked)' : 'NOT CHECKED'}`}${p.pregnant && p.age !== null && p.age < 16 ? `; PREGNANT AND UNDER ${p.age < 13 ? '13 - safeguarding referral needed' : '16 - discuss with the safeguarding team'}` : ''}`);
         }
         section('SCREENING');
         const scr = Object.entries(this.data.screening).filter(([k]) => s.screening[k]).map(([k, def]) => `${def.label}: ${def.options ? (def.options.find(o2 => o2.val === s.screening[k]) || {}).text : s.screening[k]}`);

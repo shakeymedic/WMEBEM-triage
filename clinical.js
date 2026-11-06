@@ -204,7 +204,8 @@ export function sepsisNG253({ age, pregnant, infection, news, concerns = [] }) {
         risk = 'Medium';
         actions = 'Same venous bloods as high risk; a clinician FY2 or above reviews the patient and the venous lactate within 1 hour. Lactate over 2 mmol/L or acute kidney injury: treat as high risk (antibiotics within 1 hour). Otherwise antibiotics may be deferred for up to 3 hours after the first NEWS2 while the cause is clarified. NICE: re-check NEWS2 at least hourly.';
         reassessMins = 60;
-    } else if (s >= 1) {
+    } else if (s >= 1 || concerns.length) {
+        // NG253 1.8.21: NEWS2 1 to 4, or NEWS2 0 with a cause for clinical concern (1.6.3), is low risk.
         risk = 'Low';
         actions = 'Review by a registered practitioner within 1 hour; blood tests if indicated. A clinician FY2 or above may defer antibiotics for up to 6 hours. Re-check NEWS2 at least every 4-6 hours (RCP).';
         reassessMins = 240;
@@ -217,7 +218,8 @@ export function sepsisNG253({ age, pregnant, infection, news, concerns = [] }) {
     // NICE NG253 1.8.24 (NEWS2 3-4) and 1.8.18 (NEWS2 5-6) with a single parameter scoring 3.
     if (news.redParam && s >= 3 && s <= 4) judgements.push('A single parameter scores 3: if that is caused by the infection, manage as medium or high risk.');
     if (news.redParam && s >= 5 && s <= 6) judgements.push('A single parameter scores 3: if that is caused by the infection, manage as high risk (antibiotics within 1 hour).');
-    if (concerns.length && s < 7) judgements.push(`${concerns.join(', ')}: consider a higher risk than the NEWS2 alone suggests (NICE NG253 1.6.3).`);
+    if (concerns.length && s >= 1 && s < 7) judgements.push(`${concerns.join(', ')}: consider a higher risk than the NEWS2 alone suggests (NICE NG253 1.6.3).`);
+    if (concerns.length && s === 0) judgements.push(`${concerns.join(', ')} with NEWS2 0: low risk rather than very low (NICE NG253 1.6.3, 1.8.21).`);
     const judgement = judgements.join(' ');
     const incomplete = !news.complete;
     // A partial NEWS2 of 7+ is already high risk; anything lower can only be provisional.
@@ -562,8 +564,8 @@ export function ng232({ age, answers = {}, anticoagulated = false }) {
     if (oneHour.length) return { applicable: true, adult: false, level: '1h', text: 'CT head within 1 hour', because: oneHour };
     const risks = NG232_CHILD_RISK.filter(([k]) => yes(k)).map(([, t]) => t);
     if (risks.length > 1) return { applicable: true, adult: false, level: '1h', text: 'CT head within 1 hour (more than 1 risk factor)', because: risks };
-    if (risks.length === 1 && anticoagulated) return { applicable: true, adult: false, level: 'consider8h', text: 'Observe in hospital for at least 4 hours (1 risk factor) and consider CT head within 8 hours of the injury', because: [...risks, ...NG232_ANTI.because] };
-    if (risks.length === 1) return { applicable: true, adult: false, level: 'observe4h', text: 'Observe in hospital for at least 4 hours (1 risk factor)', because: risks };
+    if (risks.length === 1 && anticoagulated) return { applicable: true, adult: false, level: 'consider8h', text: 'Observe in hospital for at least 4 hours from the time of injury (1 risk factor) and consider CT head within 8 hours of the injury', because: [...risks, ...NG232_ANTI.because] };
+    if (risks.length === 1) return { applicable: true, adult: false, level: 'observe4h', text: 'Observe in hospital for at least 4 hours from the time of injury (1 risk factor)', because: risks };
     if (anticoagulated) return { applicable: true, adult: false, ...NG232_ANTI };
     return { applicable: true, adult: false, level: 'none', text: 'No NG232 CT indication from the answers so far - clinical judgement still applies', because: [] };
 }
@@ -626,7 +628,8 @@ export function paedsAnalgesia({ age, weight, weightCapKg = 50 }) {
     const byAge = ibuBand([[0.5, 50], [1, 50], [4, 100], [7, 150], [10, 200], [13, 300], [99, 400]], age);
     const byWeight = ibuBand([[10, 50], [17, 100], [21, 150], [31, 200], [41, 300], [999, 400]], weight);
     const ibuprofen = weight < 5 ? null : Math.min(byAge, byWeight);
-    const times = age < 1 ? '3-4 times' : '3 times';
+    // SmPC 4.2: 6-12 months up to 3-4 times a day; 3-6 months and 1 year and over up to 3 times.
+    const times = age >= 0.5 && age < 1 ? '3-4 times' : '3 times';
     return {
         applicable: true,
         usedWeight: w,
