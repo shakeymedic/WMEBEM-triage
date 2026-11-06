@@ -202,11 +202,11 @@ export const clinicalData = {
         "tracheostomy": "Tracheostomy noted - tick Altered airway (tracheostomy / laryngectomy)."
     },
 
-    // --- 3b. SCORE REFERENCES (for ℹ️ info popovers on NEWS2/PEWS/MEOWS) ---
+    // --- 3b. SCORE REFERENCES (for ℹ️ info popovers on NEWS2/PEWS/MEWS) ---
     references: {
         news2: "National Early Warning Score 2 (NEWS2) - Royal College of Physicians, 2017. Adults 16+, not validated in pregnancy. Only a complete set of all 7 parameters gives a valid score.",
         pews: "LOCAL paediatric early warning score built into this app - NOT the national PEWS (NHS England SPOT programme). Use your trust's PEWS chart where it differs.",
-        meows: "LOCAL MEOWS trigger chart built into this app - NOT the national Maternity Early Warning Score (MEWS), which NHS England expects every trust to use by March 2026. Use your trust's chart where it differs."
+        mews: "National Maternity Early Warning Score (MEWS) - NHS England with the DREAMED study (Oxford), chart version 2023. For pregnant women and up to 6 weeks after birth. Six vital signs score 0-2 each; consciousness and oxygen are additional concerns, not scored. 0-1 low, 2-4 low-medium (review within 30 min), 5-7 medium (within 15 min), 8+ high (immediate). Triage floors from the level are an app default."
     },
 
     // --- 4. SCREENING RULES ---

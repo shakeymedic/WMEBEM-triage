@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.8');
+                localStorage.setItem('seenVersion', '21.9');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -369,7 +369,7 @@ await p.fill('#patient-age', '8');
 check('CFS hidden for children', !(await p.isVisible('#frailty-section')));
 allErrors.push(...p.errors); await p.context().close();
 
-// 14. Stroke & MEOWS.
+// 14. Stroke & MEWS.
 p = await fresh();
 await p.fill('#patient-age', '66');
 await pick(p, 'Suspected Stroke');
@@ -383,7 +383,7 @@ check('ROSIER 2 = stroke likely', (await p.textContent('#rosier-result')).includ
 allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
 await p.fill('#patient-age', '28'); await seg(p, 'seg-sex', 'Female'); await p.check('#check-pregnant');
-check('Pregnant, blank obs: MEOWS not a false red', (await note(p)).includes('Local MEOWS: NOT CALCULATED') && (await badge(p)).includes('NOT YET TRIAGED'));
+check('Pregnant, blank obs: MEWS not a false red', (await note(p)).includes('MEWS (national): NOT CALCULATED') && (await badge(p)).includes('NOT YET TRIAGED'));
 await seg(p, 'seg-avpu', 'U');
 check('Pregnant, unresponsive: escalates', (await badge(p)).startsWith('ORANGE'));
 allErrors.push(...p.errors); await p.context().close();
@@ -477,7 +477,7 @@ check('Back to Self clears an assumed Trolley', await p.evaluate(() => window.ap
 await p.fill('#patient-age', '30'); await seg(p, 'seg-sex', 'Female');
 await p.check('#check-pregnant');
 await seg(p, 'seg-sex', 'Male');
-check('Male clears a hidden pregnancy tick (no MEOWS)', await p.evaluate(() => !window.app.state.patient.pregnant && window.app.derived.ews.type === 'NEWS2'));
+check('Male clears a hidden pregnancy tick (no MEWS)', await p.evaluate(() => !window.app.state.patient.pregnant && window.app.derived.ews.type === 'NEWS2'));
 await pick(p, 'Chest Pain'); await disc(p, 'Pleuritic chest pain');
 await p.fill('#allergies', 'Penicillin <test> & co');
 n = await note(p);
@@ -668,6 +668,34 @@ check('Pregnant 12-year-old: safeguarding referral prompt', (await p.textContent
 check('Pregnant 12-year-old: in the note', (await note(p)).includes('PREGNANT AND UNDER 13'));
 await p.fill('#patient-age', '');
 check('No age: patient line reads "Age not recorded, Female"', (await note(p)).includes('Patient: Age not recorded, Female'));
+allErrors.push(...p.errors); await p.context().close();
+
+// v21.9: ED minimum obs every 4 hours (Jake, 6 November 2026), even at NEWS2 0.
+p = await fresh();
+await p.fill('#patient-age', '66');
+await pick(p, 'Suspected Stroke');
+await setObs(p, { rr: 16, sats: 97, sbp: 130, hr: 80, temp: 36.5 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+{
+    const nx = await p.textContent('#next-obs-display');
+    const m = nx.match(/(\d{2}):(\d{2})/);
+    const now = new Date(); const due = new Date(now); if (m) due.setHours(+m[1], +m[2], 0, 0); if (due < now) due.setDate(due.getDate() + 1);
+    check('NEWS2 0: next obs within 4 hours (ED minimum), not 12', nx.includes('ED minimum') && m && (due - now) <= 4 * 3600000 + 60000, nx);
+}
+allErrors.push(...p.errors); await p.context().close();
+
+// v21.9: national MEWS for pregnancy (NHS England chart, 2023).
+p = await fresh();
+await p.fill('#patient-age', '30'); await seg(p, 'seg-sex', 'Female'); await p.check('#check-pregnant');
+await pick(p, 'Pregnancy');
+await setObs(p, { rr: 16, sats: 98, sbp: 150, dbp: 100, hr: 115, temp: 36.8 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+n = await note(p);
+check('MEWS: BP 150/100 + HR 115 = 5, medium concern', n.includes('MEWS (national): 5 - Medium level of concern'), n.split('\n').find(l => l.startsWith('MEWS')));
+check('MEWS medium: floor ORANGE', (await badge(p)).startsWith('ORANGE') || (await badge(p)).startsWith('RED'), await badge(p));
+check('MEWS medium: next obs within 15 min', (await p.textContent('#next-obs-display')).includes('within 15 min'), await p.textContent('#next-obs-display'));
+await p.check('#check-postnatal48');
+check('Postnatal 48 h+: HR 115 scores 2 on the postnatal bands', (await note(p)).includes('Pulse (48 h+ after birth) 115 +2'));
 allErrors.push(...p.errors); await p.context().close();
 
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));

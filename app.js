@@ -2,7 +2,7 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom, neutropenicSepsis } from './plan-engine.js';
 
-const VERSION = '21.8';
+const VERSION = '21.9';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const CURRENT_KEY = 'triage_current';
@@ -36,7 +36,7 @@ const newSessionId = () => `${Date.now().toString(36)}-${Math.random().toString(
 function freshState() {
     return {
         meta: { sessionId: newSessionId(), arrivalAt: new Date().toISOString(), startedAt: null, categorySetAt: null, lastCategory: null, obsAt: null, noteCopiedAt: null },
-        patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, lmp: '', mobility: '', mobilityAssumed: false, arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '', localRef: '' },
+        patient: { ageValue: null, ageUnit: 'Years', age: null, weight: null, sex: '', pregnant: false, lmp: '', postnatal48: false, mobility: '', mobilityAssumed: false, arrivalMode: 'Self', ambulanceCallSign: '', ambulanceCaseId: '', localRef: '' },
         prehospital: { obs: { rr: null, sats: null, o2: null, sbp: null, dbp: null, hr: null, gcs: null, bm: null, ecg: '', pupils: '' }, hpc: '', tx: '', txTime: '', social: '' },
         obs: { rr: null, sats: null, o2: null, scale2: false, sbp: null, dbp: null, hr: null, temp: null, crt: null, avpu: null, gcsE: null, gcsV: null, gcsM: null, bm: null, ketones: null, pupils: '' },
         complaint: { name: '', raw: '', discriminator: null, noneApply: false, pain: null, painMethod: 'NRS', flacc: {} },
@@ -149,7 +149,7 @@ class TriageApp {
         const ng232DrugDetected = anticoagDetected || antiplateletDetected;
 
         let ews;
-        if (p.pregnant) ews = { type: 'MEOWS', ...C.localMeows(o) };
+        if (p.pregnant) ews = { type: 'MEWS', ...C.nationalMews(o, { postnatal48: !!p.postnatal48 }) };
         else if (isPaeds) ews = { type: 'PEWS', ...C.localPews(o, p.age, d.scoring.pews) };
         else ews = { type: 'NEWS2', ...C.news2(o, d.scoring.news2) };
         const newsResp = ews.type === 'NEWS2' ? C.news2Response(ews.score, ews.redParam) : null;
@@ -186,8 +186,13 @@ class TriageApp {
         } else if (ews.type === 'PEWS') {
             if (ews.score >= 7) floors.push({ level: 'Red', reason: `${partial}local PEWS ${ews.score} (high)` });
             else if (ews.score >= 5) floors.push({ level: 'Orange', reason: `${partial}local PEWS ${ews.score}` });
-        } else if (ews.score >= 3) {
-            floors.push({ level: 'Orange', reason: `${partial}local MEOWS ${ews.score}` });
+        } else if (ews.type === 'MEWS') {
+            // National MEWS level of concern -> triage floor (app mapping, like the NEWS2 floors): high Red
+            // (immediate review), medium Orange (review within 15 min), low-medium Yellow (within 30 min).
+            const mf = { High: 'Red', Medium: 'Orange', 'Low-medium': 'Yellow' }[ews.level];
+            if (mf && (ews.recorded || ews.concerns.length)) floors.push({ level: mf, reason: `${partial}MEWS ${ews.score} - ${ews.level.toLowerCase()} concern${ews.raised ? ` (${ews.raised})` : ''}` });
+            // MEWS does not score consciousness; keep the previous safety net for an altered level in pregnancy.
+            if (C.has(o.avpu) && o.avpu !== 'A') floors.push({ level: 'Orange', reason: `Altered consciousness in pregnancy (ACVPU ${o.avpu}; app safety floor)` });
         }
         if (pain && pain.floor) floors.push({ level: pain.floor, reason: `${pain.band} pain ${s.complaint.pain}/10 (MTS pain ruler)` });
         // MTS 3rd edition v3.8 (2023) temperature discriminators, checked in the book 31 October 2026:
@@ -239,20 +244,30 @@ class TriageApp {
         // first set. Any NEWS2 parameter scoring 1 or more counts as abnormal here (app interpretation).
         let rcemRepeat = false;
         if (newsSum && ews.complete && ews.score >= 1 && p.age !== null && p.age >= 16 && obsMins !== null && obsMins > 60) { obsMins = 60; rcemRepeat = true; }
+        // Department rule (Jake, 6 November 2026): in the ED obs are repeated at least every 4 hours,
+        // so a low NEWS2 never pushes the next set further away than that (RCP allows 12 hours at NEWS2 0).
+        const ED_MAX_OBS_MINS = 240;
+        let edCap = false;
+        if (obsMins !== null && obsMins > ED_MAX_OBS_MINS) { obsMins = ED_MAX_OBS_MINS; edCap = true; }
         const obsBase = s.meta.obsAt ? new Date(s.meta.obsAt) : null;
         let nextObs = '-', nextObsAt = null;
         if (ews.type !== 'NEWS2') {
-            // Local PEWS/MEOWS set their own frequency, but a sepsis re-check interval still applies.
-            const sm = sepsis.status === 'assessed' && sepsis.reassessMins && sepsis.reassessMins <= 60 ? sepsis.reassessMins : null;
-            if (sm && obsBase) { nextObsAt = new Date(obsBase.getTime() + sm * 60000); nextObs = `${hhmm(nextObsAt)} at the latest (sepsis: every ${sm} min); otherwise per local chart`; }
-            else nextObs = 'Per local chart';
+            // Local PEWS sets its own frequency; national MEWS sets 30 / 15 min / continuous by level. A sepsis
+            // re-check interval still applies, and the ED minimum is every 4 hours.
+            let sm = sepsis.status === 'assessed' && sepsis.reassessMins && sepsis.reassessMins <= 60 ? sepsis.reassessMins : null;
+            const mm = ews.type === 'MEWS' && ews.recorded ? ews.response.obsMins : null;
+            if (mm === 0) nextObs = 'Continuous (MEWS high)';
+            else if (mm && obsBase) { const mins = sm ? Math.min(sm, mm) : mm; nextObsAt = new Date(obsBase.getTime() + mins * 60000); nextObs = `${hhmm(nextObsAt)} at the latest (${mins === mm ? `MEWS ${ews.level.toLowerCase()}: within ${mm} min` : `sepsis: every ${sm} min`})`; }
+            else if (sm && obsBase) { nextObsAt = new Date(obsBase.getTime() + sm * 60000); nextObs = `${hhmm(nextObsAt)} at the latest (sepsis: every ${sm} min); otherwise per local chart`; }
+            else if (obsBase) { nextObsAt = new Date(obsBase.getTime() + ED_MAX_OBS_MINS * 60000); nextObs = `${hhmm(nextObsAt)} at the latest (ED minimum every 4 h); sooner if the chart says so`; }
+            else nextObs = 'Per chart, and at least every 4 h in the ED';
         }
         else if (ews.recorded === 0) nextObs = 'Obs not taken';
         else if (obsMins === null) nextObs = 'Finish the obs now';
         // Partial NEWS2 that already escalates: finishing the obs comes first, then the frequency.
         else if (!ews.complete) nextObs = `Finish the obs now, then ${obsMins === 0 ? 'continuous monitoring' : `at least every ${obsMins >= 60 ? `${obsMins / 60} h` : `${obsMins} min`}`}`;
         else if (obsMins === 0) nextObs = 'Continuous';
-        else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt) + (rcemRepeat ? ' (abnormal obs: repeat within 60 min - RCEM standard; then per NEWS2)' : ''); }
+        else if (obsBase && obsMins) { nextObsAt = new Date(obsBase.getTime() + obsMins * 60000); nextObs = hhmm(nextObsAt) + (rcemRepeat ? ' (abnormal obs: repeat within 60 min - RCEM standard; then per NEWS2)' : edCap ? ' (ED minimum: at least every 4 h)' : ''); }
 
         const tools = this.activeTools(flowchart, disc, p.age);
         const ng232 = tools.ng232 ? C.ng232({ age: p.age, answers: s.assess.ng232, anticoagulated: s.assess.ng232Anticoag === null ? ng232DrugDetected : s.assess.ng232Anticoag }) : null;
@@ -453,6 +468,7 @@ class TriageApp {
         bindInput('patient-age', 'patient.ageValue', num, (v) => this.validateObsField('patient-age', v));
         bindInput('patient-weight', 'patient.weight', num, (v) => this.validateObsField('patient-weight', v));
         bindInput('check-pregnant', 'patient.pregnant');
+        bindInput('check-postnatal48', 'patient.postnatal48');
         bindInput('date-lmp', 'patient.lmp');
         bindInput('patient-ref', 'patient.localRef');
         bindInput('amb-callsign', 'patient.ambulanceCallSign');
@@ -780,9 +796,10 @@ class TriageApp {
             // One tap instead of opening a drop-down; tapping the chosen answer again clears it.
             case 'seg-sex': {
                 const sex = this.state.patient.sex === value ? '' : value;
-                // The pregnancy box is hidden for males: never leave a hidden "pregnant" (it switches the score to MEOWS).
+                // The pregnancy box is hidden for males: never leave a hidden "pregnant" (it switches the score to MEWS).
                 if (sex === 'Male' && this.state.patient.pregnant) {
-                    this.state.patient.pregnant = false; this.state.patient.lmp = '';
+                    this.state.patient.pregnant = false; this.state.patient.lmp = ''; this.state.patient.postnatal48 = false;
+                    if (this.$('check-postnatal48')) this.$('check-postnatal48').checked = false;
                     this.$('check-pregnant').checked = false; this.$('date-lmp').value = '';
                 }
                 this.set('patient.sex', sex);
@@ -1271,14 +1288,15 @@ class TriageApp {
 
     renderEws() {
         const d = this.derived, e = d.ews;
-        this.$('ews-label').textContent = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? 'local PEWS' : 'local MEOWS');
+        this.$('ews-label').textContent = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? 'local PEWS' : 'national MEWS');
         const pts = {};
         e.params.forEach(p => { pts[p.key] = p.points; });
         this.$('obs-form').querySelectorAll('.obs-item[data-param]').forEach(el => {
             const v = pts[el.dataset.param];
             el.classList.remove('nw-1', 'nw-2', 'nw-3');
             if (e.type === 'NEWS2' && v) el.classList.add(`nw-${Math.min(v, 3)}`);
-            if (e.type !== 'NEWS2' && v) el.classList.add(v >= 3 ? 'nw-3' : 'nw-1');
+            if (e.type === 'MEWS' && v) el.classList.add(v >= 2 ? 'nw-3' : 'nw-1');
+            else if (e.type !== 'NEWS2' && v) el.classList.add(v >= 3 ? 'nw-3' : 'nw-1');
         });
         document.querySelectorAll('#seg-o2 button').forEach(b => b.classList.toggle('active', b.dataset.value === this.state.obs.o2));
         document.querySelectorAll('#seg-avpu button').forEach(b => b.classList.toggle('active', b.dataset.value === this.state.obs.avpu));
@@ -1286,19 +1304,21 @@ class TriageApp {
         gt.textContent = d.gcsTotal !== null ? `= ${d.gcsTotal}` : '';
 
         let cls = 'ews-none', text;
-        const ref = e.type === 'NEWS2' ? this.data.references.news2 : (e.type === 'PEWS' ? this.data.references.pews : this.data.references.meows);
-        const label = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
+        const ref = e.type === 'NEWS2' ? this.data.references.news2 : (e.type === 'PEWS' ? this.data.references.pews : this.data.references.mews);
+        const label = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'MEWS');
         if (e.recorded === 0) text = `${label}: no obs recorded`;
         else if (!e.complete) {
             text = e.type === 'NEWS2' ? `${d.newsSum.text} - ${d.newsSum.riskText}` : `${label}: INCOMPLETE ${e.recorded}/${e.recorded + e.missing.length} - partial score ${e.score}`;
             if (e.score >= 7) cls = 'ews-crit'; else if (e.score >= 5) cls = 'ews-high'; else if (e.score >= 3 || e.redParam) cls = 'ews-mid';
         } else {
-            text = `${label} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} risk` : ''}`;
+            text = `${label} ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} risk` : ''}${e.type === 'MEWS' ? ` - ${e.level} concern` : ''}`;
             if (e.type === 'NEWS2') cls = e.score >= 7 ? 'ews-crit' : (e.score >= 5 ? 'ews-high' : (e.score >= 1 || e.redParam ? 'ews-mid' : 'ews-low'));
+            else if (e.type === 'MEWS') cls = { High: 'ews-crit', Medium: 'ews-high', 'Low-medium': 'ews-mid' }[e.level] || 'ews-low';
             else cls = e.score >= 5 ? 'ews-crit' : (e.score >= 1 ? 'ews-mid' : 'ews-low');
         }
         const tags = e.params.filter(p => p.points > 0).map(p => `<span class="news-tag">${esc(p.label)} ${esc(p.value)} (+${p.points})</span>`).join('')
-            + e.missing.map(m => `<span class="news-tag missing">${esc(m)} not scored yet</span>`).join('');
+            + e.missing.map(m => `<span class="news-tag missing">${esc(m)} not scored yet</span>`).join('')
+            + (e.type === 'MEWS' ? (e.concerns || []).map(c => `<span class="news-tag">Concern: ${esc(c)}</span>`).join('') + (e.raised ? `<span class="news-tag">${esc(e.raised)}</span>` : '') : '');
         const sum = d.newsSum;
         const prov = sum && sum.status === 'provisional'
             ? `<p class="hint ews-prov-note">Provisional: missing obs are <strong>not</strong> counted as 0, so the full NEWS2 can only be the same or higher. App default - the RCP chart scores all 7.</p>` : '';
@@ -1845,11 +1865,13 @@ class TriageApp {
         const gcs = d.gcsTotal !== null ? `${d.gcsTotal} (E${o.gcsE} V${o.gcsV} M${o.gcsM})` : '-';
         lines.push(`Obs: RR ${f(o.rr)} | SpO2 ${f(o.sats, '%')} ${o.o2 ? (o.o2 === 'O2' ? 'on O2' : 'air') : '(air/O2 not recorded)'}${o.scale2 ? ' [scale 2]' : ''} | BP ${f(o.sbp)}/${f(o.dbp)} | HR ${f(o.hr)} | ACVPU ${o.avpu || '-'} | Temp ${f(o.temp)} | CRT ${f(o.crt, 's')} | GCS ${gcs} | BM ${f(o.bm)}${C.has(o.ketones) ? ` | Ketones ${o.ketones}` : ''} | Pupils ${o.pupils || '-'}`);
         const e = d.ews;
-        const ewsName = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'Local MEOWS');
+        const ewsName = e.type === 'NEWS2' ? 'NEWS2' : (e.type === 'PEWS' ? `Local PEWS (${e.group})` : 'MEWS (national)');
         if (e.recorded === 0) lines.push(`${ewsName}: NOT CALCULATED - no obs recorded`);
         else if (!e.complete && e.type === 'NEWS2') lines.push(`NEWS2: PROVISIONAL - at least ${e.score} from ${e.recorded} of ${e.recorded + e.missing.length} obs (${d.newsSum.riskText}). Not yet recorded, not scored: ${e.missing.join(', ')}. Full NEWS2 needs all 7 obs.`);
-        else if (!e.complete) lines.push(`${ewsName}: INCOMPLETE - partial score ${e.score}; missing ${e.missing.join(', ')}`);
-        else lines.push(`${ewsName}: ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} clinical risk; obs ${d.newsResp.monitorText}` : ''}${e.params.filter(x => x.points).length ? ` [${e.params.filter(x => x.points).map(x => `${x.label} ${x.value} +${x.points}`).join(', ')}]` : ''}`);
+        else if (!e.complete) lines.push(`${ewsName}: INCOMPLETE - partial score ${e.score}${e.type === 'MEWS' ? ` (at least ${e.level.toLowerCase()} concern)` : ''}; missing ${e.missing.join(', ')}`);
+        else lines.push(`${ewsName}: ${e.score}${d.newsResp ? ` - ${d.newsResp.risk} clinical risk; obs ${d.newsResp.monitorText}` : ''}${e.type === 'MEWS' ? ` - ${e.level} level of concern${e.raised ? ` (${e.raised})` : ''}${e.response.review ? `. ${e.response.review}. ${e.response.obs}` : ''}` : ''}${e.params.filter(x => x.points).length ? ` [${e.params.filter(x => x.points).map(x => `${x.label} ${x.value} +${x.points}`).join(', ')}]` : ''}`);
+        if (e.type === 'MEWS' && e.concerns.length) lines.push(`MEWS additional concerns: ${e.concerns.join('; ')}`);
+        if (e.type === 'MEWS' && e.postnatal48) lines.push('MEWS pulse: postnatal bands (48 hours or more after birth)');
         const sp = d.sepsis;
         if (sp.applicable) {
             if (sp.status === 'assessed') {
@@ -2155,7 +2177,7 @@ class TriageApp {
         const chk = (id, v) => { const el = this.$(id); if (el) el.checked = !!v; };
         this.invalid = {};
         val('patient-age', p.ageValue); val('patient-weight', p.weight); this.validateObsField('patient-age', p.ageValue); this.validateObsField('patient-weight', p.weight);
-        chk('check-pregnant', p.pregnant); val('date-lmp', p.lmp); val('patient-ref', p.localRef); val('amb-callsign', p.ambulanceCallSign); val('amb-caseid', p.ambulanceCaseId);
+        chk('check-pregnant', p.pregnant); chk('check-postnatal48', !!p.postnatal48); val('date-lmp', p.lmp); val('patient-ref', p.localRef); val('amb-callsign', p.ambulanceCallSign); val('amb-caseid', p.ambulanceCaseId);
         val('ph-hpc', ph.hpc); val('ph-tx', ph.tx); val('ph-tx-time', ph.txTime); val('ph-social', ph.social);
         ['rr', 'sats', 'sbp', 'dbp', 'hr', 'gcs', 'bm', 'ecg', 'pupils'].forEach(k => val(`ph-obs-${k}`, ph.obs[k]));
         ['rr', 'sats', 'sbp', 'dbp', 'hr', 'temp', 'crt', 'bm', 'ketones'].forEach(k => { val(`obs-${k}`, o[k]); this.validateObsField(`obs-${k}`, o[k]); });

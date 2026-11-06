@@ -133,7 +133,7 @@ export function majorBleed(f) {
 
 // NICE CG151 1.3.1.1: suspect neutropenic sepsis in anyone having anticancer treatment who becomes
 // unwell. Here "unwell" is: temperature 38C or more or under 36C, suspected infection, a sepsis/fever
-// discriminator, or an early warning score of 5 or more (NEWS2, or the local PEWS/MEOWS).
+// discriminator, or an early warning score of 5 or more (NEWS2, or the local PEWS / national MEWS).
 export function neutropenicSepsis(f) {
     if (!f.flags.chemo) return '';
     const t = has(f.obs.temp) ? Number(f.obs.temp) : null;
@@ -210,7 +210,7 @@ const MINOR_RE = /^(Limb Problems|Wounds|Burns and Scalds|Eye Problems|Ear Probl
 const news = (f) => (f.ews.type === 'NEWS2' ? f.ews.score : null);
 const ewsLabel = (f) => f.ews.type === 'NEWS2'
     ? (f.ews.complete ? `NEWS2 ${f.ews.score}` : `provisional NEWS2 at least ${f.ews.score}`)
-    : `${f.ews.complete ? '' : 'partial '}local ${f.ews.type} ${f.ews.score}`;
+    : `${f.ews.complete ? '' : 'partial '}${f.ews.type === 'MEWS' ? 'MEWS' : `local ${f.ews.type}`} ${f.ews.score}`;
 
 // What the complaint plan's `auto` conditions (protocols.js section 7b) are evaluated against.
 export function autoContext(input) {
@@ -453,7 +453,7 @@ export function cannulaDecision(input, pre = null) {
     // Recommended
     if (news(f) !== null && news(f) >= 5 && news(f) < 7) fire('recommended', `${ewsLabel(f)} (5-6) - urgent response`, 'local', big);
     if (f.ews.type === 'PEWS' && f.ews.score >= 5 && f.ews.score < 7) fire('recommended', `${ewsLabel(f)}`, 'local');
-    if (f.ews.type === 'MEOWS' && f.ews.score >= 3) fire('recommended', `${ewsLabel(f)} - maternity review`, 'local');
+    if (f.ews.type === 'MEWS' && (f.ews.level === 'Medium' || f.ews.level === 'High')) fire(f.ews.level === 'High' ? 'now' : 'recommended', `${ewsLabel(f)} (${f.ews.level.toLowerCase()} concern) - urgent maternity and medical review`, 'local', big);
     if (sepsisMedium(f)) fire('recommended', f.sepsisGuideline === 'NG254' ? `${sepsisName(f)} - lactate reviewed within 1 hour; over 2 means treat as high risk` : 'NG253 medium risk sepsis - antibiotics may be deferred for up to 3 hours, but may be needed sooner', sepsisSource(f), big);
     if (disc(f, /neck of femur/i)) fire('recommended', 'Suspected hip fracture - fluids and bloods', 'local', '18G');
     if (f.headInjury && f.flags.anticoag && f.ng232 && f.ng232 !== 'none') fire('recommended', 'Anticoagulated head injury meeting NICE CT criteria - reversal may be needed', 'local', '18G');
