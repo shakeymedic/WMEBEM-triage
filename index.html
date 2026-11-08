@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMEvidence Triage v21.9</title>
+    <title>EMEvidence Triage v21.10</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#005EB8">
@@ -88,8 +88,10 @@
 
     <div id="modal-whatsnew" class="modal hidden" aria-hidden="true">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="whatsnew-heading">
-            <h3 id="whatsnew-heading">What's new in v21.9</h3>
+            <h3 id="whatsnew-heading">What's new in v21.10</h3>
             <ul class="whatsnew-list">
+                <li><strong>v21.10 - YELLOW sepsis floors (8 November 2026).</strong></li>
+                <li><strong>Moderate sepsis results are now at least YELLOW:</strong> a child at NICE NG254 moderate to high risk (2 or more criteria, or systolic BP 91-100 at 12 to 15 years) and a baby or toddler with a NICE NG143 AMBER fever result. Before, choosing "None of these apply" could leave them GREEN or BLUE. A single NG254 criterion has no floor. These are app defaults, like the ORANGE floors in v21.8.</li>
                 <li><strong>v21.9 - national MEWS and a 4-hour obs minimum (6 November 2026).</strong></li>
                 <li><strong>Pregnancy now uses the national Maternity Early Warning Score (MEWS)</strong> (NHS England, 2023 chart), replacing the app's own MEOWS. Six vital signs score 0-2; consciousness and oxygen are additional concerns. Level of concern sets the floor: high RED, medium ORANGE, low-medium YELLOW, and the next obs (continuous, 15 or 30 minutes). Tick "48 hours or more after birth" for the postnatal pulse bands. Altered consciousness in pregnancy stays at least ORANGE.</li>
                 <li><strong>ED minimum obs every 4 hours:</strong> a low NEWS2 no longer puts the next obs 12 hours away.</li>
@@ -160,7 +162,7 @@
             <span class="logo-text">EMEvidence</span>
             <div>
                 <h1>Triage Dashboard</h1>
-                <span class="version-tag">v21.9 · MTS · NEWS2 · Not clinically signed off</span>
+                <span class="version-tag">v21.10 · MTS · NEWS2 · Not clinically signed off</span>
             </div>
         </div>
         <div class="header-controls">
@@ -510,7 +512,7 @@
     </aside>
 
     <footer>
-        <p>v21.9 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
+        <p>v21.10 · Not clinically signed off · Follow local trust guidelines · <a href="#" id="link-whatsnew">What's new</a></p>
     </footer>
 
     <script type="module" src="app.js"></script>
