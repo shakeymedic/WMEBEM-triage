@@ -2,7 +2,7 @@ import { clinicalData } from './protocols.js';
 import * as C from './clinical.js';
 import { evaluatePlan, autoContext, SOURCES, cardiacHistoryFrom, neutropenicSepsis } from './plan-engine.js';
 
-const VERSION = '21.9';
+const VERSION = '21.10';
 const AUTO_DISCRIMINATOR_TEXT = 'Abnormal vital signs';
 const HISTORY_KEY = 'triage_history_v20';
 const CURRENT_KEY = 'triage_current';
@@ -210,6 +210,10 @@ class TriageApp {
         // covered by the NEWS2 floors above.
         if (sepsis.guideline === 'NG254' && sepsis.status === 'assessed' && sepsis.band === 'High') floors.push({ level: 'Orange', reason: 'NICE NG254 high risk sepsis (app safety floor)' });
         if (feverRelevant && feverTL.level === 'Red') floors.push({ level: 'Orange', reason: 'NICE NG143 fever traffic light RED (app safety floor)' });
+        // v21.10 (Jake, 8 November 2026): moderate results get a YELLOW floor. NG254 'Medium' = 2 or more moderate to
+        // high risk criteria (or systolic BP 91-100 at 12-15); a single criterion ('Low' band) gets no floor.
+        if (sepsis.guideline === 'NG254' && sepsis.status === 'assessed' && sepsis.band === 'Medium') floors.push({ level: 'Yellow', reason: 'NICE NG254 moderate to high risk sepsis (app safety floor)' });
+        if (feverRelevant && feverTL.level === 'Amber') floors.push({ level: 'Yellow', reason: 'NICE NG143 fever traffic light AMBER (app safety floor)' });
         const neutReason = neutropenicSepsis({ flags: { chemo: !!s.history.manualRiskFlags.chemo }, obs: o, infection: s.assess.infection, discriminator: s.complaint.discriminator, ews: { type: ews.type, score: ews.score } });
         if (neutReason) floors.push({ level: 'Orange', reason: `Possible neutropenic sepsis - ${neutReason} (NICE CG151; app safety floor)` });
 

@@ -31,7 +31,7 @@ async function fresh(width = 943, opts = {}) {
         try {
             if (!sessionStorage.getItem('__init')) {
                 localStorage.clear();
-                localStorage.setItem('seenVersion', '21.9');
+                localStorage.setItem('seenVersion', '21.10');
                 if (o.shared) localStorage.setItem('sharedComputer', 'on');
                 sessionStorage.setItem('initials', o.initials ?? 'JT');
                 sessionStorage.setItem('__init', '1');
@@ -150,7 +150,7 @@ allErrors.push(...p.errors); await p.context().close();
 p = await fresh();
 await p.fill('#patient-age', '3');
 await setObs(p, { hr: 160, rr: 40, temp: 39.5 });
-check('Toddler: NOT YET TRIAGED (not Blue)', (await badge(p)).includes('NOT YET TRIAGED'));
+check('Toddler: provisional YELLOW from the NG143 amber floor (v21.10), not Blue', (await badge(p)).startsWith('YELLOW') && (await badge(p)).includes('provisional'), await badge(p));
 check('Toddler: NICE traffic light AMBER', (await p.textContent('#ng143-result')).includes('AMBER'));
 const screens = await p.evaluate(() => [...document.querySelectorAll('.screening-item')].filter(e => getComputedStyle(e).display !== 'none').map(e => e.id));
 check('Toddler: no HIV / alcohol / veteran screening', !screens.some(s => /hiv|alcohol|veteran|homeless/.test(s)), screens.join(','));
@@ -696,6 +696,30 @@ check('MEWS medium: floor ORANGE', (await badge(p)).startsWith('ORANGE') || (awa
 check('MEWS medium: next obs within 15 min', (await p.textContent('#next-obs-display')).includes('within 15 min'), await p.textContent('#next-obs-display'));
 await p.check('#check-postnatal48');
 check('Postnatal 48 h+: HR 115 scores 2 on the postnatal bands', (await note(p)).includes('Pulse (48 h+ after birth) 115 +2'));
+allErrors.push(...p.errors); await p.context().close();
+
+// v21.10: YELLOW floors for NG254 moderate to high risk and NG143 AMBER (Jake, 8 November 2026).
+p = await fresh();
+await p.fill('#patient-age', '2'); await seg(p, 'seg-sex', 'Male');
+await pick(p, 'Unwell Child');
+await setObs(p, { rr: 30, sats: 98, hr: 120, temp: 38.2, crt: 3 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+await p.click('.none-apply');
+check('2-year-old NG143 AMBER (CRT 3s) + none apply: YELLOW, not Blue', (await badge(p)).startsWith('YELLOW'), await badge(p));
+check('NG143 amber floor reason in the note', (await note(p)).includes('NG143 fever traffic light AMBER'));
+allErrors.push(...p.errors); await p.context().close();
+
+p = await fresh();
+await p.fill('#patient-age', '8'); await seg(p, 'seg-sex', 'Male');
+await pick(p, 'Unwell Child');
+await setObs(p, { rr: 20, sats: 97, hr: 100, temp: 37.0, crt: 3 });
+await seg(p, 'seg-o2', 'Air'); await seg(p, 'seg-avpu', 'A');
+await p.click('#yn-assess-infection button[data-value="yes"]');
+await p.click('.none-apply');
+check('8-year-old 1 NG254 moderate criterion + none apply: no YELLOW floor', !(await note(p)).includes('NG254 moderate to high risk sepsis (app safety floor)'), await badge(p));
+await setObs(p, { rr: 20, sats: 97, hr: 110, temp: 37.0, crt: 3 });
+check('8-year-old 2 NG254 moderate criteria + none apply: YELLOW', (await badge(p)).startsWith('YELLOW'), await badge(p));
+check('NG254 moderate floor reason in the note', (await note(p)).includes('NG254 moderate to high risk sepsis (app safety floor)'));
 allErrors.push(...p.errors); await p.context().close();
 
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
