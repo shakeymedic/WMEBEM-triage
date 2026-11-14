@@ -11,11 +11,14 @@ let playwright;
 try { playwright = require('playwright'); } catch { playwright = require(process.env.PLAYWRIGHT_PATH || '/opt/node22/lib/node_modules/playwright'); }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// The live site's security headers (netlify.toml) are sent here too, so anything they would block fails a test.
+const CSP = (fs.readFileSync(path.join(root, 'netlify.toml'), 'utf8').match(/Content-Security-Policy = "([^"]+)"/) || [])[1];
+if (!CSP) throw new Error('No Content-Security-Policy found in netlify.toml');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
 const server = http.createServer((req, res) => {
     const p = path.join(root, decodeURIComponent(req.url.split('?')[0]) === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]));
     if (!p.startsWith(root) || !fs.existsSync(p)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'Content-Type': types[path.extname(p)] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': types[path.extname(p)] || 'application/octet-stream', 'Content-Security-Policy': CSP });
     fs.createReadStream(p).pipe(res);
 });
 await new Promise(r => server.listen(0, r));
@@ -41,6 +44,8 @@ async function fresh(width = 943, opts = {}) {
     const page = await ctx.newPage();
     page.errors = [];
     page.on('pageerror', e => page.errors.push(e.message));
+    // Anything the Content-Security-Policy refuses is reported on the console: count it as an error.
+    page.on('console', m => { if (m.type() === 'error' && /Content Security Policy/i.test(m.text())) page.errors.push(m.text()); });
     await page.goto(URL);
     await page.waitForFunction(() => !!window.app);
     return page;
@@ -721,6 +726,12 @@ await setObs(p, { rr: 20, sats: 97, hr: 110, temp: 37.0, crt: 3 });
 check('8-year-old 2 NG254 moderate criteria + none apply: YELLOW', (await badge(p)).startsWith('YELLOW'), await badge(p));
 check('NG254 moderate floor reason in the note', (await note(p)).includes('NG254 moderate to high risk sepsis (app safety floor)'));
 allErrors.push(...p.errors); await p.context().close();
+
+// Security policy: the start-up script still runs from its file, and the service worker registers under the policy.
+p = await fresh();
+check('Service worker registers under the security policy', await p.evaluate(async () => !!(await Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(() => r(null), 5000))]))));
+check('An inline script is refused by the security policy', await p.evaluate(() => { const s = document.createElement('script'); s.textContent = 'window.__inlineRan = true'; document.head.appendChild(s); return window.__inlineRan !== true; }));
+allErrors.push(...p.errors.filter(e => !/inline script/i.test(e))); await p.context().close();
 
 check('No JavaScript errors in any scenario', allErrors.length === 0, allErrors.join(' | '));
 
